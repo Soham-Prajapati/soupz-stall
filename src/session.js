@@ -1201,12 +1201,17 @@ export class Session {
         if (!persona || persona.type !== 'persona') {
             const a = this.registry.get(personaId);
             if (a?.headless && a?.available) { await this.orchestrator.runOn(personaId, prompt, this.cwd); return; }
-            console.log(chalk.red(`  Unknown: @${personaId}. /personas`));
+            console.log(chalk.red(`  Unknown: @${personaId}. /chefs`));
+            return;
+        }
+        if (!persona.available) {
+            console.log(chalk.red(`  @${personaId} is unavailable (no tool agent installed)`));
             return;
         }
         this.addActivePersona(personaId);
         this.context.addMessage('user', prompt);
         const toolId = this.activeTool || this.pickBestTool(prompt);
+        if (!toolId) { console.log(chalk.red('  No tool agents available. Install gh, gemini, or kiro.')); this.removeActivePersona(personaId); return; }
         const toolAgent = this.registry.get(toolId);
         this.getAgentTokens(toolId).in += Math.ceil(prompt.length / 4);
         this.getAgentTokens(toolId).prompts++;
@@ -1214,8 +1219,10 @@ export class Session {
         console.log(chalk.hex(persona.color)(`  ${persona.icon} ${persona.name}`) +
             chalk.dim(` → `) + chalk.hex(toolAgent?.color || '#888')(`${toolAgent?.icon} ${toolId}`) +
             (this.activeModel ? chalk.dim(` (${this.activeModel})`) : ''));
+        // Use system_prompt from frontmatter, fall back to body (markdown body as system prompt)
+        const sysPrompt = persona.system_prompt || persona.body || '';
         try {
-            const result = await this.orchestrator.runOn(toolId, `${persona.system_prompt}\n\nUser: ${prompt}`, this.cwd);
+            const result = await this.orchestrator.runOn(toolId, `${sysPrompt}\n\nUser: ${prompt}`, this.cwd);
             // Multi-agent delegation: detect @DELEGATE[agentId]: prompt patterns
             await this.processDelegations(result, personaId);
         }
@@ -1244,9 +1251,10 @@ export class Session {
             console.log(chalk.dim(`     "${delegatePrompt.trim().slice(0, 80)}${delegatePrompt.length > 80 ? '…' : ''}"`));
             
             const toolId = this.activeTool || this.pickBestTool(delegatePrompt);
-            const systemPrompt = targetPersona.type === 'persona' ? targetPersona.system_prompt : '';
-            const fullPrompt = systemPrompt 
-                ? `${systemPrompt}\n\nUser: ${delegatePrompt.trim()}`
+            if (!toolId) { console.log(chalk.red('  No tool agents available for delegation')); continue; }
+            const sysPrompt = targetPersona.type === 'persona' ? (targetPersona.system_prompt || targetPersona.body || '') : '';
+            const fullPrompt = sysPrompt 
+                ? `${sysPrompt}\n\nUser: ${delegatePrompt.trim()}`
                 : delegatePrompt.trim();
             
             try {
@@ -1279,8 +1287,9 @@ export class Session {
             console.log(chalk.hex(persona.color || '#888')(`\n  ${persona.icon || '○'} Step ${i+1}/${agentIds.length}: @${agentId}`));
             
             const toolId = this.activeTool || this.pickBestTool(stepPrompt);
-            const systemPrompt = persona.type === 'persona' ? persona.system_prompt : '';
-            const fullPrompt = systemPrompt ? `${systemPrompt}\n\nUser: ${stepPrompt}` : stepPrompt;
+            if (!toolId) { console.log(chalk.red('  No tool agents available')); break; }
+            const sysPrompt = persona.type === 'persona' ? (persona.system_prompt || persona.body || '') : '';
+            const fullPrompt = sysPrompt ? `${sysPrompt}\n\nUser: ${stepPrompt}` : stepPrompt;
             
             try {
                 context = await this.orchestrator.runOn(toolId, fullPrompt, this.cwd);
@@ -1344,7 +1353,8 @@ export class Session {
         for (const s of scored) {
             this.addActivePersona(s.id);
             console.log(chalk.hex(s.color)(`\n  ${s.icon} ${s.name}`) + chalk.dim(` → ${toolAgent?.icon} ${toolId}`));
-            try { await this.orchestrator.runOn(toolId, `${s.system_prompt}\n\nUser: ${prompt}`, this.cwd); }
+            const sysPrompt = s.system_prompt || s.body || '';
+            try { await this.orchestrator.runOn(toolId, `${sysPrompt}\n\nUser: ${prompt}`, this.cwd); }
             catch (err) { console.log(chalk.red(`  ✖ ${s.name}: ${err.message}`)); }
             this.removeActivePersona(s.id);
         }
