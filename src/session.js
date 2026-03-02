@@ -33,8 +33,9 @@ const HR = chalk.hex('#444')('━'.repeat(65));
 
 const COMMANDS = [
     { cmd: '/help', desc: 'Show all commands', icon: '❓' },
-    { cmd: '/agents', desc: 'List tool agents', icon: '🔧' },
-    { cmd: '/personas', desc: 'List all personas', icon: '🎭' },
+    { cmd: '/agents', desc: 'List kitchen (tool agents)', icon: '🔧' },
+    { cmd: '/personas', desc: 'List all chefs', icon: '👨‍🍳' },
+    { cmd: '/chefs', desc: 'List all chefs (alias)', icon: '👨‍🍳' },
     { cmd: '/chain', desc: 'Chain agents: /chain designer→researcher "prompt"', icon: '🔗' },
     { cmd: '/delegate', desc: 'Delegate to agent: /delegate designer "prompt"', icon: '📤' },
     { cmd: '/tool', desc: 'Switch tool agent', icon: '🔀' },
@@ -59,7 +60,7 @@ const COMMANDS = [
     { cmd: '/memory', desc: 'Memory stats', icon: '🧠' },
     { cmd: '/compress', desc: 'Compress context', icon: '📦' },
     { cmd: '/skills', desc: 'List all available skills', icon: '🧰' },
-    { cmd: '/quit', desc: 'Exit soupz-agents', icon: '👋' },
+    { cmd: '/quit', desc: 'Close the stall', icon: '👋' },
 ];
 
 const GEMINI_MODELS = [
@@ -172,7 +173,7 @@ export class Session {
         
         // Build agent line
         const agentIcons = allAgents.map((t) => chalk.hex(t.color || '#888')(`${t.icon} ${t.id}`)).join(chalk.hex('#555')('  '));
-        const statusLine = chalk.hex('#FFD93D')(`${personas.length} personas`) + chalk.hex('#555')(' · ') + 
+        const statusLine = chalk.hex('#FFD93D')(`${personas.length} chefs`) + chalk.hex('#555')(' · ') + 
                           chalk.hex('#6BCB77')('sandbox') + chalk.hex('#555')(' · ') + 
                           chalk.hex('#4ECDC4')('Tab') + chalk.dim(' complete') + chalk.hex('#555')(' · ') + 
                           chalk.hex('#FFD93D')('↑↓') + chalk.dim(' nav') + chalk.hex('#555')(' · ') + 
@@ -752,7 +753,7 @@ export class Session {
         if (input === '/help' || input === '?') { this.showHelp(); return; }
         if (input === '/quit' || input === '/exit') { this.exitSession(); return; }
         if (input === '/agents') { this.showToolAgents(); return; }
-        if (input === '/personas') { this.showPersonas(); return; }
+        if (input === '/personas' || input === '/chefs') { this.showPersonas(); return; }
         if (input === '/tool' || input === '/tools') {
             // Interactive: fill buffer with `/tool ` and trigger dropdown
             this.inputBuffer = '/tool ';
@@ -1376,22 +1377,22 @@ export class Session {
     showToolAgents() {
         const all = this.registry.list().filter((a) => a.type !== 'persona');
         const cnt = this.getPersonas().length;
-        console.log(chalk.bold('\n  🔧 Tool Agents'));
-        console.log(chalk.dim(`  Each has ${cnt} personas. /tool <id> to select\n`));
+        console.log(chalk.bold('\n  🔧 The Kitchen (Tool Agents)'));
+        console.log(chalk.dim(`  Each has ${cnt} chefs. /tool <id> to select\n`));
         for (const a of all) {
             const s = a.available ? chalk.green('✔') : chalk.red('✖');
             const active = this.activeTool === a.id ? chalk.hex('#FFD93D')(' ← active') : '';
             const auth = this.auth?.isLoggedIn?.(a.id) ? chalk.green(' [logged in]') : '';
             console.log(`  ${s} ${a.icon} ${chalk.bold(a.id.padEnd(14))} ${chalk.dim(a.description || '')}${active}${auth}`);
-            if (a.headless && a.available) console.log(chalk.dim(`      └─ ${cnt} personas`));
+            if (a.headless && a.available) console.log(chalk.dim(`      └─ ${cnt} chefs available`));
         }
-        console.log(`\n  ${chalk.hex('#4ECDC4')('/auto')}  ${chalk.dim('best tool + persona')}\n`);
+        console.log(`\n  ${chalk.hex('#4ECDC4')('/auto')}  ${chalk.dim('best kitchen station + chef')}\n`);
     }
 
     showPersonas() {
         const personas = this.getPersonas();
-        const tl = this.activeTool ? chalk.hex(this.registry.get(this.activeTool)?.color || '#FFF')(`via @${this.activeTool}`) : chalk.hex('#4ECDC4')('via best tool (auto)');
-        console.log(chalk.bold(`\n  🎭 ${personas.length} Personas`) + chalk.dim(` — ${tl}\n`));
+        const tl = this.activeTool ? chalk.hex(this.registry.get(this.activeTool)?.color || '#FFF')(`via @${this.activeTool}`) : chalk.hex('#4ECDC4')('via best station (auto)');
+        console.log(chalk.bold(`\n  👨‍🍳 ${personas.length} Chefs`) + chalk.dim(` — ${tl}\n`));
         for (const a of personas) console.log(`  ${a.icon} ${chalk.bold(`@${a.id}`.padEnd(18))} ${chalk.dim(a.description || '')}`);
         console.log(`\n  ${chalk.hex('#FFD93D')('@auto')} <prompt>  ${chalk.dim('Auto-pick + chain')}\n`);
     }
@@ -1468,7 +1469,7 @@ export class Session {
     switchTool(id) {
         if (id === 'auto') { this.activeTool = null; this.activeModel = null; console.log(chalk.hex('#4ECDC4')('  🎯 FULL AUTO')); return; }
         const a = this.registry.get(id);
-        if (!a || a.type === 'persona') { console.log(chalk.red(`  Unknown: ${id}. /agents`)); return; }
+        if (!a || a.type === 'persona') { console.log(chalk.red(`  Unknown: ${id}. /agents (kitchen)`)); return; }
         this.activeTool = id;
         // Restore saved model preference for this tool
         const savedModel = this.modelPrefs[id];
@@ -1479,7 +1480,7 @@ export class Session {
             this.activeModel = null;
             console.log(chalk.hex(a.color)(`  ${a.icon} Locked to ${a.name}`));
         }
-        console.log(chalk.dim(`    ${this.getPersonas().length} personas. /model to switch. /auto to go back.`));
+        console.log(chalk.dim(`    ${this.getPersonas().length} chefs available. /model to switch. /auto to go back.`));
     }
 
     toggleYolo() {
