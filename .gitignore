@@ -1,0 +1,38 @@
+# Node dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build outputs
+dist/
+build/
+out/
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-workspace
+
+# Coverage and reports
+coverage/
+report/
+
+# Misc
+*.tgz
