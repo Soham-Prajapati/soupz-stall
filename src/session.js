@@ -38,6 +38,7 @@ const COMMANDS = [
     { cmd: '/chefs', desc: 'List all chefs (alias)', icon: '👨‍🍳' },
     { cmd: '/chain', desc: 'Chain agents: /chain designer→researcher "prompt"', icon: '🔗' },
     { cmd: '/delegate', desc: 'Delegate to agent: /delegate designer "prompt"', icon: '📤' },
+    { cmd: '/parallel', desc: 'Run agents in parallel: /parallel a b c "prompt"', icon: '⚡' },
     { cmd: '/tool', desc: 'Switch tool agent', icon: '🔀' },
     { cmd: '/model', desc: 'Switch AI model', icon: '🧠' },
     { cmd: '/auto', desc: 'Full auto mode', icon: '🎯' },
@@ -160,6 +161,17 @@ export class Session {
             if (score > bestScore) { bestScore = score; best = t; }
         }
         return best.id;
+    }
+
+    /** Distribute N tasks across available tools — cycles through copilot/gemini/kiro
+     *  so parallel tasks run on different engines simultaneously */
+    pickDiverseTools(count) {
+        const tools = this.getTools();
+        if (!tools.length) return [];
+        // If locked to one tool, repeat it (parallel on same tool — still works via separate spawns)
+        if (this.activeTool) return Array(count).fill(this.activeTool);
+        // Round-robin across available tools
+        return Array.from({ length: count }, (_, i) => tools[i % tools.length].id);
     }
 
     start() {
@@ -792,6 +804,9 @@ export class Session {
         // /delegate — explicitly delegate to an agent
         if (input.startsWith('/delegate ')) { await this.handleDelegateCmd(input.slice(10).trim()); return; }
         if (input === '/delegate') { console.log(chalk.dim('  Usage: /delegate <agent> "prompt"')); return; }
+        // /parallel — run multiple agents simultaneously
+        if (input.startsWith('/parallel ')) { await this.handleParallel(input.slice(10).trim()); return; }
+        if (input === '/parallel') { console.log(chalk.dim('  Usage: /parallel agent1 agent2 agent3 "shared prompt"')); return; }
         // NEW: /clear — clear context
         if (input === '/clear') { this.clearContext(); return; }
         // NEW: /rename
@@ -1230,39 +1245,99 @@ export class Session {
         this.removeActivePersona(personaId);
     }
 
-    /** Parse and process @DELEGATE[agentId]: prompt patterns from agent output */
+    /** Parse and process @DELEGATE[agentId]: prompt — runs ALL delegations in PARALLEL */
     async processDelegations(output, sourcePersonaId) {
         if (!output) return;
         const delegatePattern = /@DELEGATE\[([^\]]+)\]:\s*(.+?)(?=\n@DELEGATE|\n\n|$)/gms;
         const matches = [...output.matchAll(delegatePattern)];
         if (!matches.length) return;
         
-        console.log(chalk.hex('#A855F7')(`\n  🔗 ${matches.length} delegation(s) detected from @${sourcePersonaId}`));
+        const tools = this.pickDiverseTools(matches.length);
+        if (!tools.length) { console.log(chalk.red('  No tool agents for delegation')); return; }
         
-        for (const match of matches) {
-            const [, agentId, delegatePrompt] = match;
-            const targetPersona = this.registry.get(agentId.trim());
+        console.log(chalk.hex('#A855F7')(`\n  ⚡ ${matches.length} delegation(s) from @${sourcePersonaId} — running in PARALLEL`));
+        
+        // Resolve agents (create dynamic personas for unknowns)
+        const tasks = await Promise.all(matches.map(async ([, agentId, delegatePrompt], i) => {
+            let targetPersona = this.registry.get(agentId.trim());
             if (!targetPersona) {
-                console.log(chalk.red(`  ✖ Unknown delegate agent: @${agentId}`));
-                continue;
+                // Dynamically create a persona for unknown agents
+                targetPersona = await this.createDynamicPersona(agentId.trim());
+                if (!targetPersona) return null;
             }
-            const displayName = targetPersona.name || agentId;
-            console.log(chalk.hex('#4ECDC4')(`\n  📤 Delegating to ${targetPersona.icon || ''} @${agentId.trim()}`));
-            console.log(chalk.dim(`     "${delegatePrompt.trim().slice(0, 80)}${delegatePrompt.length > 80 ? '…' : ''}"`));
-            
-            const toolId = this.activeTool || this.pickBestTool(delegatePrompt);
-            if (!toolId) { console.log(chalk.red('  No tool agents available for delegation')); continue; }
+            const toolId = tools[i];
             const sysPrompt = targetPersona.type === 'persona' ? (targetPersona.system_prompt || targetPersona.body || '') : '';
-            const fullPrompt = sysPrompt 
-                ? `${sysPrompt}\n\nUser: ${delegatePrompt.trim()}`
-                : delegatePrompt.trim();
-            
-            try {
-                await this.orchestrator.runOn(toolId, fullPrompt, this.cwd);
-            } catch (err) {
-                console.log(chalk.red(`  ✖ Delegation to @${agentId} failed: ${err.message}`));
-            }
+            const fullPrompt = sysPrompt ? `${sysPrompt}\n\nUser: ${delegatePrompt.trim()}` : delegatePrompt.trim();
+            return { agentId: agentId.trim(), toolId, fullPrompt, persona: targetPersona, delegatePrompt: delegatePrompt.trim() };
+        }));
+        
+        const valid = tasks.filter(Boolean);
+        
+        // Print what's about to happen
+        for (const t of valid) {
+            const tAgent = this.registry.get(t.toolId);
+            console.log(chalk.hex('#4ECDC4')(`  📤 @${t.agentId} ${t.persona.icon || ''} → ${tAgent?.icon || '○'} ${t.toolId}`));
+            console.log(chalk.dim(`     "${t.delegatePrompt.slice(0, 70)}${t.delegatePrompt.length > 70 ? '…' : ''}"`));
         }
+        console.log(chalk.dim(`\n  ─── Parallel execution start ─────────────────────────────`));
+        
+        // Run all in parallel
+        const results = await Promise.allSettled(
+            valid.map(t => this.orchestrator.runOn(t.toolId, t.fullPrompt, this.cwd))
+        );
+        
+        let successCount = 0;
+        for (let i = 0; i < results.length; i++) {
+            if (results[i].status === 'fulfilled') successCount++;
+            else console.log(chalk.red(`  ✖ @${valid[i].agentId} failed: ${results[i].reason?.message}`));
+        }
+        console.log(chalk.green(`\n  ✔ Parallel complete — ${successCount}/${valid.length} succeeded`));
+    }
+
+    /** Dynamically create a persona for an unknown agent ID */
+    async createDynamicPersona(agentId) {
+        const { writeFileSync, existsSync } = await import('fs');
+        const { join } = await import('path');
+        const { homedir } = await import('os');
+        
+        // Derive role from the agent ID name
+        const roleName = agentId.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        const systemPrompt = `You are an expert ${roleName}. Apply your specialized knowledge to solve the task given to you. Be thorough, practical, and actionable. Deliver complete, ready-to-use outputs.`;
+        
+        const agentDef = {
+            id: agentId,
+            name: roleName,
+            icon: '🤖',
+            color: '#888888',
+            type: 'persona',
+            uses_tool: 'auto',
+            headless: false,
+            description: `Dynamic persona — ${roleName}`,
+            capabilities: [agentId, 'general'],
+            routing_keywords: [agentId],
+            grade: 50,
+            system_prompt: systemPrompt,
+            body: '',
+            available: true,
+            filePath: null,
+        };
+        
+        // Register in memory
+        this.registry.agents.set(agentId, agentDef);
+        
+        // Optionally persist to disk
+        const agentsDir = join(homedir(), '.soupz-agents', 'agents');
+        const filePath = join(agentsDir, `${agentId}.md`);
+        if (!existsSync(filePath)) {
+            const mdContent = `---\nname: ${roleName}\nid: ${agentId}\nicon: "🤖"\ncolor: "#888888"\ntype: persona\nuses_tool: auto\nheadless: false\ndescription: "Dynamic persona — ${roleName}"\ncapabilities:\n  - general\nrouting_keywords:\n  - ${agentId}\ngrade: 50\nsystem_prompt: |\n  ${systemPrompt}\n---\n\n# ${roleName}\n\nDynamically created persona.\n`;
+            try {
+                writeFileSync(filePath, mdContent);
+                agentDef.filePath = filePath;
+                console.log(chalk.hex('#A855F7')(`  ✨ Created new chef: @${agentId} (saved to ~/.soupz-agents/agents/${agentId}.md)`));
+            } catch { /* non-critical */ }
+        }
+        
+        return agentDef;
     }
 
     /** /chain designer→researcher "prompt" — explicit agent chain */
@@ -1280,8 +1355,11 @@ export class Session {
         let context = prompt;
         for (let i = 0; i < agentIds.length; i++) {
             const agentId = agentIds[i];
-            const persona = this.registry.get(agentId);
-            if (!persona) { console.log(chalk.red(`  ✖ Unknown agent: @${agentId}`)); continue; }
+            let persona = this.registry.get(agentId);
+            if (!persona) {
+                persona = await this.createDynamicPersona(agentId);
+                if (!persona) { console.log(chalk.red(`  ✖ Could not resolve agent: @${agentId}`)); continue; }
+            }
             
             const stepPrompt = i === 0 ? context : `[Previous agent result]\n${context}\n[End previous result]\n\nContinue based on the above. Original task: ${prompt}`;
             console.log(chalk.hex(persona.color || '#888')(`\n  ${persona.icon || '○'} Step ${i+1}/${agentIds.length}: @${agentId}`));
@@ -1299,6 +1377,57 @@ export class Session {
             }
         }
         console.log(chalk.green(`\n  ✔ Chain complete (${agentIds.length} agents)`));
+    }
+
+    /** /parallel agent1 agent2 agent3 "prompt" — explicit parallel dispatch */
+    async handleParallel(input) {
+        // Parse: last quoted string is the prompt, everything before is agent IDs
+        const promptMatch = input.match(/^(.*?)\s+"(.+)"$/s) || input.match(/^([\w\s]+?)\s+([^"]+)$/s);
+        if (!promptMatch) {
+            console.log(chalk.dim('  Usage: /parallel designer architect planner "your shared prompt"'));
+            return;
+        }
+        const [, agentStr, prompt] = promptMatch;
+        const agentIds = agentStr.trim().split(/\s+/).filter(Boolean);
+        if (!agentIds.length) {
+            console.log(chalk.dim('  Usage: /parallel designer architect planner "prompt"'));
+            return;
+        }
+        
+        const tools = this.pickDiverseTools(agentIds.length);
+        if (!tools.length) { console.log(chalk.red('  No tool agents available')); return; }
+        
+        console.log(chalk.hex('#A855F7')(`  ⚡ Parallel dispatch: ${agentIds.join(' + ')} (${agentIds.length} simultaneous)`));
+        
+        // Resolve all personas (create dynamic ones if needed)
+        const tasks = await Promise.all(agentIds.map(async (agentId, i) => {
+            let persona = this.registry.get(agentId);
+            if (!persona) persona = await this.createDynamicPersona(agentId);
+            if (!persona) { console.log(chalk.red(`  ✖ Unknown: @${agentId}`)); return null; }
+            
+            const toolId = tools[i];
+            const tAgent = this.registry.get(toolId);
+            console.log(chalk.hex(persona.color || '#888')(`  ${persona.icon || '○'} @${agentId} → ${tAgent?.icon || '○'} ${toolId}`));
+            
+            const sysPrompt = persona.type === 'persona' ? (persona.system_prompt || persona.body || '') : '';
+            const fullPrompt = sysPrompt ? `${sysPrompt}\n\nUser: ${prompt}` : prompt;
+            return { agentId, toolId, fullPrompt };
+        }));
+        
+        const valid = tasks.filter(Boolean);
+        console.log(chalk.dim('\n  ─── Go! ──────────────────────────────────────────────────'));
+        
+        const startTime = Date.now();
+        const results = await Promise.allSettled(
+            valid.map(t => this.orchestrator.runOn(t.toolId, t.fullPrompt, this.cwd))
+        );
+        
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        let ok = results.filter(r => r.status === 'fulfilled').length;
+        results.forEach((r, i) => {
+            if (r.status === 'rejected') console.log(chalk.red(`  ✖ @${valid[i].agentId}: ${r.reason?.message}`));
+        });
+        console.log(chalk.green(`\n  ⚡ Parallel done — ${ok}/${valid.length} succeeded in ${elapsed}s`));
     }
 
     /** /delegate agentId "prompt" — explicit single delegation */
@@ -1374,8 +1503,10 @@ export class Session {
         console.log(`  📄 ${chalk.hex('#FF6B6B').bold('#<file>')}              ${chalk.hex('#888')('Attach file content')}`);
         console.log(chalk.bold('\n  ━━━ Multi-Agent ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
         console.log(`  ${chalk.hex('#A855F7')('/chain designer→svgart "prompt"')}   ${chalk.hex('#888')('Chain agents sequentially')}`);
+        console.log(`  ${chalk.hex('#FF6B35').bold('/parallel')} ${chalk.hex('#FF6B35')('a b c "prompt"')}        ${chalk.hex('#888')('⚡ Run agents simultaneously')}`);
         console.log(`  ${chalk.hex('#A855F7')('/delegate designer "prompt"')}        ${chalk.hex('#888')('Delegate to specific agent')}`);
-        console.log(`  ${chalk.hex('#888')('Agents auto-delegate via @DELEGATE[id]: prompt in output')}`);
+        console.log(`  ${chalk.hex('#888')('@orchestrator auto-delegates in parallel via @DELEGATE[id]: prompt')}`);
+        console.log(`  ${chalk.hex('#888')('Unknown @agents are auto-created dynamically')}`);
         console.log(chalk.bold('\n  ━━━ Keys ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
         console.log(`  ${chalk.hex('#4ECDC4')('↑↓')} Navigate   ${chalk.hex('#4ECDC4')('Tab')} Fill   ${chalk.hex('#4ECDC4')('Enter')} Submit`);
         console.log(`  ${chalk.hex('#4ECDC4')('Shift+Enter')} / ${chalk.hex('#4ECDC4')('Opt+Enter')} / ${chalk.hex('#4ECDC4')('Ctrl+J')} Newline`);
