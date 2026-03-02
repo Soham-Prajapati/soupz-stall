@@ -381,3 +381,117 @@ write unit tests, deploy to Vercel        [Enter]
 add a /ux command that generates wireframes
 /shards                                   ← check memory
 ```
+
+---
+
+## 💰 Model Selection Guide (Saving Tokens for Hackathon)
+
+| Task | Best Model | Token Cost | Command |
+|------|-----------|-----------|---------|
+| Brainstorming, ideation | GPT-5-mini | FREE (0x) | `/model gpt-5-mini` |
+| Research, content writing | GPT-5-mini | FREE (0x) | `/model gpt-5-mini` |
+| SVG generation | Claude Haiku 4.5 | 0.33x | `/model claude-haiku-4-5` |
+| UI component code | Claude Haiku 4.5 | 0.33x | `/model claude-haiku-4-5` |
+| Complex architecture | Claude Sonnet 4.6 | 1x | default |
+| Final production code | Claude Sonnet 4.6 | 1x | default |
+| Multi-file reasoning | Claude Sonnet 4.6 | 1x | default |
+
+**Token-saving workflow for hackathon:**
+1. Use `GPT-5-mini` for all planning/brainstorming (free)
+2. Use `Claude Haiku 4.5` (0.33x) for design iterations, SVGs, component generation
+3. Save Sonnet for final code, bug fixes, complex integrations only
+4. Use `/chain` to batch work → fewer round-trips = fewer tokens
+
+---
+
+## 🎨 Hackathon Designer Mega-Prompt
+
+Paste this into soupz-stall when starting a hackathon project:
+
+```
+@orchestrator I'm building [PROJECT_NAME] for a hackathon. 
+Here's the concept: [ONE SENTENCE DESCRIPTION]
+Target users: [WHO]
+Core value prop: [WHAT PROBLEM DOES IT SOLVE]
+Time: 24 hours. Team: [N] people.
+
+I need you to:
+1. Define the visual identity (colors, typography, mood)
+2. Create the hero section HTML/CSS/JS (Awwwards quality, GSAP animations)
+3. Design the core product UI (the main screen users see)
+4. Create an SVG logo mark
+5. Write the 3-second elevator pitch for judges
+
+Prioritize: visual impact > feature completeness. Judges decide in 30 seconds.
+```
+
+**Or go directly to the designer:**
+```
+@designer Create a complete landing page for [PROJECT].
+The aesthetic should feel like [lusion.co / linear.app / stripe / etc].
+Key sections: hero with GSAP scroll animation, features grid, CTA.
+Use CSS custom properties, include GSAP CDN, full production HTML.
+Color palette: [dark/light/colorful]. Typography mood: [bold/elegant/technical].
+Output: single complete HTML file, copy-paste ready.
+```
+
+**For SVG logo/brand assets:**
+```
+@svgart Create a logo mark for [PROJECT NAME].
+It represents: [concept].
+Style: [geometric/organic/wordmark/abstract].
+Colors: [primary color] on [background].
+Output: complete SVG code (3 variants: full color, mono, reversed).
+Also create: app icon (rounded square, 512x512), favicon (32x32).
+```
+
+**For tech architecture:**
+```
+@architect I need a hackathon-ready tech stack for [PROJECT].
+It needs: [real-time/AI/auth/payments/etc].
+Team skills: [React/Python/etc].
+Target: deployed in < 2 hours.
+Give me: stack decision, folder structure, 5 core API routes, DB schema.
+```
+
+---
+
+## 🔗 Multi-Agent Chains
+
+**Design → SVG → Code pipeline:**
+```
+/chain designer→svgart "Create complete brand for a [project]: landing page + logo SVG + icon set"
+```
+
+**Research → Design → Present:**
+```
+/chain researcher→designer→presenter "Research top fintech apps, design a dashboard UI, create pitch slides"
+```
+
+**Orchestrate everything:**
+```
+@orchestrator Run full hackathon mode for [PROJECT]:
+- Research competitors
+- Define brand identity  
+- Create prototype HTML
+- Design SVG assets
+- Write pitch deck outline
+Coordinate all agents and give me a complete package.
+```
+
+---
+
+## 🛠️ Skills in GitHub Copilot CLI
+
+Your soupz agents are now also available as Copilot CLI skills (in `/skills` panel):
+
+| Skill | Description |
+|-------|-------------|
+| `soupz-designer` | Full design agency — Awwwards-quality UI, GSAP, brand |
+| `soupz-svgart` | SVG logo/icon/illustration generator |
+| `soupz-orchestrator` | BMAD-style coordinator for complex tasks |
+| `soupz-architect` | Tech stack, system design, API schemas |
+| `soupz-researcher` | Competitive analysis, design inspiration |
+
+To use in Copilot CLI: toggle them on in `/skills` panel, then just ask naturally.
+The skill context is automatically injected when it's active.
