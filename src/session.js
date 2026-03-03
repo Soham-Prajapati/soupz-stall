@@ -32,36 +32,36 @@ ${chalk.hex('#6C63FF')('       ╚══════╝ ')}${chalk.hex('#A855F7'
 const HR = chalk.hex('#444')('━'.repeat(65));
 
 const COMMANDS = [
-    { cmd: '/help', desc: 'Show all commands', icon: '❓' },
-    { cmd: '/agents', desc: 'List kitchens (AI cooking stations)', icon: '🍳' },
-    { cmd: '/personas', desc: 'List all chefs', icon: '👨‍🍳' },
-    { cmd: '/chefs', desc: 'List all chefs (alias)', icon: '👨‍🍳' },
-    { cmd: '/chain', desc: 'Chain chefs: /chain designer→researcher "prompt"', icon: '🔗' },
-    { cmd: '/delegate', desc: 'Delegate to chef: /delegate designer "prompt"', icon: '📤' },
-    { cmd: '/parallel', desc: 'Run chefs in parallel: /parallel a b c "prompt"', icon: '⚡' },
-    { cmd: '/tool', desc: 'Switch kitchen (AI engine)', icon: '🍳' },
-    { cmd: '/model', desc: 'Switch utensil (AI model)', icon: '🔪' },
-    { cmd: '/auto', desc: 'Full auto mode — best kitchen + chef', icon: '🎯' },
-    { cmd: '/yolo', desc: 'Toggle YOLO mode (no confirmations)', icon: '🔥' },
-    { cmd: '/browse', desc: 'Screenshot localhost', icon: '🌐' },
-    { cmd: '/todo', desc: 'Show the menu (task list)', icon: '📋' },
-    { cmd: '/do', desc: 'Cook a dish: /do 1 (execute todo)', icon: '▶️' },
-    { cmd: '/tokens', desc: 'Ingredient usage (token stats)', icon: '📊' },
-    { cmd: '/costs', desc: 'Bill tracker (cost tracking)', icon: '💰' },
-    { cmd: '/grades', desc: 'Kitchen ratings per station', icon: '🏆' },
-    { cmd: '/sandbox', desc: 'Toggle pantry lock (~/Developer)', icon: '🔒' },
-    { cmd: '/clear', desc: 'Clear the counter (reset context)', icon: '🧹' },
-    { cmd: '/rename', desc: 'Name this order (session)', icon: '💾' },
-    { cmd: '/sessions', desc: 'Order history (saved sessions)', icon: '📂' },
-    { cmd: '/load', desc: 'Reopen an order', icon: '📥' },
-    { cmd: '/login', desc: 'Unlock a kitchen', icon: '🔑' },
-    { cmd: '/logout', desc: 'Lock a kitchen', icon: '🚪' },
-    { cmd: '/shards', desc: 'Pantry shards status', icon: '🧩' },
-    { cmd: '/shard', desc: 'Store/recall from pantry', icon: '💾' },
-    { cmd: '/memory', desc: 'Recipe memory stats', icon: '🧠' },
-    { cmd: '/compress', desc: 'Compress context', icon: '📦' },
-    { cmd: '/skills', desc: 'Spice rack (available skills)', icon: '🫙' },
-    { cmd: '/quit', desc: 'Close the stall', icon: '👋' },
+    { cmd: '/help',       desc: 'Show all commands', icon: '❓' },
+    { cmd: '/kitchen',    desc: 'List kitchens (AI cooking stations)', icon: '🍳' },
+    { cmd: '/chefs',      desc: 'List all chefs (personas)', icon: '👨‍🍳' },
+    { cmd: '/station',    desc: 'Switch station: /station copilot', icon: '🍳' },
+    { cmd: '/utensil',    desc: 'Switch utensil (AI model): /utensil <model>', icon: '🔪' },
+    { cmd: '/auto',       desc: 'Full auto — best station + chef decides', icon: '🎯' },
+    { cmd: '/chain',      desc: 'Chain chefs: /chain designer→researcher "prompt"', icon: '🔗' },
+    { cmd: '/delegate',   desc: 'Delegate to chef: /delegate designer "prompt"', icon: '📤' },
+    { cmd: '/parallel',   desc: 'Run chefs in parallel: /parallel a b c "prompt"', icon: '⚡' },
+    { cmd: '/hackathon',  desc: 'Hackathon mode — phased plan, todos, chef assignments', icon: '🏁' },
+    { cmd: '/spill',      desc: 'Toggle spill mode — no restrictions, full send 🫕', icon: '🌊' },
+    { cmd: '/browse',     desc: 'Screenshot localhost', icon: '🌐' },
+    { cmd: '/todo',       desc: 'The menu (task list)', icon: '📋' },
+    { cmd: '/do',         desc: 'Cook a dish: /do 1 (execute todo)', icon: '▶️' },
+    { cmd: '/tokens',     desc: 'Ingredient usage (token stats)', icon: '📊' },
+    { cmd: '/costs',      desc: 'Bill tracker (cost tracking)', icon: '💰' },
+    { cmd: '/grades',     desc: 'Kitchen ratings per station', icon: '🏆' },
+    { cmd: '/sandbox',    desc: 'Toggle pantry lock (~/Developer)', icon: '🔒' },
+    { cmd: '/clear',      desc: 'Clear the counter (reset context)', icon: '🧹' },
+    { cmd: '/rename',     desc: 'Name this order (session)', icon: '💾' },
+    { cmd: '/sessions',   desc: 'Order history (saved sessions)', icon: '📂' },
+    { cmd: '/load',       desc: 'Reopen an order', icon: '📥' },
+    { cmd: '/login',      desc: 'Unlock a kitchen', icon: '🔑' },
+    { cmd: '/logout',     desc: 'Lock a kitchen', icon: '🚪' },
+    { cmd: '/shards',     desc: 'Pantry shards status', icon: '🧩' },
+    { cmd: '/shard',      desc: 'Store/recall from pantry', icon: '💾' },
+    { cmd: '/memory',     desc: 'Recipe memory stats', icon: '🧠' },
+    { cmd: '/compress',   desc: 'Compress context', icon: '📦' },
+    { cmd: '/skills',     desc: 'Spice rack (available skills)', icon: '🫙' },
+    { cmd: '/quit',       desc: 'Close the stall', icon: '👋' },
 ];
 
 const GEMINI_MODELS = [
@@ -453,15 +453,15 @@ export class Session {
         const input = this.inputBuffer;
         /** Dedup items by label */
         const dedup = (items) => { const seen = new Set(); return items.filter((i) => { if (seen.has(i.label)) return false; seen.add(i.label); return true; }); };
-        // /tool <tab> — show available kitchens
-        if (input.startsWith('/tool ')) {
-            const prefix = input.slice(6).toLowerCase();
+        // /station <tab> and /tool <tab> — show available kitchens
+        if (input.startsWith('/station ') || input.startsWith('/tool ')) {
+            const prefix = input.startsWith('/station ') ? input.slice(9).toLowerCase() : input.slice(6).toLowerCase();
             const tools = [
-                { label: 'auto', desc: '🎯 Smart routing — head chef picks best station', icon: '🎯', value: '/tool auto' },
+                { label: 'auto', desc: '🎯 Smart routing — head chef picks best station', icon: '🎯', value: '/station auto' },
                 ...this.getTools().map((t) => {
                     const saved = this.modelPrefs[t.id];
                     const desc = saved ? `${t.description || t.name} (utensil: ${saved})` : (t.description || t.name);
-                    return { label: t.id, desc, icon: t.icon, value: `/tool ${t.id}` };
+                    return { label: t.id, desc, icon: t.icon, value: `/station ${t.id}` };
                 })
             ].filter((i) => i.label.startsWith(prefix) || !prefix);
             this.dropdownItems = dedup(tools);
@@ -469,9 +469,9 @@ export class Session {
             this.refreshDropdown();
             return;
         }
-        // /model <tab> — show available utensils (models)
-        if (input.startsWith('/model ')) {
-            const prefix = input.slice(7).toLowerCase();
+        // /utensil <tab> and /model <tab> — show available models (utensils)
+        if (input.startsWith('/utensil ') || input.startsWith('/model ')) {
+            const prefix = input.startsWith('/utensil ') ? input.slice(9).toLowerCase() : input.slice(7).toLowerCase();
             let allModels = [];
 
             // Gather models based on active tool or show all
@@ -489,7 +489,7 @@ export class Session {
                 .filter((m) => m.id.startsWith(prefix) || !prefix)
                 .map((m) => ({
                     label: m.id, desc: `🔪 ${m.desc} [${m.tool} kitchen]` + (this.activeModel === m.id ? ' ← active utensil' : ''),
-                    icon: m.icon, value: `/model ${m.id}`
+                    icon: m.icon, value: `/utensil ${m.id}`
                 }));
             this.dropdownItems = dedup(models);
             this.dropdownIndex = models.length > 0 ? 0 : -1;
@@ -764,28 +764,34 @@ export class Session {
         }
         if (input === '/help' || input === '?') { this.showHelp(); return; }
         if (input === '/quit' || input === '/exit') { this.exitSession(); return; }
-        if (input === '/agents') { this.showToolAgents(); return; }
-        if (input === '/personas' || input === '/chefs') { this.showPersonas(); return; }
-        if (input === '/tool' || input === '/tools') {
-            // Interactive: fill buffer with `/tool ` and trigger dropdown
-            this.inputBuffer = '/tool ';
+        // Kitchen commands — new names + legacy aliases
+        if (input === '/kitchen' || input === '/agents') { this.showToolAgents(); return; }
+        if (input === '/chefs' || input === '/personas') { this.showPersonas(); return; }
+        // /station (new) and /tool (legacy alias) — switch AI cooking station
+        if (input === '/station' || input === '/tool' || input === '/tools') {
+            this.inputBuffer = '/station ';
             this.resetPromptState();
             this.renderPrompt();
             this.buildDropdown();
             return;
         }
+        if (input.startsWith('/station ')) { this.switchTool(input.slice(9).trim()); return; }
         if (input.startsWith('/tool ')) { this.switchTool(input.slice(6).trim()); return; }
-        if (input === '/auto') { this.activeTool = null; this.activeModel = null; console.log(chalk.hex('#4ECDC4')('  🎯 FULL AUTO')); return; }
-        if (input === '/model') {
-            // Interactive: fill buffer with `/model ` and trigger dropdown
-            this.inputBuffer = '/model ';
+        if (input === '/auto') { this.activeTool = null; this.activeModel = null; console.log(chalk.hex('#4ECDC4')('  🎯 AUTO — head chef picks best station')); return; }
+        // /utensil (new) and /model (legacy alias) — switch AI model
+        if (input === '/utensil' || input === '/model') {
+            this.inputBuffer = '/utensil ';
             this.resetPromptState();
             this.renderPrompt();
             this.buildDropdown();
             return;
         }
+        if (input.startsWith('/utensil ')) { this.handleModel('/model ' + input.slice(9).trim()); return; }
         if (input.startsWith('/model ')) { this.handleModel(input); return; }
-        if (input === '/yolo') { this.toggleYolo(); return; }
+        // /spill mode (new) and /yolo (legacy alias)
+        if (input === '/spill' || input === '/yolo') { this.toggleYolo(); return; }
+        // /hackathon mode
+        if (input === '/hackathon' || input.startsWith('/hackathon ')) { await this.handleHackathon(input); return; }
         if (input === '/tokens') { this.showTokens(); return; }
         if (input === '/costs') { this.showCosts(); return; }
         if (input === '/grades') { this.showGrades(); return; }
