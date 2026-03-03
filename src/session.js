@@ -33,34 +33,34 @@ const HR = chalk.hex('#444')('━'.repeat(65));
 
 const COMMANDS = [
     { cmd: '/help', desc: 'Show all commands', icon: '❓' },
-    { cmd: '/agents', desc: 'List kitchen (tool agents)', icon: '🔧' },
+    { cmd: '/agents', desc: 'List kitchens (AI cooking stations)', icon: '🍳' },
     { cmd: '/personas', desc: 'List all chefs', icon: '👨‍🍳' },
     { cmd: '/chefs', desc: 'List all chefs (alias)', icon: '👨‍🍳' },
-    { cmd: '/chain', desc: 'Chain agents: /chain designer→researcher "prompt"', icon: '🔗' },
-    { cmd: '/delegate', desc: 'Delegate to agent: /delegate designer "prompt"', icon: '📤' },
-    { cmd: '/parallel', desc: 'Run agents in parallel: /parallel a b c "prompt"', icon: '⚡' },
-    { cmd: '/tool', desc: 'Switch tool agent', icon: '🔀' },
-    { cmd: '/model', desc: 'Switch AI model', icon: '🧠' },
-    { cmd: '/auto', desc: 'Full auto mode', icon: '🎯' },
-    { cmd: '/yolo', desc: 'Toggle YOLO mode', icon: '🔥' },
+    { cmd: '/chain', desc: 'Chain chefs: /chain designer→researcher "prompt"', icon: '🔗' },
+    { cmd: '/delegate', desc: 'Delegate to chef: /delegate designer "prompt"', icon: '📤' },
+    { cmd: '/parallel', desc: 'Run chefs in parallel: /parallel a b c "prompt"', icon: '⚡' },
+    { cmd: '/tool', desc: 'Switch kitchen (AI engine)', icon: '🍳' },
+    { cmd: '/model', desc: 'Switch utensil (AI model)', icon: '🔪' },
+    { cmd: '/auto', desc: 'Full auto mode — best kitchen + chef', icon: '🎯' },
+    { cmd: '/yolo', desc: 'Toggle YOLO mode (no confirmations)', icon: '🔥' },
     { cmd: '/browse', desc: 'Screenshot localhost', icon: '🌐' },
-    { cmd: '/todo', desc: 'Show task list', icon: '📋' },
-    { cmd: '/do', desc: 'Execute a todo (e.g. /do 1)', icon: '▶️' },
-    { cmd: '/tokens', desc: 'Token usage stats', icon: '📊' },
-    { cmd: '/costs', desc: 'Cost tracking (NEW)', icon: '💰' },
-    { cmd: '/grades', desc: 'Report cards per tool', icon: '🏆' },
-    { cmd: '/sandbox', desc: 'Toggle ~/Developer lock', icon: '🔒' },
-    { cmd: '/clear', desc: 'Clear context window', icon: '🧹' },
-    { cmd: '/rename', desc: 'Name this session', icon: '💾' },
-    { cmd: '/sessions', desc: 'List saved sessions', icon: '📂' },
-    { cmd: '/load', desc: 'Load a saved session', icon: '📥' },
-    { cmd: '/login', desc: 'Login to agent', icon: '🔑' },
-    { cmd: '/logout', desc: 'Logout from agent', icon: '🚪' },
-    { cmd: '/shards', desc: 'Memory shards status', icon: '🧩' },
-    { cmd: '/shard', desc: 'Store/recall from shards', icon: '💾' },
-    { cmd: '/memory', desc: 'Memory stats', icon: '🧠' },
+    { cmd: '/todo', desc: 'Show the menu (task list)', icon: '📋' },
+    { cmd: '/do', desc: 'Cook a dish: /do 1 (execute todo)', icon: '▶️' },
+    { cmd: '/tokens', desc: 'Ingredient usage (token stats)', icon: '📊' },
+    { cmd: '/costs', desc: 'Bill tracker (cost tracking)', icon: '💰' },
+    { cmd: '/grades', desc: 'Kitchen ratings per station', icon: '🏆' },
+    { cmd: '/sandbox', desc: 'Toggle pantry lock (~/Developer)', icon: '🔒' },
+    { cmd: '/clear', desc: 'Clear the counter (reset context)', icon: '🧹' },
+    { cmd: '/rename', desc: 'Name this order (session)', icon: '💾' },
+    { cmd: '/sessions', desc: 'Order history (saved sessions)', icon: '📂' },
+    { cmd: '/load', desc: 'Reopen an order', icon: '📥' },
+    { cmd: '/login', desc: 'Unlock a kitchen', icon: '🔑' },
+    { cmd: '/logout', desc: 'Lock a kitchen', icon: '🚪' },
+    { cmd: '/shards', desc: 'Pantry shards status', icon: '🧩' },
+    { cmd: '/shard', desc: 'Store/recall from pantry', icon: '💾' },
+    { cmd: '/memory', desc: 'Recipe memory stats', icon: '🧠' },
     { cmd: '/compress', desc: 'Compress context', icon: '📦' },
-    { cmd: '/skills', desc: 'List all available skills', icon: '🧰' },
+    { cmd: '/skills', desc: 'Spice rack (available skills)', icon: '🫙' },
     { cmd: '/quit', desc: 'Close the stall', icon: '👋' },
 ];
 
@@ -453,14 +453,14 @@ export class Session {
         const input = this.inputBuffer;
         /** Dedup items by label */
         const dedup = (items) => { const seen = new Set(); return items.filter((i) => { if (seen.has(i.label)) return false; seen.add(i.label); return true; }); };
-        // /tool <tab> — show available tools
+        // /tool <tab> — show available kitchens
         if (input.startsWith('/tool ')) {
             const prefix = input.slice(6).toLowerCase();
             const tools = [
-                { label: 'auto', desc: 'Smart routing', icon: '🎯', value: '/tool auto' },
+                { label: 'auto', desc: '🎯 Smart routing — head chef picks best station', icon: '🎯', value: '/tool auto' },
                 ...this.getTools().map((t) => {
                     const saved = this.modelPrefs[t.id];
-                    const desc = saved ? `${t.description || t.name} (model: ${saved})` : (t.description || t.name);
+                    const desc = saved ? `${t.description || t.name} (utensil: ${saved})` : (t.description || t.name);
                     return { label: t.id, desc, icon: t.icon, value: `/tool ${t.id}` };
                 })
             ].filter((i) => i.label.startsWith(prefix) || !prefix);
@@ -469,7 +469,7 @@ export class Session {
             this.refreshDropdown();
             return;
         }
-        // /model <tab> — show available models
+        // /model <tab> — show available utensils (models)
         if (input.startsWith('/model ')) {
             const prefix = input.slice(7).toLowerCase();
             let allModels = [];
@@ -488,7 +488,7 @@ export class Session {
             const models = allModels
                 .filter((m) => m.id.startsWith(prefix) || !prefix)
                 .map((m) => ({
-                    label: m.id, desc: `${m.desc} [${m.tool}]` + (this.activeModel === m.id ? ' ← active' : ''),
+                    label: m.id, desc: `🔪 ${m.desc} [${m.tool} kitchen]` + (this.activeModel === m.id ? ' ← active utensil' : ''),
                     icon: m.icon, value: `/model ${m.id}`
                 }));
             this.dropdownItems = dedup(models);
@@ -910,7 +910,7 @@ export class Session {
             this.startSpinner(toolId);
             await this.orchestrator.runOn(toolId, resolved, this.cwd);
         }
-        else { console.log(chalk.red('  No tool agents available.')); }
+        else { console.log(chalk.red('  No kitchens open (install gh/gemini/kiro).')); }
     }
 
     // ── /clear — clear context window (like Claude Code's /clear) ─────────
@@ -1188,13 +1188,13 @@ export class Session {
     handleModel(input) {
         const arg = input.replace('/model', '').trim();
         if (!arg) {
-            console.log(chalk.bold('\n  🧠 Models'));
+            console.log(chalk.bold('\n  🔪 Utensils (AI Models)'));
             if (this.activeTool === 'gemini' || !this.activeTool) {
                 for (const m of GEMINI_MODELS) {
-                    const a = this.activeModel === m.id ? chalk.hex('#FFD93D')(' ← active') : '';
+                    const a = this.activeModel === m.id ? chalk.hex('#FFD93D')(' ← active utensil') : '';
                     console.log(`    ${chalk.hex('#4ECDC4')(m.id.padEnd(24))} ${chalk.dim(m.desc)}${a}`);
                 }
-            } else console.log(chalk.dim(`  Coming soon for ${this.activeTool}.`));
+            } else console.log(chalk.dim(`  Coming soon for ${this.activeTool} kitchen.`));
             console.log();
             return;
         }
@@ -1207,8 +1207,8 @@ export class Session {
             this.saveModelPrefs();
             const g = this.registry.get('gemini');
             if (g) g.build_args = ['-p', '{prompt}', '--output-format', 'stream-json', '--model', found.id, ...(this.yolo ? ['--yolo'] : [])];
-            console.log(chalk.hex('#4ECDC4')(`  🧠 ${found.id}`) + chalk.dim(` (saved for ${toolKey})`));
-        } else console.log(chalk.red(`  Unknown: ${arg}. /model`));
+            console.log(chalk.hex('#4ECDC4')(`  🔪 Utensil: ${found.id}`) + chalk.dim(` (saved for ${toolKey} kitchen)`));
+        } else console.log(chalk.red(`  Unknown utensil: ${arg}. Try /model<tab>`));
     }
 
     async runPersona(personaId, prompt) {
@@ -1220,13 +1220,13 @@ export class Session {
             return;
         }
         if (!persona.available) {
-            console.log(chalk.red(`  @${personaId} is unavailable (no tool agent installed)`));
+            console.log(chalk.red(`  @${personaId} is unavailable — open a kitchen first (install gh/gemini/kiro)`));
             return;
         }
         this.addActivePersona(personaId);
         this.context.addMessage('user', prompt);
         const toolId = this.activeTool || this.pickBestTool(prompt);
-        if (!toolId) { console.log(chalk.red('  No tool agents available. Install gh, gemini, or kiro.')); this.removeActivePersona(personaId); return; }
+        if (!toolId) { console.log(chalk.red('  No kitchen open. Install gh (Copilot), gemini, or kiro first.')); this.removeActivePersona(personaId); return; }
         const toolAgent = this.registry.get(toolId);
         this.getAgentTokens(toolId).in += Math.ceil(prompt.length / 4);
         this.getAgentTokens(toolId).prompts++;
@@ -1253,7 +1253,7 @@ export class Session {
         if (!matches.length) return;
         
         const tools = this.pickDiverseTools(matches.length);
-        if (!tools.length) { console.log(chalk.red('  No tool agents for delegation')); return; }
+        if (!tools.length) { console.log(chalk.red('  No kitchen open for delegation — install gh/gemini/kiro')); return; }
         
         console.log(chalk.hex('#A855F7')(`\n  ⚡ ${matches.length} delegation(s) from @${sourcePersonaId} — running in PARALLEL`));
         
@@ -1365,7 +1365,7 @@ export class Session {
             console.log(chalk.hex(persona.color || '#888')(`\n  ${persona.icon || '○'} Step ${i+1}/${agentIds.length}: @${agentId}`));
             
             const toolId = this.activeTool || this.pickBestTool(stepPrompt);
-            if (!toolId) { console.log(chalk.red('  No tool agents available')); break; }
+            if (!toolId) { console.log(chalk.red('  No kitchens open (install gh/gemini/kiro)')); break; }
             const sysPrompt = persona.type === 'persona' ? (persona.system_prompt || persona.body || '') : '';
             const fullPrompt = sysPrompt ? `${sysPrompt}\n\nUser: ${stepPrompt}` : stepPrompt;
             
@@ -1395,7 +1395,7 @@ export class Session {
         }
         
         const tools = this.pickDiverseTools(agentIds.length);
-        if (!tools.length) { console.log(chalk.red('  No tool agents available')); return; }
+        if (!tools.length) { console.log(chalk.red('  No kitchens open (install gh/gemini/kiro)')); return; }
         
         console.log(chalk.hex('#A855F7')(`  ⚡ Parallel dispatch: ${agentIds.join(' + ')} (${agentIds.length} simultaneous)`));
         
@@ -1518,16 +1518,16 @@ export class Session {
     showToolAgents() {
         const all = this.registry.list().filter((a) => a.type !== 'persona');
         const cnt = this.getPersonas().length;
-        console.log(chalk.bold('\n  🔧 The Kitchen (Tool Agents)'));
-        console.log(chalk.dim(`  Each has ${cnt} chefs. /tool <id> to select\n`));
+        console.log(chalk.bold('\n  🍳 The Kitchen (Cooking Stations)'));
+        console.log(chalk.dim(`  ${cnt} chefs ready to cook. /tool <id> to pick station\n`));
         for (const a of all) {
             const s = a.available ? chalk.green('✔') : chalk.red('✖');
-            const active = this.activeTool === a.id ? chalk.hex('#FFD93D')(' ← active') : '';
+            const active = this.activeTool === a.id ? chalk.hex('#FFD93D')(' ← active station') : '';
             const auth = this.auth?.isLoggedIn?.(a.id) ? chalk.green(' [logged in]') : '';
             console.log(`  ${s} ${a.icon} ${chalk.bold(a.id.padEnd(14))} ${chalk.dim(a.description || '')}${active}${auth}`);
-            if (a.headless && a.available) console.log(chalk.dim(`      └─ ${cnt} chefs available`));
+            if (a.headless && a.available) console.log(chalk.dim(`      └─ ${cnt} chefs available in this kitchen`));
         }
-        console.log(`\n  ${chalk.hex('#4ECDC4')('/auto')}  ${chalk.dim('best kitchen station + chef')}\n`);
+        console.log(`\n  ${chalk.hex('#4ECDC4')('/auto')}  ${chalk.dim('let the head chef pick the best station')}\n`);
     }
 
     showPersonas() {
@@ -1608,20 +1608,20 @@ export class Session {
     }
 
     switchTool(id) {
-        if (id === 'auto') { this.activeTool = null; this.activeModel = null; console.log(chalk.hex('#4ECDC4')('  🎯 FULL AUTO')); return; }
+        if (id === 'auto') { this.activeTool = null; this.activeModel = null; console.log(chalk.hex('#4ECDC4')('  🎯 AUTO KITCHEN — head chef decides')); return; }
         const a = this.registry.get(id);
-        if (!a || a.type === 'persona') { console.log(chalk.red(`  Unknown: ${id}. /agents (kitchen)`)); return; }
+        if (!a || a.type === 'persona') { console.log(chalk.red(`  Unknown kitchen: ${id}. /agents`)); return; }
         this.activeTool = id;
         // Restore saved model preference for this tool
         const savedModel = this.modelPrefs[id];
         if (savedModel) {
             this.activeModel = savedModel;
-            console.log(chalk.hex(a.color)(`  ${a.icon} Locked to ${a.name}`) + chalk.dim(` (model: ${savedModel})`));
+            console.log(chalk.hex(a.color)(`  ${a.icon} Kitchen: ${a.name}`) + chalk.dim(` (utensil: ${savedModel})`));
         } else {
             this.activeModel = null;
-            console.log(chalk.hex(a.color)(`  ${a.icon} Locked to ${a.name}`));
+            console.log(chalk.hex(a.color)(`  ${a.icon} Kitchen: ${a.name}`));
         }
-        console.log(chalk.dim(`    ${this.getPersonas().length} chefs available. /model to switch. /auto to go back.`));
+        console.log(chalk.dim(`    ${this.getPersonas().length} chefs ready. /model to pick utensil. /auto for best kitchen.`));
     }
 
     toggleYolo() {
