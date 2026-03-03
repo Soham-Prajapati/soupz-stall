@@ -1632,10 +1632,196 @@ export class Session {
 
     toggleYolo() {
         this.yolo = !this.yolo;
-        console.log(this.yolo ? chalk.hex('#FF6B6B').bold('  🔥 YOLO ON — full send.') : chalk.hex('#4ECDC4')('  🛡️ YOLO OFF.'));
+        if (this.yolo) {
+            console.log(chalk.hex('#FF6B6B').bold('  🫕 SPILL MODE ON — soup is overflowing, no restrictions, full send.'));
+        } else {
+            console.log(chalk.hex('#4ECDC4')('  🧊 Spill mode OFF — back to clean kitchen.'));
+        }
         const g = this.registry.get('gemini');
         if (g) g.build_args = ['-p', '{prompt}', '--output-format', 'stream-json', ...(this.activeModel ? ['--model', this.activeModel] : []), ...(this.yolo ? ['--yolo'] : [])];
         const c = this.registry.get('copilot');
         if (c) c.build_args = this.yolo ? ['copilot', '-p', '{prompt}', '--allow-all-tools'] : ['copilot', '-p', '{prompt}'];
+    }
+
+    async handleHackathon(input) {
+        const HR2 = chalk.hex('#FF2D55')('━'.repeat(55));
+        console.log('\n' + HR2);
+        console.log(chalk.hex('#FF2D55').bold('  🏁 HACKATHON MODE — Soupz Stall War Room'));
+        console.log(HR2);
+
+        // Parse inline args: /hackathon 24h 3ppl "build a fintech app"
+        const args = input.replace('/hackathon', '').trim();
+        let hours = 24, teamSize = 2, brief = '';
+
+        const hourMatch = args.match(/(\d+)\s*h/i);
+        const teamMatch = args.match(/(\d+)\s*p(?:pl|eople|ersons?)?/i);
+        const briefMatch = args.match(/"([^"]+)"/);
+
+        if (hourMatch) hours = parseInt(hourMatch[1]);
+        if (teamMatch) teamSize = parseInt(teamMatch[1]);
+        if (briefMatch) brief = briefMatch[1];
+
+        // Prompt for missing info
+        if (!hours || !args) {
+            console.log(chalk.dim('\n  Tip: /hackathon 24h 3ppl "build a fintech app for students"\n'));
+            console.log(chalk.hex('#FFD93D')('  Duration:'), chalk.dim('12h / 24h / 36h / 48h? (default: 24h)'));
+            console.log(chalk.hex('#FFD93D')('  Team size:'), chalk.dim('How many people? (default: 2)'));
+            console.log(chalk.hex('#FFD93D')('  Brief:'), chalk.dim('What are you building?'));
+        }
+
+        if (!brief) brief = 'hackathon project (add your brief: /hackathon 24h 2ppl "your idea")';
+
+        // Generate phases based on duration
+        const phases = this._generateHackathonPhases(hours, teamSize, brief);
+
+        // Print timeline
+        console.log(chalk.bold(`\n  🫕 ${hours}h Hackathon  ·  ${teamSize} person${teamSize > 1 ? 's' : ''}  ·  ${brief}\n`));
+
+        let cumulative = 0;
+        for (const phase of phases) {
+            const start = this._fmtHours(cumulative);
+            cumulative += phase.duration;
+            const end = this._fmtHours(cumulative);
+            console.log(
+                chalk.hex(phase.color).bold(`  ${phase.icon} Phase ${phase.num}: ${phase.name}`) +
+                chalk.dim(` [${start} → ${end}]`)
+            );
+            console.log(chalk.dim(`      ${phase.goal}`));
+            for (const chef of phase.chefs) {
+                console.log(chalk.hex('#4ECDC4')(`      @${chef.id}`) + chalk.dim(` — ${chef.task}`));
+            }
+            for (const todo of phase.todos) {
+                console.log(chalk.dim(`      ☐  ${todo}`));
+            }
+            console.log();
+        }
+
+        // Print critical path
+        console.log(chalk.hex('#FF6B6B').bold('  🎯 CRITICAL PATH (must have for MVP):'));
+        const critical = this._getCriticalPath(hours, brief);
+        for (const item of critical) {
+            console.log(chalk.hex('#FF6B6B')(`    → ${item}`));
+        }
+
+        console.log(chalk.dim(`\n  To create todos: @planner "create todos for hackathon: ${brief}"`));
+        console.log(chalk.dim(`  To start design: @designer "Phase 1 quick mode: ${brief}"`));
+        console.log(chalk.dim(`  Full parallel launch: /parallel designer researcher strategist "${brief}"\n`));
+        console.log(HR2 + '\n');
+    }
+
+    _fmtHours(h) {
+        const hh = Math.floor(h) % 24;
+        const label = h >= 24 ? `Day ${Math.floor(h/24)+1} ` : '';
+        return `${label}${String(hh).padStart(2,'0')}:00`;
+    }
+
+    _generateHackathonPhases(hours, teamSize, brief) {
+        // Scale phase durations to fit hackathon length
+        const scale = hours / 24;
+        const phases = [
+            {
+                num: 1, name: 'Kickoff & Intelligence Gathering', color: '#FF2D55', icon: '🗺️',
+                duration: Math.round(scale * 1.5),
+                goal: 'Understand problem space, define MVP scope, assign roles',
+                chefs: [
+                    { id: 'domain-scout', task: 'map competitive landscape + identify differentiators' },
+                    { id: 'review-miner', task: 'find pain points in competitor reviews' },
+                    { id: 'strategist', task: 'validate idea + define positioning' },
+                ],
+                todos: [
+                    'Define the problem statement in one sentence',
+                    'List 3 competitors and identify your differentiator',
+                    'Decide MVP feature set (max 3 core features)',
+                    'Assign: who codes, who designs, who pitches',
+                ],
+            },
+            {
+                num: 2, name: 'Brand & Design Sprint', color: '#FF6B6B', icon: '🎨',
+                duration: Math.round(scale * 2),
+                goal: 'Design system, landing page prototype, DESIGN_RULES.md',
+                chefs: [
+                    { id: 'brand-chef', task: 'brand core + tagline + messaging' },
+                    { id: 'ui-builder', task: 'prototype/index.html — 3-second test MUST pass' },
+                ],
+                todos: [
+                    'Headline: max 8 words, passes 3-second clarity test',
+                    'Color palette + typography (define CSS variables)',
+                    'Hero section: above fold shows what/who/why',
+                    'Create DESIGN_RULES.md for consistency',
+                ],
+            },
+            {
+                num: 3, name: 'Architecture & Setup', color: '#FF8E53', icon: '🏗️',
+                duration: Math.round(scale * 1.5),
+                goal: 'Tech stack up, repo initialized, CI/CD if needed',
+                chefs: [
+                    { id: 'architect', task: 'tech stack decision + system design' },
+                ],
+                todos: [
+                    'Initialize repo, install deps',
+                    'Set up project structure and routing',
+                    'Database schema (if needed)',
+                    'Deploy skeleton to staging URL (needed for demo!)',
+                ],
+            },
+            {
+                num: 4, name: 'Core Build', color: '#FFA500', icon: '⚙️',
+                duration: Math.round(scale * (hours <= 24 ? 8 : 12)),
+                goal: 'Build the 3 MVP features. Nothing else.',
+                chefs: [
+                    { id: 'architect', task: 'implement core features' },
+                    { id: 'qa', task: 'test as features land, catch blockers early' },
+                ],
+                todos: [
+                    'Feature 1: [your core feature] — working end-to-end',
+                    'Feature 2: [second feature] — working end-to-end',
+                    'Feature 3: [third feature] — working end-to-end',
+                    'Integrate landing page with live app',
+                    'Mobile responsive check',
+                ],
+            },
+            {
+                num: 5, name: 'Polish & Pitch Prep', color: '#FFD93D', icon: '✨',
+                duration: Math.round(scale * (hours <= 24 ? 3 : 5)),
+                goal: 'Make it demo-able, prep the pitch, choreograph the 5 minutes',
+                chefs: [
+                    { id: 'presenter', task: '5-min pitch structure + demo script + Q&A prep' },
+                    { id: 'ui-builder', task: 'UI polish, animations, remove rough edges' },
+                ],
+                todos: [
+                    'Demo path: pre-fill all forms, use test account',
+                    'Pitch deck: Problem → Demo → Market → Ask (5 slides)',
+                    'One-liner: practice until it sounds natural',
+                    'Top 5 judge questions + killer answers',
+                    'Backup: screenshots + screen recording if demo breaks',
+                ],
+            },
+            ...(hours >= 36 ? [{
+                num: 6, name: 'Final Buffer & Submission', color: '#4ECDC4', icon: '🏁',
+                duration: Math.round(scale * 1),
+                goal: 'Deploy, submit, dry run presentation',
+                chefs: [{ id: 'devops', task: 'final deploy, check all env vars, smoke test' }],
+                todos: [
+                    'Production deploy — test it, not just localhost!',
+                    'Submit project with correct repo + demo URL',
+                    'Full dry run of 5-min pitch (time it!)',
+                    'Sleep at least 4 hours',
+                ],
+            }] : []),
+        ];
+        return phases;
+    }
+
+    _getCriticalPath(hours, brief) {
+        const items = [
+            'Landing page hero that passes the 3-second test (deploy before judging)',
+            'At least 1 working end-to-end user flow (not just mockups)',
+            'Demo URL that works from any laptop without local setup',
+            'A one-liner that makes judges lean forward',
+            'Backup recording of the demo in case it breaks live',
+        ];
+        if (hours <= 12) items.unshift('SCOPE CUT: pick ONE feature and nail it. Not three.');
+        if (hours >= 48) items.push('Market validation: at least 3 user interviews before submission');
+        return items;
     }
 }
