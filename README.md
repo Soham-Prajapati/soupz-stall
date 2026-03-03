@@ -51,22 +51,22 @@ See [Installation Guide →](docs/guides/INSTALL.md) for detailed setup.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    SOUPZ STALL CLI                       │
-│                                                          │
+│                    SOUPZ STALL CLI                      │
+│                                                         │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │              Master Orchestrator                  │   │
-│  │         (routes, delegates, coordinates)          │   │
+│  │              Master Orchestrator                 │   │
+│  │         (routes, delegates, coordinates)         │   │
 │  └────────────┬─────────────────────────────────────┘   │
-│               │  @DELEGATE[agent]: task                  │
-│       ┌───────┴────────────────────┐                     │
-│       │   Parallel Agent Dispatch  │                     │
+│               │  @DELEGATE[agent]: task                 │
+│       ┌───────┴────────────────────┐                    │
+│       │   Parallel Agent Dispatch  │                    │
 │       └──┬──────────┬─────────┬───┘                     │
-│          ▼          ▼         ▼                          │
+│          ▼          ▼         ▼                         │
 │     ┌────────┐ ┌────────┐ ┌────────┐                    │
 │     │Copilot │ │ Gemini │ │  Kiro  │  ← Tool Engines    │
 │     └────┬───┘ └───┬────┘ └───┬────┘                    │
-│          │         │          │                          │
-│    [chef persona system prompts injected per agent]      │
+│          │         │          │                         │
+│    [chef persona system prompts injected per agent]     │
 └─────────────────────────────────────────────────────────┘
 ```
 
