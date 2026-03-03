@@ -20,13 +20,12 @@ const BYES = ['✌️ peace out!', '👋 later!', '🫡 until next time, boss.',
 
 // ─── Centered, bigger banner ────────────────────────────────────────────────
 const BANNER = `
-${chalk.hex('#6C63FF')('       ███████╗ ')}${chalk.hex('#A855F7')(' ██████╗ ')}${chalk.hex('#06B6D4')(' ██╗   ██╗')}${chalk.hex('#4ECDC4')(' ██████╗ ')}${chalk.hex('#6BCB77')(' ███████╗')}
-${chalk.hex('#6C63FF')('       ██╔════╝ ')}${chalk.hex('#A855F7')('██╔═══██╗')}${chalk.hex('#06B6D4')(' ██║   ██║')}${chalk.hex('#4ECDC4')(' ██╔══██╗')}${chalk.hex('#6BCB77')(' ╚══███╔╝')}
-${chalk.hex('#6C63FF')('       ███████╗ ')}${chalk.hex('#A855F7')('██║   ██║')}${chalk.hex('#06B6D4')(' ██║   ██║')}${chalk.hex('#4ECDC4')(' ██████╔╝')}${chalk.hex('#6BCB77')('   ███╔╝ ')}
-${chalk.hex('#6C63FF')('       ╚════██║ ')}${chalk.hex('#A855F7')('██║   ██║')}${chalk.hex('#06B6D4')(' ██║   ██║')}${chalk.hex('#4ECDC4')(' ██╔═══╝ ')}${chalk.hex('#6BCB77')('  ███╔╝  ')}
-${chalk.hex('#6C63FF')('       ███████║ ')}${chalk.hex('#A855F7')('╚██████╔╝')}${chalk.hex('#06B6D4')(' ╚██████╔╝')}${chalk.hex('#4ECDC4')(' ██║     ')}${chalk.hex('#6BCB77')(' ███████╗')}
-${chalk.hex('#6C63FF')('       ╚══════╝ ')}${chalk.hex('#A855F7')(' ╚═════╝ ')}${chalk.hex('#06B6D4')('  ╚═════╝ ')}${chalk.hex('#4ECDC4')(' ╚═╝     ')}${chalk.hex('#6BCB77')(' ╚══════╝')}
-                    ${chalk.bold.hex('#4ECDC4')('S  T  A  L  L')}  ${chalk.dim('v2.5.0')}
+${chalk.hex('#FF2D55').bold('  ____   ___  _   _  ____  _____ ')}
+${chalk.hex('#FF5555').bold(' / ___| / _ \\| | | ||  _ \\|__  / ')}
+${chalk.hex('#FF8E53').bold(' \\___ \\| | | || | | || |_) |  / / ')}
+${chalk.hex('#FFA500').bold('  ___) || |_| || |_| ||  __/  / /__ ')}
+${chalk.hex('#FFD93D').bold(' |____/  \\___/  \\___/ |_|   /_____|')}
+         ${chalk.bold.hex('#4ECDC4')('🫕  S T A L L')}  ${chalk.dim('v3.0')}
 `;
 
 const HR = chalk.hex('#444')('━'.repeat(65));
