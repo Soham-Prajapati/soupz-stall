@@ -50,24 +50,24 @@ See [Installation Guide →](docs/guides/INSTALL.md) for detailed setup.
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    SOUPZ STALL CLI                      │
-│                                                         │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │              Master Orchestrator                 │   │
-│  │         (routes, delegates, coordinates)         │   │
-│  └────────────┬─────────────────────────────────────┘   │
-│               │  @DELEGATE[agent]: task                 │
-│       ┌───────┴────────────────────┐                    │
-│       │   Parallel Agent Dispatch  │                    │
-│       └──┬──────────┬─────────┬───┘                     │
-│          ▼          ▼         ▼                         │
-│     ┌────────┐ ┌────────┐ ┌────────┐                    │
-│     │Copilot │ │ Gemini │ │  Kiro  │  ← Tool Engines    │
-│     └────┬───┘ └───┬────┘ └───┬────┘                    │
-│          │         │          │                         │
-│    [chef persona system prompts injected per agent]     │
-└─────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│                    SOUPZ STALL CLI                     │
+│                                                        │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │              Master Orchestrator                 │  │
+│  │         (routes, delegates, coordinates)         │  │
+│  └────────────┬─────────────────────────────────────┘  │
+│               │  @DELEGATE[agent]: task                │
+│       ┌───────┴────────────────────┐                   │
+│       │   Parallel Agent Dispatch  │                   │
+│       └──┬──────────┬─────────┬────┘                   │
+│          ▼          ▼         ▼                        │
+│     ┌─────────┐ ┌────────┐ ┌────────┐                  │
+│     │ Copilot │ │ Gemini │ │  Kiro  │  ← Tool Engines  │
+│     └─────┬───┘ └───┬────┘ └───┬────┘                  │
+│           │         │          │                       │
+│    [chef persona system prompts injected per agent]    │
+└────────────────────────────────────────────────────────┘
 ```
 
 Each **tool engine** can run any **chef** (persona). The orchestrator routes tasks to the best engine×chef combination, and can run multiple in parallel.
