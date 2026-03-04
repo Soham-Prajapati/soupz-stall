@@ -1,6 +1,6 @@
 {
     "name": "soupz-stall",
-    "version": "3.0.0",
+    "version": "0.1.0",
     "description": "Jarvis-like multi-agent orchestrator CLI with smart routing, memory shards, and self-improvement",
     "type": "module",
     "bin": {

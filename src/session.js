@@ -25,7 +25,7 @@ ${chalk.hex('#FF5555').bold(' / ___| / _ \\| | | ||  _ \\|__  / ')}
 ${chalk.hex('#FF8E53').bold(' \\___ \\| | | || | | || |_) |  / / ')}
 ${chalk.hex('#FFA500').bold('  ___) || |_| || |_| ||  __/  / /__ ')}
 ${chalk.hex('#FFD93D').bold(' |____/  \\___/  \\___/ |_|   /_____|')}
-         ${chalk.bold.hex('#4ECDC4')('🫕  S T A L L')}  ${chalk.dim('v3.0')}
+         ${chalk.bold.hex('#4ECDC4')('🫕  S T A L L')}  ${chalk.dim('v0.1-alpha')}
 `;
 
 const HR = chalk.hex('#444')('━'.repeat(65));
@@ -1652,6 +1652,21 @@ export class Session {
             return;
         }
 
+        // ── Hard block: geographic maps require real coordinate data ──────────
+        const geoPatterns = /\b(map|country|nation|state|province|border|coastline|geography|geo|india|usa|china|europe|africa|continent|region|territory)\b/i;
+        if (geoPatterns.test(desc)) {
+            console.log(chalk.hex('#FF6B6B').bold('\n  ⛔ Geographic shapes not supported by /svgart\n'));
+            console.log(chalk.dim('  Country outlines (like India\'s map) require real coordinate data.'));
+            console.log(chalk.dim('  LLMs guess at shapes and always get them wrong — that\'s a blob, not a country.\n'));
+            console.log(chalk.hex('#FFD93D')('  Use pre-made SVG map data instead:\n'));
+            console.log(chalk.dim('  🗺  India:      https://simplemaps.com/resources/svg-in'));
+            console.log(chalk.dim('  🌍 Any country: https://www.naturalearthdata.com/'));
+            console.log(chalk.dim('  🌐 MapSVG:     https://github.com/mapbox/mapbox-gl-js'));
+            console.log(chalk.dim('  📦 npm:        npm install react-simple-maps\n'));
+            console.log(chalk.dim('  /svgart works great for: logos, icons, abstract heroes, patterns, badges\n'));
+            return;
+        }
+
         // Viewport defaults per type
         const viewports = {
             logo: '0 0 360 100',
@@ -1679,15 +1694,16 @@ Rules:
 3. No external hrefs, no raster images embedded, no scripts
 4. Use <defs> for gradients, patterns, filters — reference them with id
 5. Clean, production-ready SVG that works when saved as a .svg file
-6. For ${svgType}: ${svgType === 'logo' ? 'include text/wordmark + icon mark, scalable at any size' :
+6. NEVER attempt geographic shapes (country/state/map outlines) — you don't have real coordinate data and will produce garbage blobs
+7. For ${svgType}: ${svgType === 'logo' ? 'include text/wordmark + icon mark, scalable at any size' :
     svgType === 'icon' ? 'pixel-crisp at 24px, 2px stroke width, rounded caps, outline style' :
     svgType === 'hero' ? 'full-bleed background, bold visual, good as website hero section' :
     svgType === 'pattern' ? 'tileable pattern — must seamlessly repeat, use <pattern> element' :
     svgType === 'badge' ? 'compact label, rounded corners, clear text' :
     svgType === 'illustration' ? 'detailed scene illustration, multiple layers, rich visual' :
     'visually striking, appropriate for web use'}
-7. Color palette: extract from the description — if not specified, use bold, award-winning colors
-8. DO NOT output anything except the SVG. No "Here is…", no "```svg", just <svg>...</svg>
+8. Color palette: extract from the description — if not specified, use bold, award-winning colors
+9. DO NOT output anything except the SVG. No "Here is…", no "\`\`\`svg", just <svg>...</svg>
 
 Design brief: ${desc}`;
 
