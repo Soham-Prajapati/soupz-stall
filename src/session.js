@@ -40,6 +40,7 @@ const COMMANDS = [
     { cmd: '/chain',      desc: 'Chain chefs: /chain designer→researcher "prompt"', icon: '🔗' },
     { cmd: '/delegate',   desc: 'Delegate to chef: /delegate designer "prompt"', icon: '📤' },
     { cmd: '/parallel',   desc: 'Run chefs in parallel: /parallel a b c "prompt"', icon: '⚡' },
+    { cmd: '/svgart',     desc: 'Generate SVG asset: /svgart logo "HealthAI logo, blue, geometric"', icon: '🎨' },
     { cmd: '/hackathon',  desc: 'Hackathon mode — phased plan, todos, chef assignments', icon: '🏁' },
     { cmd: '/spill',      desc: 'Toggle spill mode — no restrictions, full send 🫕', icon: '🌊' },
     { cmd: '/browse',     desc: 'Screenshot localhost', icon: '🌐' },
@@ -791,6 +792,8 @@ export class Session {
         if (input === '/spill' || input === '/yolo') { this.toggleYolo(); return; }
         // /hackathon mode
         if (input === '/hackathon' || input.startsWith('/hackathon ')) { await this.handleHackathon(input); return; }
+        // /svgart — SVG asset generation
+        if (input === '/svgart' || input.startsWith('/svgart ')) { await this.handleSvgArt(input); return; }
         if (input === '/tokens') { this.showTokens(); return; }
         if (input === '/costs') { this.showCosts(); return; }
         if (input === '/grades') { this.showGrades(); return; }
@@ -1610,6 +1613,140 @@ export class Session {
             console.log(chalk.hex(a.color)(`  ${a.icon} Kitchen: ${a.name}`));
         }
         console.log(chalk.dim(`    ${this.getPersonas().length} chefs ready. /model to pick utensil. /auto for best kitchen.`));
+    }
+
+    /**
+     * /svgart <type> "<description>"
+     * Types: logo | icon | hero | illustration | pattern | badge
+     * Prompts the active LLM with a strict SVG-only system prompt,
+     * extracts all <svg>…</svg> blocks from the response, and saves
+     * each one to <cwd>/assets/<type>-<timestamp>.svg
+     */
+    async handleSvgArt(input) {
+        const HR = chalk.hex('#FF6B35')('━'.repeat(55));
+        const args = input.replace('/svgart', '').trim();
+
+        // Parse: /svgart logo "description"  or  /svgart "description"
+        const typeMatch = args.match(/^(logo|icon|hero|illustration|pattern|badge|banner)\s+/i);
+        const svgType = typeMatch ? typeMatch[1].toLowerCase() : 'asset';
+        const desc = args.replace(typeMatch?.[0] || '', '').replace(/^["']|["']$/g, '').trim();
+
+        if (!desc) {
+            console.log('\n' + HR);
+            console.log(chalk.hex('#FF6B35').bold('  🎨 /svgart — SVG Asset Generator'));
+            console.log(HR);
+            console.log(chalk.dim('\n  Usage: /svgart <type> "description"\n'));
+            console.log(chalk.dim('  Types: logo | icon | hero | illustration | pattern | badge | banner\n'));
+            console.log(chalk.dim('  Examples:'));
+            console.log(chalk.dim('    /svgart logo "HealthAI, geometric, blue gradient, clean wordmark"'));
+            console.log(chalk.dim('    /svgart icon "settings gear, outline, 24x24, dark mode"'));
+            console.log(chalk.dim('    /svgart hero "abstract waves, purple and teal gradient, 1440x600"'));
+            console.log(chalk.dim('    /svgart pattern "subtle dot grid, light gray, tileable"\n'));
+            console.log(HR + '\n');
+            return;
+        }
+
+        const toolId = this.activeTool || this.pickBestTool(desc);
+        if (!toolId) {
+            console.log(chalk.red('  No kitchen open. Install gh (Copilot) or gemini first.'));
+            return;
+        }
+
+        // Viewport defaults per type
+        const viewports = {
+            logo: '0 0 360 100',
+            icon: '0 0 24 24',
+            hero: '0 0 1440 600',
+            illustration: '0 0 800 600',
+            pattern: '0 0 40 40',
+            badge: '0 0 120 40',
+            banner: '0 0 1200 300',
+            asset: '0 0 400 400',
+        };
+        const viewBox = viewports[svgType] || '0 0 400 400';
+        const [,, w, h] = viewBox.split(' ');
+
+        console.log('\n' + HR);
+        console.log(chalk.hex('#FF6B35').bold(`  🎨 Generating SVG ${svgType}: "${desc}"`));
+        console.log(chalk.dim(`  Kitchen: ${toolId}  ·  viewBox: ${viewBox}`));
+        console.log(HR + '\n');
+
+        const systemPrompt = `You are an expert SVG designer. Output ONLY valid SVG markup — no markdown, no explanation, no code fences.
+
+Rules:
+1. Output a single, complete, self-contained <svg> element
+2. Must include: xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${w}" height="${h}"
+3. No external hrefs, no raster images embedded, no scripts
+4. Use <defs> for gradients, patterns, filters — reference them with id
+5. Clean, production-ready SVG that works when saved as a .svg file
+6. For ${svgType}: ${svgType === 'logo' ? 'include text/wordmark + icon mark, scalable at any size' :
+    svgType === 'icon' ? 'pixel-crisp at 24px, 2px stroke width, rounded caps, outline style' :
+    svgType === 'hero' ? 'full-bleed background, bold visual, good as website hero section' :
+    svgType === 'pattern' ? 'tileable pattern — must seamlessly repeat, use <pattern> element' :
+    svgType === 'badge' ? 'compact label, rounded corners, clear text' :
+    svgType === 'illustration' ? 'detailed scene illustration, multiple layers, rich visual' :
+    'visually striking, appropriate for web use'}
+7. Color palette: extract from the description — if not specified, use bold, award-winning colors
+8. DO NOT output anything except the SVG. No "Here is…", no "```svg", just <svg>...</svg>
+
+Design brief: ${desc}`;
+
+        this.startSpinner(toolId);
+
+        let rawOutput = '';
+        try {
+            rawOutput = await this.spawner.run(toolId, systemPrompt, this.cwd);
+        } catch (err) {
+            this.stopSpinner();
+            console.log(chalk.red(`  ✖ Generation failed: ${err.message}`));
+            return;
+        }
+        this.stopSpinner();
+
+        // Extract all <svg>...</svg> blocks (including multiline)
+        const svgBlocks = [];
+        const svgRegex = /<svg[\s\S]*?<\/svg>/gi;
+        let match;
+        while ((match = svgRegex.exec(rawOutput)) !== null) {
+            svgBlocks.push(match[0]);
+        }
+
+        if (!svgBlocks.length) {
+            // Try to salvage: if output contains SVG-like content without proper tags
+            console.log(chalk.yellow('  ⚠ No complete <svg> block found in output.'));
+            console.log(chalk.dim('  Raw output (first 500 chars):'));
+            console.log(chalk.dim('  ' + rawOutput.slice(0, 500)));
+            console.log(chalk.dim('\n  Tip: Try with a more specific description or switch stations.'));
+            return;
+        }
+
+        // Save to assets/
+        const assetsDir = join(this.cwd, 'assets');
+        mkdirSync(assetsDir, { recursive: true });
+
+        const saved = [];
+        for (let i = 0; i < svgBlocks.length; i++) {
+            const suffix = svgBlocks.length > 1 ? `-${i + 1}` : '';
+            const slug = desc.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
+            const filename = `${svgType}-${slug}${suffix}.svg`;
+            const filepath = join(assetsDir, filename);
+            writeFileSync(filepath, svgBlocks[i], 'utf8');
+            saved.push({ filename, filepath, size: svgBlocks[i].length });
+        }
+
+        console.log(chalk.hex('#6BCB77').bold(`  ✅ ${saved.length} SVG asset${saved.length > 1 ? 's' : ''} saved:\n`));
+        for (const { filename, filepath, size } of saved) {
+            console.log(chalk.hex('#4ECDC4')(`  📄 ${filename}`) + chalk.dim(` (${(size / 1024).toFixed(1)} KB)`));
+            console.log(chalk.dim(`     ${filepath}`));
+            // Preview first 3 lines
+            const preview = saved[0] === saved.find(s => s.filename === filename)
+                ? svgBlocks[saved.indexOf({ filename, filepath, size })].split('\n').slice(0, 3).join('\n')
+                : '';
+        }
+
+        console.log(chalk.dim(`\n  Import in HTML: <img src="assets/${saved[0].filename}">`));
+        console.log(chalk.dim(`  Import in React: import { ReactComponent as Logo } from './assets/${saved[0].filename}'`));
+        console.log(chalk.dim(`  Inline: copy SVG content directly into your HTML\n`));
     }
 
     toggleYolo() {

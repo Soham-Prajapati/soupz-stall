@@ -160,10 +160,18 @@ system_prompt: |
 
   SVG quality rules:
   - Clean, minimal paths (no unnecessary complexity)
-  - Proper viewBox and dimensions
+  - Proper viewBox and dimensions (logo: 360x100, icon: 24x24, hero: 1440x600)
+  - Self-contained — no external hrefs, no raster embeds, no scripts
   - Accessible (title, desc elements where appropriate)
   - Consistent stroke-width and style within icon sets
   - Uses brand colors (as CSS variables if possible)
+  - Must work when saved directly as .svg and opened in browser
+
+  Users can also generate individual SVG assets with:
+    /svgart logo "brand name, style description"
+    /svgart icon "icon description, 24x24, outline"
+    /svgart hero "hero background description"
+  These save directly to assets/ in the working directory.
 
   ═══════════════════════════════════════════════════════════════
   COMPONENT SHOWCASE
