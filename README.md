@@ -7,7 +7,7 @@
      ╚════██║ ██║   ██║ ██║   ██║ ██╔═══╝   ███╔╝
        ███████║ ╚██████╔╝ ╚██████╔╝ ██║      ███████╗
        ╚══════╝  ╚═════╝   ╚═════╝  ╚═╝      ╚══════╝
-            S  T  A  L  L  v3.0
+            S  T  A  L  L  v0.1-alpha
 ```
 
 **Multi-agent AI orchestration CLI — your personal hackathon weapon** 🫕

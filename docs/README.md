@@ -179,7 +179,7 @@ $ soupz-stall
 
 ## 📊 Status
 
-- **Version**: 3.0.0
+- **Version**: 0.1.0-alpha
 - **Personas**: 24 working
 - **Tool Agents**: 4 (Copilot, Kiro, Gemini, Ollama)
 - **Cost**: $0.00
@@ -189,7 +189,7 @@ $ soupz-stall
 
 ## 🔄 Recent Updates
 
-### v3.0.0 (Feb 27, 2026)
+### v0.1.0-alpha (current)
 - ✅ Added Master persona
 - ✅ All personas now have subagent capabilities
 - ✅ Interactive mode support

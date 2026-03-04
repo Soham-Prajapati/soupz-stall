@@ -1,4 +1,4 @@
-# Soupz-Stall v2.5 — Complete Guide
+# Soupz-Stall v0.1-alpha — Guide
 
 > Your personal Jarvis CLI — orchestrates multiple AI agents with 22 expert personas, smart task management, context sharding, and developer-first UX. Now called **Soupz-Stall** 🫡
 
@@ -334,7 +334,7 @@ Replace puppeteer screenshots with a live browser dashboard. Antigravity opens C
 ### v2.9 — Team Mode
 Multiple users share a session. Real-time updates on who's doing what. Task assignment by user.
 
-### v3.0 — Plugin System
+### Roadmap — Plugin System (planned)
 Community plugins: `.soupz-plugin.js` files that add commands, personas, or tools. npm registry integration.
 
 ### v3.1 — Voice Input

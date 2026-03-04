@@ -1,4 +1,4 @@
-# 🔄 Migration Guide: Soupz-Agents v2.5.0 → v3.0.0
+# 🔄 Migration Guide: Soupz-Agents (legacy — see CHANGELOG)
 
 ## Overview
 
@@ -82,7 +82,7 @@ const results = await orchestrator.chain([
 ```bash
 cd /Users/shubh/Developer/soupz-agents
 git add .
-git commit -m "Backup before v3.0.0"
+git commit -m "Backup before 0.1.0-alpha"
 ```
 
 ### Step 2: No Code Changes Needed!
@@ -263,7 +263,7 @@ After migration:
 
 ## Changelog
 
-### v3.0.0 (2026-02-26)
+### v0.1.0-alpha (2026-03-04)
 
 **Added**:
 - Semantic routing engine with intent detection

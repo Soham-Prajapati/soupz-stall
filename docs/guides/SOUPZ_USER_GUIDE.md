@@ -637,6 +637,6 @@ soupz-stall
 ---
 
 **Last Updated**: February 27, 2026
-**Version**: 3.0.0
+**Version**: 0.1.0-alpha
 **Personas**: 23 working
 **Cost**: $0.00
