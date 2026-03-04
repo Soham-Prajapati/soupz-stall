@@ -384,23 +384,11 @@ add a /ux command that generates wireframes
 
 ---
 
-## 💰 Model Selection Guide (Saving Tokens for Hackathon)
+## 💰 Model Selection
 
-| Task | Best Model | Token Cost | Command |
-|------|-----------|-----------|---------|
-| Brainstorming, ideation | GPT-5-mini | FREE (0x) | `/model gpt-5-mini` |
-| Research, content writing | GPT-5-mini | FREE (0x) | `/model gpt-5-mini` |
-| SVG generation | Claude Haiku 4.5 | 0.33x | `/model claude-haiku-4-5` |
-| UI component code | Claude Haiku 4.5 | 0.33x | `/model claude-haiku-4-5` |
-| Complex architecture | Claude Sonnet 4.6 | 1x | default |
-| Final production code | Claude Sonnet 4.6 | 1x | default |
-| Multi-file reasoning | Claude Sonnet 4.6 | 1x | default |
+Models are available via `/utensil` — switch at any time. Cost multipliers are shown in the picker. Copilot and Ollama are subscription/free. Gemini charges per token.
 
-**Token-saving workflow for hackathon:**
-1. Use `GPT-5-mini` for all planning/brainstorming (free)
-2. Use `Claude Haiku 4.5` (0.33x) for design iterations, SVGs, component generation
-3. Save Sonnet for final code, bug fixes, complex integrations only
-4. Use `/chain` to batch work → fewer round-trips = fewer tokens
+Pick based on your task and budget — there are no rigid rules. Run `/utensil` to see the full list with pricing.
 
 ---
 

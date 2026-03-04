@@ -162,7 +162,7 @@ export class Session {
         return best.id;
     }
 
-    /** Distribute N tasks across available tools — cycles through copilot/gemini/kiro
+    /** Distribute N tasks across available tools — cycles through available engines
      *  so parallel tasks run on different engines simultaneously */
     pickDiverseTools(count) {
         const tools = this.getTools();
@@ -179,7 +179,7 @@ export class Session {
 
         // ── Dynamic status bar based on terminal width ──
         const termWidth = process.stdout.columns || 80;
-        const allAgents = this.getAllAgents().filter(a => !['ollama', 'antigravity'].includes(a.id)); // Hide ollama & antigravity
+        const allAgents = this.getAllAgents().filter(a => !['ollama', 'antigravity', 'kiro'].includes(a.id)); // Hide local/deprecated engines
         const personas = this.getPersonas();
         
         // Build agent line
@@ -863,28 +863,14 @@ export class Session {
             }
         }
 
-        // ── SMART: Auto-route UI/browse/localhost tasks → Antigravity ──
+        // ── SMART: Auto-route localhost screenshot tasks via built-in browser ──
         const lower = resolved.toLowerCase();
-        const mentionsUI = lower.includes('ui') || lower.includes('interface') || lower.includes('design') || lower.includes('wireframe') || lower.includes('layout') || lower.includes('page looks') || lower.includes('screenshot') || lower.includes('visual');
         const mentionsLocalhost = /localhost:\d+/i.test(resolved) || /127\.0\.0\.1:\d+/i.test(resolved);
         const mentionsBrowse = lower.includes('check') || lower.includes('browse') || lower.includes('look') || lower.includes('open') || lower.includes('see') || lower.includes('verify');
         if (mentionsLocalhost && mentionsBrowse) {
             const portMatch = resolved.match(/localhost:(\d+)/i) || resolved.match(/127\.0\.0\.1:(\d+)/i);
             await this.browseLocalhost(`/browse http://localhost:${portMatch[1]}`);
             return;
-        }
-        if ((mentionsUI || mentionsLocalhost) && !this.activeTool) {
-            const antigravity = this.registry.get('antigravity');
-            if (antigravity?.available) {
-                console.log(chalk.hex('#6C63FF')(`  🚀 UI task → routing to Antigravity`));
-                this.getAgentTokens('antigravity').in += Math.ceil(resolved.length / 4);
-                this.getAgentTokens('antigravity').prompts++;
-                this.conversationLog.push({ role: 'user', text: input, ts: Date.now() });
-                this.context.addMessage('user', resolved);
-                this.startSpinner('antigravity');
-                await this.orchestrator.runOn('antigravity', resolved, this.cwd);
-                return;
-            }
         }
 
         // Track
@@ -915,7 +901,7 @@ export class Session {
             this.startSpinner(toolId);
             await this.orchestrator.runOn(toolId, resolved, this.cwd);
         }
-        else { console.log(chalk.red('  No kitchens open (install gh/gemini/kiro).')); }
+        else { console.log(chalk.red('  No kitchens open (install gh (Copilot) or gemini).')); }
     }
 
     // ── /clear — clear context window (like Claude Code's /clear) ─────────
@@ -1004,12 +990,10 @@ export class Session {
         } catch { console.log(chalk.yellow(`  ℹ  Run: ${a.binary || agentId} auth logout`)); }
     }
 
-    // ── /browse ── always via Antigravity ────────────────────────────────────
+    // ── /browse ── built-in puppeteer screenshot ──────────────────────────────
     async browseLocalhost(input) {
         const url = input.replace('/browse', '').trim() || 'http://localhost:3000';
-        const ag = this.registry.get('antigravity');
-        const agLabel = ag ? chalk.hex(ag.color)(`${ag.icon} Antigravity`) : '🌐';
-        console.log(agLabel + chalk.dim(` → browsing ${url}…`));
+        console.log(chalk.hex('#4ECDC4')('  🌐 ') + chalk.dim(`browsing ${url}…`));
         try {
             const puppeteer = await import('puppeteer-core');
             const paths = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'];
@@ -1225,13 +1209,13 @@ export class Session {
             return;
         }
         if (!persona.available) {
-            console.log(chalk.red(`  @${personaId} is unavailable — open a kitchen first (install gh/gemini/kiro)`));
+            console.log(chalk.red(`  @${personaId} is unavailable — open a kitchen first (install gh (Copilot) or gemini)`));
             return;
         }
         this.addActivePersona(personaId);
         this.context.addMessage('user', prompt);
         const toolId = this.activeTool || this.pickBestTool(prompt);
-        if (!toolId) { console.log(chalk.red('  No kitchen open. Install gh (Copilot), gemini, or kiro first.')); this.removeActivePersona(personaId); return; }
+        if (!toolId) { console.log(chalk.red('  No kitchen open. Install gh (Copilot) or gemini first.')); this.removeActivePersona(personaId); return; }
         const toolAgent = this.registry.get(toolId);
         this.getAgentTokens(toolId).in += Math.ceil(prompt.length / 4);
         this.getAgentTokens(toolId).prompts++;
@@ -1258,7 +1242,7 @@ export class Session {
         if (!matches.length) return;
         
         const tools = this.pickDiverseTools(matches.length);
-        if (!tools.length) { console.log(chalk.red('  No kitchen open for delegation — install gh/gemini/kiro')); return; }
+        if (!tools.length) { console.log(chalk.red('  No kitchen open for delegation — install gh (Copilot) or gemini')); return; }
         
         console.log(chalk.hex('#A855F7')(`\n  ⚡ ${matches.length} delegation(s) from @${sourcePersonaId} — running in PARALLEL`));
         
@@ -1370,7 +1354,7 @@ export class Session {
             console.log(chalk.hex(persona.color || '#888')(`\n  ${persona.icon || '○'} Step ${i+1}/${agentIds.length}: @${agentId}`));
             
             const toolId = this.activeTool || this.pickBestTool(stepPrompt);
-            if (!toolId) { console.log(chalk.red('  No kitchens open (install gh/gemini/kiro)')); break; }
+            if (!toolId) { console.log(chalk.red('  No kitchens open (install gh (Copilot) or gemini)')); break; }
             const sysPrompt = persona.type === 'persona' ? (persona.system_prompt || persona.body || '') : '';
             const fullPrompt = sysPrompt ? `${sysPrompt}\n\nUser: ${stepPrompt}` : stepPrompt;
             
@@ -1400,7 +1384,7 @@ export class Session {
         }
         
         const tools = this.pickDiverseTools(agentIds.length);
-        if (!tools.length) { console.log(chalk.red('  No kitchens open (install gh/gemini/kiro)')); return; }
+        if (!tools.length) { console.log(chalk.red('  No kitchens open (install gh (Copilot) or gemini)')); return; }
         
         console.log(chalk.hex('#A855F7')(`  ⚡ Parallel dispatch: ${agentIds.join(' + ')} (${agentIds.length} simultaneous)`));
         
@@ -1453,7 +1437,6 @@ export class Session {
         const costs = {
             copilot: { in: 0, out: 0, label: 'GitHub Copilot (subscription)' },
             gemini: { in: 0.00025, out: 0.0005, label: 'Gemini 2.5 Flash (per 1k tok)' },
-            kiro: { in: 0, out: 0, label: 'Kiro (subscription)' },
         };
         console.log(chalk.bold('\n  💰 Cost Tracker\n'));
         for (const [id, toks] of Object.entries(this.agentTokens)) {
@@ -1702,8 +1685,20 @@ export class Session {
             console.log(chalk.hex('#FF6B6B')(`    → ${item}`));
         }
 
-        console.log(chalk.dim(`\n  To create todos: @planner "create todos for hackathon: ${brief}"`));
-        console.log(chalk.dim(`  To start design: @designer "Phase 1 quick mode: ${brief}"`));
+        // ── Create actual todos in the task list ──────────────────────────────
+        const allTodos = [];
+        let cumId = 1;
+        for (const phase of phases) {
+            allTodos.push({ id: cumId++, task: `[Phase ${phase.num}] ${phase.name}`, done: false, status: 'pending', elapsed: 0, startedAt: null });
+            for (const t of phase.todos) {
+                allTodos.push({ id: cumId++, task: t, done: false, status: 'pending', elapsed: 0, startedAt: null });
+            }
+        }
+        this.todoList = allTodos;
+        console.log(chalk.hex('#4ECDC4').bold(`\n  ✅ ${allTodos.length} todos created — run /todo to see them\n`));
+        this.renderTodoCard();
+
+        console.log(chalk.dim(`  Start design: @designer "Phase 1 quick mode: ${brief}"`));
         console.log(chalk.dim(`  Full parallel launch: /parallel designer researcher strategist "${brief}"\n`));
         console.log(HR2 + '\n');
     }

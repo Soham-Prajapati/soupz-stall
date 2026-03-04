@@ -20,10 +20,10 @@ $ soupz-stall
 
   Invoking 2 subagents in parallel (using tool: subagent)
 
-    ✓ kiro_default: Generate 20 creative productivity ideas
+    ✓ copilot: Generate 20 creative productivity ideas
     ↳ done (0 tool uses · 18.42s)
 
-    ✓ kiro_default: Evaluate ideas on feasibility (1-10) and impact (1-10)
+    ✓ copilot: Evaluate ideas on feasibility (1-10) and impact (1-10)
     ↳ done (0 tool uses · 15.73s)
 
   - Completed in 34.15s
@@ -98,10 +98,10 @@ $ soupz-stall
 
   Invoking 2 subagents in parallel (using tool: subagent)
 
-    ✓ kiro_default: Design system architecture with real-time sync
+    ✓ copilot: Design system architecture with real-time sync
     ↳ done (0 tool uses · 24.18s)
 
-    ✓ kiro_default: Create UI/UX flows and wireframes
+    ✓ copilot: Create UI/UX flows and wireframes
     ↳ done (0 tool uses · 19.52s)
 
   - Completed in 43.70s
@@ -246,19 +246,19 @@ $ soupz-stall
 
   Invoking 5 subagents in parallel (using tool: subagent)
 
-    ✓ kiro_default: Design system architecture with AWS Lambda + Ollama
+    ✓ copilot: Design system architecture with AWS Lambda + Ollama
     ↳ done (0 tool uses · 28.34s)
 
-    ✓ kiro_default: Create UI/UX flows and design system
+    ✓ copilot: Create UI/UX flows and design system
     ↳ done (0 tool uses · 22.17s)
 
-    ✓ kiro_default: Break down 6-day sprint with parallel work streams
+    ✓ copilot: Break down 6-day sprint with parallel work streams
     ↳ done (0 tool uses · 25.89s)
 
-    ✓ kiro_default: Research best AI tools and cost optimization
+    ✓ copilot: Research best AI tools and cost optimization
     ↳ done (0 tool uses · 19.42s)
 
-    ✓ kiro_default: Identify winning angle for hackathon judges
+    ✓ copilot: Identify winning angle for hackathon judges
     ↳ done (0 tool uses · 21.56s)
 
   - Batch 1 completed in 117.38s
@@ -269,19 +269,19 @@ $ soupz-stall
 
   Invoking 5 subagents in parallel (using tool: subagent)
 
-    ✓ kiro_default: AWS infrastructure setup with LocalStack for dev
+    ✓ copilot: AWS infrastructure setup with LocalStack for dev
     ↳ done (0 tool uses · 18.73s)
 
-    ✓ kiro_default: Test strategy with edge cases
+    ✓ copilot: Test strategy with edge cases
     ↳ done (0 tool uses · 16.24s)
 
-    ✓ kiro_default: Security checklist and threat modeling
+    ✓ copilot: Security checklist and threat modeling
     ↳ done (0 tool uses · 15.91s)
 
-    ✓ kiro_default: Feature prioritization using RICE framework
+    ✓ copilot: Feature prioritization using RICE framework
     ↳ done (0 tool uses · 17.38s)
 
-    ✓ kiro_default: Pitch deck outline and demo script
+    ✓ copilot: Pitch deck outline and demo script
     ↳ done (0 tool uses · 19.12s)
 
   - Batch 2 completed in 87.38s
@@ -639,7 +639,7 @@ $ soupz-stall
 
   [Spawning @architect subagent]
 
-    ✓ kiro_default: Design technical architecture for todo app
+    ✓ copilot: Design technical architecture for todo app
     ↳ done (0 tool uses · 16.82s)
 
   ## 🏗️ Technical Architecture (from @architect)

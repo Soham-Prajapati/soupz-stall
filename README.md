@@ -22,7 +22,7 @@
 
 ## What is Soupz Stall?
 
-Soupz Stall is a **multi-agent CLI** that orchestrates multiple AI tools (GitHub Copilot, Gemini, Kiro) through a cast of specialized **chefs** (personas). Think of it like Claude Code's sub-agent system but running on your existing AI subscriptions — no extra API keys needed.
+Soupz Stall is a **multi-agent CLI** that orchestrates multiple AI tools (GitHub Copilot, Gemini) through a cast of specialized **chefs** (personas). Think of it like Claude Code's sub-agent system but running on your existing AI subscriptions — no extra API keys needed.
 
 **Key differentiator:** Unlike other CLIs that run tasks one at a time, Soupz Stall can **spawn multiple agents in parallel** — delegating design work to one agent while code architecture happens simultaneously in another.
 
@@ -41,7 +41,7 @@ npm link    # makes `soupz` available globally
 soupz
 ```
 
-> **Requirements:** At least one of: `gh` (GitHub Copilot CLI), `gemini` (Gemini CLI), or `kiro` (Kiro CLI)
+> **Requirements:** At least one of: `gh` (GitHub Copilot CLI) or `gemini` (Gemini CLI)
 
 See [Installation Guide →](docs/guides/INSTALL.md) for detailed setup.
 
@@ -63,7 +63,7 @@ See [Installation Guide →](docs/guides/INSTALL.md) for detailed setup.
 │       └──┬──────────┬─────────┬────┘                   │
 │          ▼          ▼         ▼                        │
 │     ┌─────────┐ ┌────────┐ ┌────────┐                  │
-│     │ Copilot │ │ Gemini │ │  Kiro  │  ← Tool Engines  │
+│     ├── copilot ──┤ ├── gemini ──┤  ← Tool Engines  │
 │     └─────┬───┘ └───┬────┘ └───┬────┘                  │
 │           │         │          │                       │
 │    [chef persona system prompts injected per agent]    │
@@ -76,13 +76,13 @@ Each **tool engine** can run any **chef** (persona). The orchestrator routes tas
 
 ## 🔧 The Kitchen — Tool Engines
 
-| Engine | Command | Model | Best For |
-|--------|---------|-------|----------|
-| [🐙 GitHub Copilot](docs/agents/copilot.md) | `gh copilot` | GPT-4.1 | Shell, GitHub, DevOps |
-| [🔮 Gemini](docs/agents/gemini.md) | `gemini` | Gemini 2.5 Pro/Flash | Research, long context, multi-modal |
-| [🎯 Kiro](docs/agents/kiro.md) | `kiro` | Claude Sonnet | File ops, code analysis, AWS |
-| [🚀 Antigravity](docs/agents/antigravity.md) | VS Code | Various | UI tasks, browser automation |
-| [🤖 Ollama](docs/agents/ollama.md) | `ollama` | Local LLMs | Offline, private, custom models |
+| Engine | Command | Best For |
+|--------|---------|----------|
+| [🐙 GitHub Copilot](docs/agents/copilot.md) | `gh copilot` | Shell, GitHub, DevOps, coding |
+| [🔮 Gemini](docs/agents/gemini.md) | `gemini` | Research, long context, multi-modal |
+| [🤖 Ollama](docs/agents/ollama.md) | `ollama` | Offline, private, custom local models |
+
+Switch stations with `/station <name>`. Switch model with `/utensil <model>`. Use `/auto` to let the router pick.
 
 ---
 
@@ -155,7 +155,7 @@ The orchestrator responds with:
 @DELEGATE[planner]: Sprint plan for 2-person team, 24 hours
 ```
 
-All three fire **simultaneously** — design via Gemini, architecture via Copilot, planning via Kiro.
+All three fire **simultaneously** — design via Gemini, architecture via Copilot, planning via the strategist chef.
 
 ### Explicit Commands
 
@@ -209,13 +209,11 @@ If you reference an agent that doesn't exist, Soupz Stall **creates it on the fl
 
 ---
 
-## 💰 Token Budget Guide
+## 💰 Token Budget
 
-| Task | Best Model | Cost | How to select |
-|------|-----------|------|---------------|
-| Brainstorming, planning | GPT-5-mini | FREE | `/model gpt-5-mini` |
-| SVG generation, UI iteration | Claude Haiku 4.5 | 0.33× | `/model claude-haiku-4-5` |
-| Complex code, architecture | Claude Sonnet 4.6 | 1× | default |
+Copilot and Ollama are **free/subscription** — use them as much as you want. Gemini charges per token.
+
+Use `/utensil` to switch models at any time. Copilot's model list shows cost multipliers — pick what fits the task. There are no hardcoded recommendations here; you know your project best.
 
 ---
 
@@ -267,7 +265,7 @@ soupz-stall/
 ├── docs/
 │   ├── agents/                  ← Per-agent documentation
 │   ├── guides/                  ← Setup, usage guides
-│   ├── integrations/            ← BMAD, Kiro, Copilot CLI integration
+│   ├── integrations/            ← BMAD, Copilot CLI integration
 │   └── development/             ← Architecture, migration notes
 ├── bmad-export/                 ← BMAD-compatible agent exports
 ├── scripts/                     ← Utility scripts
@@ -293,7 +291,6 @@ Soupz agents are also available as **Copilot CLI skills** (toggle in `/skills` p
 ## 🌊 Integrations
 
 - [BMAD Integration →](docs/integrations/BMAD_IMPORT_GUIDE.md)
-- [Kiro CLI Integration →](docs/integrations/KIRO_INTEGRATION.md)
 - [Ollama (Local LLMs) →](docs/guides/OLLAMA_SETUP.md)
 
 ---

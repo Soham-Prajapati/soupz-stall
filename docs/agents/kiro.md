@@ -1,8 +1,9 @@
-# 🎯 Kiro
+# ~~Kiro~~ — Deprecated
 
-> Kiro CLI - Advanced AI with file ops, code analysis, AWS, and subagents
+> **Kiro has been removed from Soupz Stall.** Use GitHub Copilot (`gh`) or Gemini instead.
 
-| | |
+The Kiro integration has been discontinued. All tasks previously routed to Kiro are now handled by Copilot (for code/shell tasks) or Gemini (for research/analysis).
+
 |--|--|
 | **ID** | `@kiro` |
 | **Type** | Tool Engine |

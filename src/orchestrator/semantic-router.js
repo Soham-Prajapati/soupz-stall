@@ -81,15 +81,8 @@ export class SemanticRouter extends EventEmitter {
             const caps = agent.capabilities || [];
             for (const [category, pattern] of Object.entries(this.semanticPatterns)) {
                 if (pattern.test(prompt)) {
-                    // Don't auto-route UI/design prompts to Antigravity
-                    if (category === 'design' && agent.id === 'antigravity') {
-                        score -= 50; // Penalize Antigravity for design prompts
-                        continue;
-                    }
-                    
                     if (caps.includes(category)) score += 25;
                     if (caps.includes(`${category}-expert`)) score += 35;
-                    // Extra boost for award-worthy design prompts
                     if (category === 'design' && caps.includes('code')) score += 10;
                 }
             }

@@ -170,7 +170,6 @@ bmad agents list | grep soupz
 
 ### In Kiro CLI
 ```bash
-kiro-cli chat
 # Then type:
 /bmad-agent-soupz-designer
 ```
@@ -227,4 +226,3 @@ See `scripts/convert-to-bmad.js` for the full conversion logic.
 
 ---
 
-Made with ❤️ by Kiro AI

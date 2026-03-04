@@ -69,7 +69,6 @@ soupz-stall
 /personas
 
 # Check Kiro integration
-kiro-cli chat
 /bmad-agent-soupz-designer
 ```
 
@@ -97,9 +96,7 @@ npm link
 ```bash
 # Manual import
 cp bmad-export/*.md ~/.bmad/custom/
-cp bmad-export/*.md ~/.kiro/steering/
 ```
 
 ---
 
-Made with ❤️ by Kiro AI

@@ -303,4 +303,3 @@ After migration:
 
 ---
 
-Made with ❤️ by Kiro AI
