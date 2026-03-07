@@ -18,13 +18,11 @@ soupz-agents add ollama          # Add new CLI agent
 
 ```
 soupz-stall
-├── 🚀 Antigravity ── 22 personas (VS Code · handles UI/browse tasks)
-├── 🐙 Copilot ────── 22 personas (GitHub Copilot CLI · GPT-4.1)
-├── 🔮 Gemini ─────── 22 personas (switchable: 2.5-pro, 2.5-flash)
-├── 🎯 Kiro ───────── 22 personas (Kiro CLI · file ops, AWS, subagents)
-├── 🤖 Ollama ─────── 22 personas (local LLMs)
-├── 🎯 AUTO ────────── picks best tool + persona per prompt
-└── 🧩 SHARDS ─────── 7 memory slots (auto-offload context overflow)
+├── 🐙 Copilot ────── 38 chefs (GitHub Copilot CLI · dev/building tasks)
+├── 🔮 Gemini ─────── 38 chefs (Google Gemini CLI · UI/design tasks)
+├── 🤖 Ollama ─────── local router + grading fallback
+├── 🎯 AUTO ────────── picks best tool + chef per prompt
+└── 🥫 PANTRY ─────── distributed memory banks (auto context overflow)
 ```
 
 Every tool × persona combo gets a grade. The auto-router uses grades to pick the best agent.
@@ -52,7 +50,7 @@ Every tool × persona combo gets a grade. The auto-router uses grades to pick th
 |---------|-------------|
 | `/help` | Show all commands |
 | `/agents` | List tool agents |
-| `/personas` | List all 22 personas |
+| `/personas` | List all 38 chefs |
 | `/tool <id>` | Lock to specific tool |
 | `/auto` | Full auto mode |
 | `/model` | Show/switch model |
@@ -63,9 +61,9 @@ Every tool × persona combo gets a grade. The auto-router uses grades to pick th
 | `/do all` | Execute all pending tasks |
 | `/tokens` | Token usage breakdown |
 | `/grades` | Report cards grid |
-| `/shards` | Memory shards status |
-| `/shard store <text>` | Store context |
-| `/shard recall <query>` | Search shards |
+| `/pantry` | Memory pantry status |
+| `/pantry bank store <text>` | Store context |
+| `/pantry bank recall <query>` | Search pantry |
 | `/sandbox` | Toggle ~/Developer lock |
 | `/clear` | Clear context |
 | `/rename <name>` | Name session |
@@ -140,33 +138,33 @@ You type a prompt
      │      oldest 20 are compressed and stored in a shard
      │
      ├── 2. Pre-query: before sending to agent,
-     │      all shards are searched for relevant context
+     │      all pantry are searched for relevant context
      │      and injected into the prompt
      │
-     └── 3. Agent gets: recalled shard context + your prompt
+     └── 3. Agent gets: recalled pantry bank context + your prompt
 ```
 
 ### Storage
-Shards are JSON files in `~/.soupz-agents/shards/`:
+Pantry are JSON files in `~/.soupz-agents/pantry/`:
 ```
-~/.soupz-agents/shards/
+~/.soupz-agents/pantry/
 ├── shard-1.json   ← auto-context (oldest messages)
 ├── shard-2.json   ← auto-context (batch 2)
 ├── shard-3.json   ← manual store
-└── ...            ← up to 7 shards
+└── ...            ← up to N pantry banks
 ```
 
-Each shard stores ~4000 tokens. When all 7 are full, the oldest shard is evicted (circular buffer).
+Each pantry bank stores ~4000 tokens. When all 7 are full, the oldest pantry bank is evicted (circular buffer).
 
 ### Commands
 | Command | What It Does |
 |---------|-------------|
-| `/shards` | Visual status card showing all shards |
-| `/shard store <text>` | Manually store important context |
-| `/shard recall <query>` | Search shards by keyword |
+| `/pantry` | Visual status card showing all pantry |
+| `/pantry bank store <text>` | Manually store important context |
+| `/pantry bank recall <query>` | Search pantry by keyword |
 
-### Future: ChatGPT 4.1 Shards
-In the next version, shards will be backed by live **GPT-4.1** instances via Copilot CLI. Each shard will be a separate conversation with a ChatGPT instance that can answer queries about its stored context. This effectively multiplies your context window by 7x.
+### Future: ChatGPT 4.1 Pantry
+In the next version, pantry will be backed by live **GPT-5-mini** instances via Copilot CLI. Each pantry bank will be a separate conversation with a ChatGPT instance that can answer queries about its stored context. This effectively multiplies your context window by 7x.
 
 ---
 
@@ -310,7 +308,7 @@ Common `build_args`:
 ~/.soupz-agents/
 ├── agents/         # Agent overrides
 ├── sessions/       # Named sessions (YourBuilder is here)
-├── shards/         # Memory shard JSON files
+├── pantry/         # Memory pantry bank JSON files
 ├── auth/           # Login state
 ├── context/        # Conversation context
 ├── memory/         # Routing patterns
@@ -322,8 +320,8 @@ Common `build_args`:
 
 ## 🔮 Future Features (Planned)
 
-### v2.6 — Live Shards via GPT-4.1
-Replace file-based shards with live ChatGPT 4.1 instances via Copilot CLI. Each shard becomes a persistent conversation that can be queried.
+### v2.6 — Live Pantry via GPT-5-mini
+Replace file-based pantry with live ChatGPT 4.1 instances via Copilot CLI. Each pantry bank becomes a persistent conversation that can be queried.
 
 ### v2.7 — Agent Chaining
 Chain agents: `@architect → @planner → @devops`. Output of one feeds into the next. Auto-chains based on task type.
@@ -379,7 +377,7 @@ write unit tests, deploy to Vercel        [Enter]
 ```
 /load YourBuilder                         ← loads build context
 add a /ux command that generates wireframes
-/shards                                   ← check memory
+/pantry                                   ← check memory
 ```
 
 ---
@@ -483,3 +481,10 @@ Your soupz agents are now also available as Copilot CLI skills (in `/skills` pan
 
 To use in Copilot CLI: toggle them on in `/skills` panel, then just ask naturally.
 The skill context is automatically injected when it's active.
+
+
+---
+
+## 📺 Kitchen Floor Dashboard
+
+See **[kitchen-floor.md](./kitchen-floor.md)** for full documentation on the per-session HTML dashboard — how it works, how to customize the UI, auto-cleanup, and multi-terminal support.

@@ -24,13 +24,13 @@ export function ensureDirectories() {
     for (const dir of dirs) {
         if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     }
-    // Copy default agents if none exist
-    if (readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.md')).length === 0) {
-        if (existsSync(DEFAULTS_DIR)) {
-            for (const file of readdirSync(DEFAULTS_DIR)) {
-                if (file.endsWith('.md')) {
-                    copyFileSync(join(DEFAULTS_DIR, file), join(AGENTS_DIR, file));
-                }
+    // Copy default agents if none exist, and sync any new defaults
+    const existingAgents = readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.md'));
+    if (existsSync(DEFAULTS_DIR)) {
+        const defaultAgents = readdirSync(DEFAULTS_DIR).filter((f) => f.endsWith('.md'));
+        for (const file of defaultAgents) {
+            if (!existingAgents.includes(file)) {
+                copyFileSync(join(DEFAULTS_DIR, file), join(AGENTS_DIR, file));
             }
         }
     }

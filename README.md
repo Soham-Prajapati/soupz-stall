@@ -22,9 +22,16 @@
 
 ## What is Soupz Stall?
 
-Soupz Stall is a **multi-agent CLI** that orchestrates multiple AI tools (GitHub Copilot, Gemini) through a cast of specialized **chefs** (personas). Think of it like Claude Code's sub-agent system but running on your existing AI subscriptions — no extra API keys needed.
+Soupz Stall is a **multi-agent CLI** that orchestrates multiple AI tools (GitHub Copilot, Gemini) through a cast of **48 specialized chefs** (personas). Think of it like Claude Code's sub-agent system but running on your existing AI subscriptions — no extra API keys needed.
 
-**Key differentiator:** Unlike other CLIs that run tasks one at a time, Soupz Stall can **spawn multiple agents in parallel** — delegating design work to one agent while code architecture happens simultaneously in another.
+**Key differentiators:**
+- **Parallel agent execution** — delegate design, architecture, and planning simultaneously across tool engines
+- **3-layer AI routing** — Copilot-first routing picks the best engine×chef combo for every task
+- **Token compression** — Copilot-first + rule-based preprocessing saves ~40% on input tokens
+- **Live dashboard** — animated Kitchen Floor monitor shows chefs cooking in real time
+- **Auto-active memory** — Pantry Banks store after each task and recall before each task automatically
+- **MCP support** — built-in Model Context Protocol client for tool server integration
+- **User auth** — Supabase-backed authentication with local fallback
 
 ---
 
@@ -43,6 +50,39 @@ soupz
 
 > **Requirements:** At least one of: `gh` (GitHub Copilot CLI) or `gemini` (Gemini CLI)
 
+### Optional: Ollama Setup (AI Routing + Token Compression)
+
+```bash
+# Install Ollama for AI-powered routing and token compression
+brew install ollama  # or download from ollama.ai
+ollama pull qwen2.5:1.5b  # Smart routing model (986MB)
+
+# Optional: Remote Ollama (friend's machine with more RAM)
+export OLLAMA_HOST=http://remote-ip:11434
+
+# Optional: Docker for Ollama
+docker run -d -p 11434:11434 ollama/ollama
+docker exec -it <container> ollama pull qwen2.5:1.5b
+```
+
+> Without Ollama, Soupz Stall falls back to rule-based routing — everything still works.
+
+### CLI Auth Management
+
+```bash
+# Login to tool engines
+soupz-stall auth login copilot
+soupz-stall auth login gemini
+
+# Check auth status
+soupz-stall auth status
+
+# Logout
+soupz-stall auth logout copilot
+```
+
+Auth state is stored at `~/.soupz-agents/auth/state.json` — each tool engine has independent auth.
+
 See [Installation Guide →](docs/guides/INSTALL.md) for detailed setup.
 
 ---
@@ -58,14 +98,14 @@ See [Installation Guide →](docs/guides/INSTALL.md) for detailed setup.
 │  │         (routes, delegates, coordinates)         │  │
 │  └────────────┬─────────────────────────────────────┘  │
 │               │  @DELEGATE[agent]: task                │
-│       ┌───────┴────────────────────┐                   │
-│       │   Parallel Agent Dispatch  │                   │
-│       └──┬──────────┬─────────┬────┘                   │
-│          ▼          ▼         ▼                        │
-│     ┌─────────┐ ┌────────┐ ┌────────┐                  │
-│     ├── copilot ──┤ ├── gemini ──┤  ← Tool Engines  │
-│     └─────┬───┘ └───┬────┘ └───┬────┘                  │
-│           │         │          │                       │
+│        ┌──────┴───────────────────────────────┐        │
+│        │        Parallel Agent Dispatch       │        │
+│        └──┬──────────┬───────────────────┬────┘        │
+│           ▼          ▼                   ▼             │
+│     ┌───────────┐ ┌──────────┐    ┌──────────────┐     │
+│     ├─ copilot ─┤ ├─ gemini ─┤   ←┤ Tool Engines │     │
+│     └─────┬─────┘ └───┬──────┘    └────┬─────────┘     │
+│           │           │                │               │
 │    [chef persona system prompts injected per agent]    │
 └────────────────────────────────────────────────────────┘
 ```
@@ -187,7 +227,7 @@ If you reference an agent that doesn't exist, Soupz Stall **creates it on the fl
 | Command | Description |
 |---------|-------------|
 | `/help` | Show all commands |
-| `/chefs` | List all 25 chefs (personas) |
+| `/chefs` | List all 38 chefs (personas) with grades |
 | `/agents` | List the kitchen (tool engines) |
 | `/chain a→b→c "prompt"` | Sequential agent pipeline |
 | `/parallel a b c "prompt"` | Parallel agent dispatch |
@@ -198,6 +238,12 @@ If you reference an agent that doesn't exist, Soupz Stall **creates it on the fl
 | `/skills` | List all available skills |
 | `/costs` | Token usage and cost breakdown |
 | `/tokens` | Session token stats |
+| `/compress` | Token compression settings |
+| `/dashboard` | Open Kitchen Floor visualization |
+| `/user` | User account management (signup/login/logout/status) |
+| `/mcp` | MCP server management (list/register/connect/disconnect/tools/call/remove) |
+| `/pantry` | View distributed memory banks |
+| `/stock` | Manage memory banks |
 | `/todo` | Task list (auto-extracted from prompts) |
 | `/do N` | Execute a todo item |
 | `/yolo` | Toggle YOLO mode (no confirmations) |
@@ -209,11 +255,179 @@ If you reference an agent that doesn't exist, Soupz Stall **creates it on the fl
 
 ---
 
-## 💰 Token Budget
+## 🧠 AI-Powered Routing
 
-Copilot and Ollama are **free/subscription** — use them as much as you want. Gemini charges per token.
+Soupz Stall uses a **3-layer Copilot-first routing** system for intelligent decisions:
 
-Use `/utensil` to switch models at any time. Copilot's model list shows cost multipliers — pick what fits the task. There are no hardcoded recommendations here; you know your project best.
+1. **Copilot gpt-5-mini (primary)** — ~9/10 accuracy, ~5-10s. Uses GitHub Copilot for smarter persona and tool engine picks.
+2. **Ollama qwen2.5:1.5b (fallback)** — ~7/10 accuracy, ~1-2s. Local model when Copilot is unavailable.
+3. **Rule-based (last resort)** — Instant keyword matching if both AI methods fail.
+
+```bash
+# Control routing mode (default: copilot)
+export SOUPZ_ROUTER=copilot  # Copilot-first (smarter, 5-10s)
+export SOUPZ_ROUTER=ollama   # Ollama-only (faster, 1-2s)
+export SOUPZ_ROUTER=auto     # Try Copilot, then Ollama
+
+# Point to a remote Ollama instance (e.g. friend's machine with more RAM)
+export OLLAMA_HOST=http://remote-ip:11434
+```
+
+---
+
+## 🗜️ Token Compression
+
+Save tokens with a **Copilot-first compression pipeline** and rule-based preprocessing:
+
+| Level | Strategy | Savings |
+|-------|----------|---------|
+| `light` | Remove filler words, trim whitespace | ~15% |
+| `medium` | Abbreviate patterns, collapse structures | ~30% |
+| `aggressive` | Smart rewrite via Copilot gpt-5-mini (fallback: Ollama qwen2.5:0.5b) | ~40% |
+
+**3-layer fallback:** Copilot gpt-5-mini → Ollama qwen2.5:0.5b → rule-based compression.
+
+**Metrics tracked:** compression ratio, latency, total tokens saved.
+
+```bash
+/compress on              # Enable compression
+/compress aggressive      # Set compression level
+/compress stats           # View savings so far
+/compress test <text>     # Preview compressed output
+/compress off             # Disable compression
+```
+
+---
+
+## 📊 Stall Monitor (Live Dashboard)
+
+Run `/dashboard` to open the animated **Kitchen Floor** visualization in your browser:
+
+- **Chef avatars** — animated characters appear through a door-entry animation as they start tasks
+- **Thought bubbles** — hover over a chef to see what they're currently thinking about
+- **Task queue** — live view of pending, active, and completed work
+- **Token usage card** — total tokens consumed and estimated cost for the session
+- **Multi-stall tabs** — switch between multiple terminal sessions running simultaneously
+
+Each terminal session writes state to `~/.soupz-agents/dashboard/stall-{sessionId}.json`.
+
+---
+
+## 🔐 User Authentication (Supabase)
+
+Optional user auth via Supabase with local fallback for multi-user support:
+
+```bash
+/user signup <email> <password>   # Create account
+/user login <email> <password>    # Login
+/user logout                       # Logout
+/user status                       # Check current auth state
+```
+
+Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` to enable Supabase Auth. Without these, Soupz Stall runs in **local-only mode** — everything works, just no cloud sync.
+
+---
+
+## 🔌 MCP (Model Context Protocol) Support
+
+Built-in MCP client for integrating external tool servers via JSON-RPC over stdio:
+
+```bash
+/mcp list                          # List registered MCP servers
+/mcp register <name> <command>     # Register a new MCP server
+/mcp connect <name>                # Connect to a registered server
+/mcp disconnect <name>             # Disconnect from a server
+/mcp tools [server]                # List available tools (optionally per server)
+/mcp call <tool> [args]            # Invoke an MCP tool
+/mcp remove <name>                 # Remove a registered server
+```
+
+- **Tool discovery** — auto-detect available tools from connected servers
+- **Tool calling** — invoke MCP tools directly from chat or agent pipelines
+- **Config** — server definitions stored at `~/.soupz-agents/mcp/servers.json`
+
+### Integrating MCPs (Examples)
+
+```bash
+# Register a filesystem MCP server
+/mcp register filesystem npx -y @modelcontextprotocol/server-filesystem /path/to/project
+
+# Register Stitch MCP for UI components
+/mcp register stitch npx -y @anthropic/stitch-mcp
+
+# Register a GitHub MCP server
+/mcp register github npx -y @modelcontextprotocol/server-github
+
+# Connect and use
+/mcp connect filesystem
+/mcp tools filesystem        # See available tools
+/mcp call read_file {"path": "src/index.js"}
+```
+
+Any MCP-compatible server works — register it with its launch command and Soupz handles JSON-RPC communication over stdio.
+
+---
+
+## 🏦 Distributed Memory Pool (Pantry Banks)
+
+Extend context beyond single conversations with **Pantry Banks** — auto-active memory that stores after each task and recalls before each task. No `/memory` command needed.
+
+```bash
+/pantry                   # View all active memory banks
+/stock store "key info"   # Manually store a memory with auto-tags
+/stock recall "query"     # Manually recall relevant memories by search
+```
+
+- **Auto-active** — memories are stored after each completed task and recalled before each new task automatically
+- **Tag-based search** with relevance scoring for fast recall
+- **Auto-eviction** of oldest banks when limit reached (FIFO)
+- Configurable max banks — default 10, supports up to 100
+- Memories persist across sessions at `~/.soupz-agents/memory/`
+
+---
+
+## 📈 AI-Powered Grading
+
+Every chef earns a **grade (0–100)** based on task performance, using the same 3-layer fallback:
+
+| Component | Weight | Evaluates |
+|-----------|--------|-----------|
+| Rule-based scoring | 40% | Output length, code detection, keyword overlap, response structure |
+| AI scoring (Copilot gpt-5-mini → Ollama qwen2.5:1.5b) | 60% | Rates 1-5 on relevance, creativity, completeness |
+
+**3-layer fallback:** Copilot gpt-5-mini → Ollama qwen2.5:1.5b → pure rule-based scoring.
+
+- Grades affect future routing — higher-graded chefs get preferred for matching tasks
+- View grades with `/chefs` — each chef shows their current score
+- Grades update after every completed task
+
+---
+
+## 🔀 Session Isolation
+
+Each terminal session gets a **unique UUID-based session ID**:
+
+- State files: `~/.soupz-agents/dashboard/stall-{sessionId}.json`
+- Multiple terminals run simultaneously without conflicts
+- Dashboard shows tabs for switching between active stalls
+- Session IDs are generated on launch and persist until exit
+
+---
+
+## 💰 Cost Tracking
+
+Track token usage and estimated costs across your session:
+
+```bash
+/costs    # Detailed cost breakdown by engine and task
+/tokens   # Session token statistics (input/output)
+```
+
+- Tracks input and output tokens per task
+- Estimates ~4 chars per token for cost calculation
+- Copilot and Ollama are **free/subscription** — use them freely. Gemini charges per token.
+
+Use `/utensil` to switch models at any time. Copilot's model list shows cost multipliers — pick what fits the task.
 
 ---
 
@@ -258,9 +472,14 @@ soupz-stall/
 │   │   ├── registry.js          ← Agent registry
 │   │   ├── spawner.js           ← Process spawner (parallel-capable)
 │   │   └── parsers.js           ← Output parsers per tool
+│   ├── auth/                    ← User auth (Supabase + local fallback)
+│   ├── core/                    ← Compression, grading, routing engine
+│   ├── dashboard/               ← Stall Monitor (live HTML dashboard)
+│   ├── mcp/                     ← MCP client (JSON-RPC over stdio)
+│   ├── memory/                  ← Distributed memory pool (Pantry Banks)
 │   └── orchestrator/
 │       ├── router.js            ← Main orchestrator (chain, fanOut)
-│       └── semantic-router.js   ← Semantic routing by prompt analysis
+│       └── semantic-router.js   ← AI-powered semantic routing
 ├── defaults/agents/             ← Built-in agent definitions (.md)
 ├── docs/
 │   ├── agents/                  ← Per-agent documentation
@@ -288,10 +507,23 @@ Soupz agents are also available as **Copilot CLI skills** (toggle in `/skills` p
 
 ---
 
+## 🔑 Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SOUPZ_ROUTER` | Routing mode: `copilot` (smarter), `ollama` (faster), `auto` | `copilot` |
+| `OLLAMA_ROUTER_MODEL` | Ollama model for routing/grading | `qwen2.5:1.5b` |
+| `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
+| `SUPABASE_URL` | Supabase project URL for user auth | — (local-only mode) |
+| `SUPABASE_ANON_KEY` | Supabase anon key for user auth | — (local-only mode) |
+
+---
+
 ## 🌊 Integrations
 
 - [BMAD Integration →](docs/integrations/BMAD_IMPORT_GUIDE.md)
 - [Ollama (Local LLMs) →](docs/guides/OLLAMA_SETUP.md)
+- [Token Optimization Research →](docs/research/token-optimization-evidence.md) — peer-reviewed citations backing all efficiency claims
 
 ---
 

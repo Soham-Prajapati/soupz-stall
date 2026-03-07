@@ -161,7 +161,7 @@ bmad agents list | grep soupz
 # Should show:
 # soupz-designer    🎨  UX Master
 # soupz-architect   🏗️  Tech Architect
-# ... (all 22 personas)
+# ... (all 38 chefs)
 ```
 
 ---
@@ -219,7 +219,7 @@ See `scripts/convert-to-bmad.js` for the full conversion logic.
 
 ## Next Steps
 
-1. Convert all 22 personas: `node scripts/convert-to-bmad.js --all`
+1. Convert all 38 chefs: `node scripts/convert-to-bmad.js --all`
 2. Import into BMAD: `cp bmad-export/*.md ~/.bmad/custom/`
 3. Test in Kiro: `/bmad-agent-soupz-designer`
 4. Share with team: Commit `bmad-export/` to git

@@ -6,6 +6,12 @@ color: "#00897B"
 type: persona
 uses_tool: auto
 headless: false
+capabilities:
+  - container-orchestration
+  - ci-cd-pipelines
+  - infrastructure-as-code
+  - cloud-architecture
+  - monitoring-observability
 description: "DevOps — Docker, CI/CD, cloud infra, Terraform, monitoring"
 ---
 

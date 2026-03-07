@@ -2,8 +2,8 @@ import chalk from 'chalk';
 import { emitKeypressEvents } from 'readline';
 import { homedir } from 'os';
 import { join, resolve } from 'path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'fs';
-import { ContextShards } from './core/context-shards.js';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, copyFileSync } from 'fs';
+import { ContextPantry } from './core/context-pantry.js';
 import { CostTracker } from './core/cost-tracker.js';
 import { ColoredOutput } from './core/colored-output.js';
 import { getSkills } from './skills.js';
@@ -20,12 +20,13 @@ const BYES = ['✌️ peace out!', '👋 later!', '🫡 until next time, boss.',
 
 // ─── Centered, bigger banner ────────────────────────────────────────────────
 const BANNER = `
-${chalk.hex('#FF2D55').bold('  ____   ___  _   _  ____  _____ ')}
-${chalk.hex('#FF5555').bold(' / ___| / _ \\| | | ||  _ \\|__  / ')}
-${chalk.hex('#FF8E53').bold(' \\___ \\| | | || | | || |_) |  / / ')}
-${chalk.hex('#FFA500').bold('  ___) || |_| || |_| ||  __/  / /__ ')}
-${chalk.hex('#FFD93D').bold(' |____/  \\___/  \\___/ |_|   /_____|')}
-         ${chalk.bold.hex('#4ECDC4')('🫕  S T A L L')}  ${chalk.dim('v0.1-alpha')}
+${chalk.hex('#6C63FF')('       ███████╗ ')}${chalk.hex('#A855F7')(' ██████╗ ')}${chalk.hex('#06B6D4')(' ██╗   ██╗')}${chalk.hex('#4ECDC4')(' ██████╗ ')}${chalk.hex('#6BCB77')(' ███████╗')}
+${chalk.hex('#6C63FF')('       ██╔════╝ ')}${chalk.hex('#A855F7')('██╔═══██╗')}${chalk.hex('#06B6D4')(' ██║   ██║')}${chalk.hex('#4ECDC4')(' ██╔══██╗')}${chalk.hex('#6BCB77')(' ╚══███╔╝')}
+${chalk.hex('#6C63FF')('       ███████╗ ')}${chalk.hex('#A855F7')('██║   ██║')}${chalk.hex('#06B6D4')(' ██║   ██║')}${chalk.hex('#4ECDC4')(' ██████╔╝')}${chalk.hex('#6BCB77')('   ███╔╝ ')}
+${chalk.hex('#6C63FF')('       ╚════██║ ')}${chalk.hex('#A855F7')('██║   ██║')}${chalk.hex('#06B6D4')(' ██║   ██║')}${chalk.hex('#4ECDC4')(' ██╔═══╝ ')}${chalk.hex('#6BCB77')('  ███╔╝  ')}
+${chalk.hex('#6C63FF')('       ███████║ ')}${chalk.hex('#A855F7')('╚██████╔╝')}${chalk.hex('#06B6D4')(' ╚██████╔╝')}${chalk.hex('#4ECDC4')(' ██║     ')}${chalk.hex('#6BCB77')(' ███████╗')}
+${chalk.hex('#6C63FF')('       ╚══════╝ ')}${chalk.hex('#A855F7')(' ╚═════╝ ')}${chalk.hex('#06B6D4')('  ╚═════╝ ')}${chalk.hex('#4ECDC4')(' ╚═╝     ')}${chalk.hex('#6BCB77')(' ╚══════╝')}
+                    ${chalk.bold.hex('#4ECDC4')('S  T  A  L  L')}  ${chalk.dim('v0.1-alpha')}
 `;
 
 const HR = chalk.hex('#444')('━'.repeat(65));
@@ -56,11 +57,14 @@ const COMMANDS = [
     { cmd: '/load',       desc: 'Reopen an order', icon: '📥' },
     { cmd: '/login',      desc: 'Unlock a kitchen', icon: '🔑' },
     { cmd: '/logout',     desc: 'Lock a kitchen', icon: '🚪' },
-    { cmd: '/shards',     desc: 'Pantry shards status', icon: '🧩' },
-    { cmd: '/shard',      desc: 'Store/recall from pantry', icon: '💾' },
+    { cmd: '/pantry',    desc: 'Pantry storage status', icon: '🥫' },
+    { cmd: '/stock',     desc: 'Store/recall from pantry', icon: '📦' },
+    { cmd: '/dashboard', desc: 'Open live stall monitor', icon: '📺' },
     { cmd: '/memory',     desc: 'Recipe memory stats', icon: '🧠' },
-    { cmd: '/compress',   desc: 'Compress context', icon: '📦' },
+    { cmd: '/compress',   desc: 'Token compression settings & stats', icon: '📦' },
     { cmd: '/skills',     desc: 'Spice rack (available skills)', icon: '🫙' },
+    { cmd: '/user',       desc: 'User account (signup/login/logout/status)', icon: '👤' },
+    { cmd: '/mcp',        desc: 'MCP servers (list/register/connect/tools)', icon: '🔌' },
     { cmd: '/quit',       desc: 'Close the stall', icon: '👋' },
 ];
 
@@ -99,7 +103,7 @@ const OLLAMA_MODELS = [
 const SESSIONS_DIR = join(homedir(), '.soupz-agents', 'sessions');
 
 export class Session {
-    constructor({ registry, spawner, orchestrator, contextManager, memory, grading, auth, cwd }) {
+    constructor({ registry, spawner, orchestrator, contextManager, memory, grading, auth, userAuth, cwd, compressor, preprocessor, kitchenMonitor, mcpClient, memoryPool }) {
         this.registry = registry;
         this.spawner = spawner;
         this.orchestrator = orchestrator;
@@ -107,6 +111,12 @@ export class Session {
         this.memory = memory;
         this.grading = grading;
         this.auth = auth;
+        this.userAuth = userAuth || null;
+        this.compressor = compressor || null;
+        this.preprocessor = preprocessor || null;
+        this.kitchenMonitor = kitchenMonitor || null;
+        this.mcpClient = mcpClient || null;
+        this.memoryPool = memoryPool || null;
         this.costTracker = new CostTracker();
         this.output = ColoredOutput;
         this.cwd = cwd;
@@ -128,8 +138,8 @@ export class Session {
         this.totalPromptsSent = 0; // track prompts sent
         this.todoList = [];
         this.conversationLog = [];
-        this.shards = new ContextShards();
-        this.shards.init();
+        this.pantry = new ContextPantry();
+        this.pantry.init();
         this.modelPrefs = this.loadModelPrefs();
     }
 
@@ -180,7 +190,7 @@ export class Session {
 
         // ── Dynamic status bar based on terminal width ──
         const termWidth = process.stdout.columns || 80;
-        const allAgents = this.getAllAgents().filter(a => !['ollama', 'antigravity', 'kiro'].includes(a.id)); // Hide local/deprecated engines
+        const allAgents = this.getAllAgents().filter(a => !['ollama'].includes(a.id)); // Hide local engine (Ollama is router, not user-facing)
         const personas = this.getPersonas();
         
         // Build agent line
@@ -205,11 +215,11 @@ export class Session {
         
         // Agent line
         const agentPad = ' '.repeat(boxWidth - 4 - agentLineLen);
-        console.log(chalk.hex('#555')('  │  ') + agentIcons + agentPad + chalk.hex('#555')('  │'));
+        console.log(chalk.hex('#555')('  │ ') + agentIcons + agentPad + chalk.hex('#555')(' │'));
         
         // Status line
         const statusPad = ' '.repeat(boxWidth - 4 - statusLineLen);
-        console.log(chalk.hex('#555')('  │  ') + statusLine + statusPad + chalk.hex('#555')('  │'));
+        console.log(chalk.hex('#555')('  │ ') + statusLine + statusPad + chalk.hex('#555')(' │'));
         
         // Bottom border
         console.log(chalk.hex('#555')('  ╰' + '─'.repeat(boxWidth - 2) + '╯'));
@@ -798,7 +808,7 @@ export class Session {
         if (input === '/costs') { this.showCosts(); return; }
         if (input === '/grades') { this.showGrades(); return; }
         if (input === '/memory') { this.showMemory(); return; }
-        if (input === '/compress') { this.context.compress(); console.log(chalk.green('  📦 Compressed!')); return; }
+        if (input === '/compress' || input.startsWith('/compress ')) { this.handleCompress(input); return; }
         if (input === '/sandbox') { this.toggleSandbox(); return; }
         if (input === '/browse' || input.startsWith('/browse ')) { await this.browseLocalhost(input); return; }
         if (input.startsWith('/todo ')) { this.generateTodo(input.slice(6).trim()); return; }
@@ -829,13 +839,19 @@ export class Session {
         if (input.startsWith('/login ')) { this.loginAgent(input.slice(7).trim()); return; }
         if (input.startsWith('/logout ')) { this.logoutAgent(input.slice(8).trim()); return; }
         if (input === '/login' || input === '/logout') { console.log(chalk.dim(`  Usage: /${input.slice(1)} <agent-id>`)); return; }
-        // /shards, /shard
-        if (input === '/shards') { this.showShards(); return; }
-        if (input.startsWith('/shard store ')) { this.shardStore(input.slice(13).trim()); return; }
-        if (input.startsWith('/shard recall ')) { this.shardRecall(input.slice(14).trim()); return; }
-        if (input === '/shard') { this.showShards(); return; }
+        // /pantry, /stock
+        if (input === '/pantry') { this.showPantry(); return; }
+        if (input.startsWith('/pantry max ')) { this.setPantryMax(input.slice(12).trim()); return; }
+        if (input.startsWith('/stock store ')) { this.pantryStore(input.slice(13).trim()); return; }
+        if (input.startsWith('/stock recall ')) { this.pantryRecall(input.slice(14).trim()); return; }
+        if (input === '/stock') { this.showPantry(); return; }
+        // /dashboard — open stall monitor
+        if (input === '/dashboard') { this.openDashboard(); return; }
         // /skills — show all available skills
         if (input === '/skills') { this.showSkills(); return; }
+        // /user — user auth commands
+        if (input === '/user' || input.startsWith('/user ')) { await this.handleUserAuth(input); return; }
+        if (input === '/mcp' || input.startsWith('/mcp ')) { await this.handleMcp(input); return; }
 
         // Resolve #file refs
         let resolved = input;
@@ -889,15 +905,15 @@ export class Session {
 
         this.context.addMessage('user', resolved);
 
-        // Auto-offload old context to shards if conversation is large
+        // Auto-offload old context to pantry if conversation is large
         this.autoOffloadContext();
 
-        // Pre-query shards for relevant context
-        const shardContext = this.shards.recall(resolved.slice(0, 200));
-        if (shardContext.length > 0) {
-            const extra = shardContext.slice(0, 2).map((s) => s.content.slice(0, 500)).join('\n');
+        // Pre-query pantry for relevant context
+        const pantryContext = this.pantry.recall(resolved.slice(0, 200));
+        if (pantryContext.length > 0) {
+            const extra = pantryContext.slice(0, 2).map((s) => s.content.slice(0, 500)).join('\n');
             resolved = `[Recalled context]\n${extra}\n[End recalled context]\n\n${resolved}`;
-            console.log(chalk.dim(`  🧩 Recalled ${shardContext.length} shard(s) for context`));
+            console.log(chalk.dim(`  🥫 Recalled ${pantryContext.length} pantry item(s) for context`));
         }
 
         if (toolId) {
@@ -921,19 +937,19 @@ export class Session {
         console.log(chalk.green(`  💾 Session named "${this.sessionName}". Auto-saves on exit.`));
     }
 
-    // ── Context Shards ───────────────────────────────────────────────────────
-    showShards() {
-        const status = this.shards.getStatus();
+    // ── Pantry (Context Storage) ────────────────────────────────────────────
+    showPantry() {
+        const status = this.pantry.getStatus();
         const W = 56;
         const line = '─'.repeat(W);
         console.log();
         console.log(chalk.hex('#555')(`  ╭${line}╮`));
-        console.log(chalk.hex('#555')('  │') + chalk.bold('  🧩 Memory Shards') + ' '.repeat(W - 34 - String(status.count).length - String(status.maxShards).length) + chalk.hex('#4ECDC4')(`${status.count}/${status.maxShards} active`) + chalk.hex('#555')('  │'));
+        console.log(chalk.hex('#555')('  │') + chalk.bold('  🥫 Pantry') + ' '.repeat(W - 27 - String(status.count).length - String(status.maxItems).length) + chalk.hex('#4ECDC4')(`${status.count}/${status.maxItems} stocked`) + chalk.hex('#555')('  │'));
         console.log(chalk.hex('#555')(`  │${line}│`));
-        if (status.shards.length === 0) {
-            console.log(chalk.hex('#555')('  │') + chalk.dim('  No shards yet. Context auto-offloads when full.') + ' '.repeat(5) + chalk.hex('#555')('│'));
+        if (status.items.length === 0) {
+            console.log(chalk.hex('#555')('  │') + chalk.dim('  Pantry empty. Context auto-stocks when full.') + ' '.repeat(8) + chalk.hex('#555')('│'));
         } else {
-            for (const s of status.shards) {
+            for (const s of status.items) {
                 const label = s.label.length > 35 ? s.label.slice(0, 34) + '…' : s.label;
                 const right = chalk.dim(`${s.tokens} tok`);
                 const spacer = Math.max(1, W - 6 - label.length - String(s.tokens).length - 4);
@@ -941,35 +957,106 @@ export class Session {
             }
         }
         console.log(chalk.hex('#555')(`  │${line}│`));
-        console.log(chalk.hex('#555')('  │') + chalk.dim(`  Total: ${status.totalTokens.toLocaleString()} tokens across ${status.count} shards`) + ' '.repeat(Math.max(0, W - 48 - String(status.totalTokens).length)) + chalk.hex('#555')('│'));
+        console.log(chalk.hex('#555')('  │') + chalk.dim(`  Total: ${status.totalTokens.toLocaleString()} tokens across ${status.count} items`) + ' '.repeat(Math.max(0, W - 47 - String(status.totalTokens).length)) + chalk.hex('#555')('│'));
         console.log(chalk.hex('#555')(`  ╰${line}╯`));
-        console.log(chalk.dim(`\n  /shard store <text>  │  /shard recall <query>\n`));
+        console.log(chalk.dim(`\n  /stock store <text>  │  /stock recall <query>  │  /pantry max <N>\n`));
     }
 
-    shardStore(text) {
-        if (!text) { console.log(chalk.dim('  Usage: /shard store <text to remember>')); return; }
-        const shard = this.shards.store('manual', text);
-        console.log(chalk.green(`  📦 Stored in shard #${shard.id} (${shard.tokens} tokens)`));
+    pantryStore(text) {
+        if (!text) { console.log(chalk.dim('  Usage: /stock store <text to remember>')); return; }
+        const item = this.pantry.store('manual', text);
+        console.log(chalk.green(`  📦 Stocked in pantry #${item.id} (${item.tokens} tokens)`));
     }
 
-    shardRecall(query) {
-        if (!query) { console.log(chalk.dim('  Usage: /shard recall <what to find>')); return; }
-        const results = this.shards.recall(query);
-        if (!results.length) { console.log(chalk.dim('  No matching shards.')); return; }
-        console.log(chalk.bold(`\n  🔍 Found ${results.length} shard(s)\n`));
+    pantryRecall(query) {
+        if (!query) { console.log(chalk.dim('  Usage: /stock recall <what to find>')); return; }
+        const results = this.pantry.recall(query);
+        if (!results.length) { console.log(chalk.dim('  Nothing matching in the pantry.')); return; }
+        console.log(chalk.bold(`\n  🔍 Found ${results.length} pantry item(s)\n`));
         for (const r of results.slice(0, 3)) {
-            console.log(chalk.hex('#4ECDC4')(`  📦 Shard #${r.id}`) + chalk.dim(` (${r.label}, score:${r.score})`));
+            console.log(chalk.hex('#4ECDC4')(`  📦 Item #${r.id}`) + chalk.dim(` (${r.label}, score:${r.score})`));
             console.log(chalk.dim(`  ${r.content.slice(0, 200).replace(/\n/g, ' ')}…\n`));
         }
     }
 
-    /** Auto-offload old context to shards when conversation gets large */
+    setPantryMax(val) {
+        const n = parseInt(val, 10);
+        if (!n || n < 1) { console.log(chalk.dim('  Usage: /pantry max <number>')); return; }
+        this.pantry.setMaxItems(n);
+        console.log(chalk.green(`  🥫 Pantry capacity set to ${n} items`));
+    }
+
+    /** Open the stall monitor dashboard in the browser */
+    openDashboard() {
+        if (!this.kitchenMonitor) {
+            console.log(chalk.red('  Kitchen monitor not initialized'));
+            return;
+        }
+        const dashDir = this.kitchenMonitor.getDashboardDir();
+        const htmlSrc = new URL('../src/dashboard/index.html', import.meta.url).pathname;
+        try { copyFileSync(htmlSrc, join(dashDir, 'index.html')); } catch { }
+        
+        // Start a tiny HTTP server to serve the dashboard
+        import('http').then(http => {
+            const server = http.createServer((req, res) => {
+                const url = req.url.split('?')[0]; // strip query params
+                
+                // API: list all stall session files
+                if (url === '/api/stalls') {
+                    try {
+                        const files = readdirSync(dashDir).filter(f => f.startsWith('stall-') && f.endsWith('.json'));
+                        const stalls = files.map(f => {
+                            try {
+                                const data = JSON.parse(readFileSync(join(dashDir, f), 'utf8'));
+                                return { file: f, sessionId: data.sessionId, name: data.stall?.name, status: data.stall?.status };
+                            } catch { return { file: f, sessionId: f, name: f, status: 'unknown' }; }
+                        });
+                        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                        res.end(JSON.stringify(stalls));
+                    } catch {
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end('[]');
+                    }
+                    return;
+                }
+                
+                const file = url === '/' || url === '/index.html' ? 'index.html' : url.slice(1);
+                const filePath = join(dashDir, file);
+                try {
+                    const content = readFileSync(filePath);
+                    const ct = file.endsWith('.json') ? 'application/json' : 'text/html';
+                    res.writeHead(200, { 'Content-Type': ct, 'Access-Control-Allow-Origin': '*' });
+                    res.end(content);
+                } catch {
+                    res.writeHead(404);
+                    res.end('Not found');
+                }
+            });
+            server.listen(0, () => {
+                const port = server.address().port;
+                const dashUrl = `http://localhost:${port}`;
+                console.log(chalk.hex('#4ECDC4')(`  📺 Stall Monitor live at ${dashUrl}`));
+                console.log(chalk.dim(`  Session: ${this.kitchenMonitor.sessionId}`));
+                console.log(chalk.dim(`  State: ${this.kitchenMonitor.getStatePath()}`));
+                if (this.kitchenMonitor.dashboardHtml) {
+                    console.log(chalk.dim(`  Dashboard: ${this.kitchenMonitor.dashboardHtml}`));
+                }
+                import('child_process').then(cp => {
+                    const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+                    cp.exec(`${cmd} "${dashUrl}"`);
+                });
+            });
+            this._dashboardServer = server;
+        });
+    }
+
+    /** Auto-offload old context to pantry when conversation gets large */
     autoOffloadContext() {
         if (this.conversationLog.length > 50) {
             const old = this.conversationLog.splice(0, 20);
             const text = old.map((m) => `[${m.role}] ${m.text}`).join('\n');
-            this.shards.offload('auto-context', text);
-            console.log(chalk.dim(`  📦 Auto-offloaded 20 messages to memory shards`));
+            this.pantry.offload('auto-context', text);
+            console.log(chalk.dim(`  📦 Auto-stocked 20 messages in pantry`));
         }
     }
 
@@ -993,7 +1080,89 @@ export class Session {
         } catch { console.log(chalk.yellow(`  ℹ  Run: ${a.binary || agentId} auth logout`)); }
     }
 
-    // ── /browse ── built-in puppeteer screenshot ──────────────────────────────
+    // ── /user — user auth (Supabase) ─────────────────────────────────────────
+    async handleUserAuth(input) {
+        const parts = input.trim().split(/\s+/);
+        const sub = parts[1];
+        const rest = parts.slice(2);
+        if (sub === 'signup' || sub === 'login') {
+            const [email, password] = rest;
+            if (!email || !password) { console.log(chalk.dim(`  Usage: /user ${sub} <email> <password>`)); return; }
+            const result = sub === 'signup' ? await this.userAuth.signup(email, password) : await this.userAuth.login(email, password);
+            console.log(result.success ? chalk.green(`  ✅ ${sub} successful (${result.mode})`) : chalk.red(`  ❌ ${result.error}`));
+        } else if (sub === 'logout') {
+            await this.userAuth.logout();
+            console.log(chalk.green('  ✅ Logged out'));
+        } else {
+            const user = this.userAuth?.getUser();
+            console.log(user ? chalk.hex('#4ECDC4')(`  👤 ${user.email} (${user.mode}) — since ${user.createdAt}`) : chalk.red('  ❌ Not logged in'));
+        }
+    }
+
+    // ── /mcp — MCP server management ─────────────────────────────────────────
+    async handleMcp(input) {
+        if (!this.mcpClient) { console.log(chalk.red('  ❌ MCP client not available')); return; }
+        const parts = input.replace('/mcp', '').trim().split(/\s+/);
+        const sub = parts[0] || 'list';
+
+        if (sub === 'list') {
+            const servers = this.mcpClient.list();
+            if (!servers.length) { console.log(chalk.dim('  No MCP servers registered. Use /mcp register <name> <command> [args...]')); return; }
+            console.log(chalk.hex('#FFD93D')('  🔌 MCP Servers:'));
+            for (const s of servers) {
+                const status = s.connected ? chalk.green('● connected') : chalk.dim('○ disconnected');
+                console.log(`    ${status} ${chalk.bold(s.name)} — ${s.command} ${(s.args || []).join(' ')}`);
+            }
+        } else if (sub === 'register') {
+            const name = parts[1];
+            const command = parts[2];
+            const args = parts.slice(3);
+            if (!name || !command) { console.log(chalk.dim('  Usage: /mcp register <name> <command> [args...]')); return; }
+            this.mcpClient.register(name, { command, args });
+            console.log(chalk.green(`  ✅ Registered MCP server "${name}": ${command} ${args.join(' ')}`));
+        } else if (sub === 'connect') {
+            const name = parts[1];
+            if (!name) { console.log(chalk.dim('  Usage: /mcp connect <name>')); return; }
+            try {
+                console.log(chalk.dim(`  Connecting to ${name}...`));
+                const conn = await this.mcpClient.connect(name);
+                console.log(chalk.green(`  ✅ Connected to "${name}" — ${conn.tools.length} tools available`));
+                for (const t of conn.tools) {
+                    console.log(chalk.dim(`    🔧 ${t.name}: ${t.description || ''}`));
+                }
+            } catch (err) { console.log(chalk.red(`  ❌ ${err.message}`)); }
+        } else if (sub === 'tools') {
+            const tools = this.mcpClient.allTools();
+            if (!tools.length) { console.log(chalk.dim('  No tools available. Connect to a server first: /mcp connect <name>')); return; }
+            console.log(chalk.hex('#FFD93D')('  🔧 Available MCP Tools:'));
+            for (const t of tools) {
+                console.log(`    ${chalk.bold(t.name)} ${chalk.dim(`[${t.server}]`)} — ${t.description || ''}`);
+            }
+        } else if (sub === 'call') {
+            const serverName = parts[1];
+            const toolName = parts[2];
+            const argsJson = parts.slice(3).join(' ');
+            if (!serverName || !toolName) { console.log(chalk.dim('  Usage: /mcp call <server> <tool> [json_args]')); return; }
+            try {
+                const args = argsJson ? JSON.parse(argsJson) : {};
+                const result = await this.mcpClient.callTool(serverName, toolName, args);
+                console.log(chalk.green('  ✅ Result:'));
+                console.log(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
+            } catch (err) { console.log(chalk.red(`  ❌ ${err.message}`)); }
+        } else if (sub === 'disconnect') {
+            const name = parts[1];
+            if (!name) { console.log(chalk.dim('  Usage: /mcp disconnect <name>')); return; }
+            this.mcpClient.disconnect(name);
+            console.log(chalk.green(`  ✅ Disconnected from "${name}"`));
+        } else if (sub === 'remove') {
+            const name = parts[1];
+            if (!name) { console.log(chalk.dim('  Usage: /mcp remove <name>')); return; }
+            this.mcpClient.unregister(name);
+            console.log(chalk.green(`  ✅ Removed MCP server "${name}"`));
+        } else {
+            console.log(chalk.dim('  Usage: /mcp [list|register|connect|disconnect|tools|call|remove]'));
+        }
+    }
     async browseLocalhost(input) {
         const url = input.replace('/browse', '').trim() || 'http://localhost:3000';
         console.log(chalk.hex('#4ECDC4')('  🌐 ') + chalk.dim(`browsing ${url}…`));
@@ -1572,7 +1741,90 @@ export class Session {
         console.log(`\n  🧠 ${stats.totalTasks} tasks │ ${stats.routingPatterns} patterns`);
         const freq = this.memory.getFrequentPatterns();
         for (const p of freq.slice(0, 5)) console.log(chalk.dim(`    "${p.pattern}" → ${p.count}x`));
+        if (this.memoryPool) {
+            const pool = this.memoryPool.stats();
+            console.log(chalk.hex('#FFD93D')(`\n  🏦 Memory Pool: ${pool.bankCount}/${pool.maxBanks} banks │ ${pool.totalChunks} chunks │ ~${pool.totalTokens} tokens`));
+            for (const b of pool.banks) {
+                console.log(chalk.dim(`    📦 ${b.label} (${b.id}): ${b.chunks} chunks, ~${b.tokens} tokens`));
+            }
+        }
         console.log();
+    }
+
+    handleCompress(input) {
+        const sub = input.slice(9).trim();
+
+        if (!sub || sub === 'stats') {
+            // Show compression stats
+            console.log(chalk.bold('\n  📦 Token Compression\n'));
+
+            if (this.compressor) {
+                const savings = this.compressor.getSavings();
+                const level = this.compressor.level;
+                console.log(`  Level: ${chalk.cyan(level)}`);
+                console.log(`  Input saved:  ${chalk.green(savings.inputSaved.toFixed(1) + '%')}`);
+                console.log(`  Output saved: ${chalk.green(savings.outputSaved.toFixed(1) + '%')}`);
+                console.log(`  Total saved:  ${chalk.bold.green(savings.totalSaved.toFixed(1) + '%')} (${savings.totalTokensSaved} tokens)`);
+            } else {
+                console.log(chalk.dim('  Compressor not initialized'));
+            }
+
+            if (this.preprocessor) {
+                const pStats = this.preprocessor.getStats();
+                console.log(chalk.bold('\n  🤖 Ollama Preprocessor'));
+                console.log(`  Status: ${pStats.available ? chalk.green('available') : chalk.red('unavailable')}`);
+                console.log(`  Model:  ${chalk.cyan(pStats.model)}`);
+                console.log(`  Calls:  ${pStats.callCount}`);
+                if (pStats.callCount > 0) {
+                    console.log(`  Avg compression: ${chalk.green((pStats.avgCompressionRatio * 100).toFixed(1) + '%')}`);
+                    console.log(`  Avg latency:     ${pStats.avgLatencyMs}ms`);
+                    console.log(`  Total saved:     ${chalk.green(pStats.totalSaved + ' chars')}`);
+                }
+            }
+            console.log();
+            return;
+        }
+
+        if (sub === 'on' || sub === 'off') {
+            if (this.compressor) this.compressor.level = sub === 'on' ? 'medium' : 'light';
+            if (this.preprocessor) this.preprocessor.enabled = sub === 'on';
+            console.log(chalk.green(`  📦 Compression ${sub === 'on' ? 'enabled' : 'disabled'}`));
+            return;
+        }
+
+        if (['light', 'medium', 'aggressive'].includes(sub)) {
+            if (this.compressor) this.compressor.level = sub;
+            console.log(chalk.green(`  📦 Compression level: ${sub}`));
+            return;
+        }
+
+        if (sub === 'reset') {
+            if (this.compressor) this.compressor.resetStats();
+            console.log(chalk.green('  📦 Stats reset'));
+            return;
+        }
+
+        if (sub === 'context') {
+            this.context.compress();
+            console.log(chalk.green('  📦 Context compressed!'));
+            return;
+        }
+
+        if (sub === 'test') {
+            const sample = 'I would like you to please create a beautiful function that implements authentication for my application using the database configuration from the environment';
+            console.log(chalk.dim(`  Original (${sample.length} chars):`));
+            console.log(chalk.dim(`  ${sample}\n`));
+            if (this.compressor) {
+                const compressed = this.compressor.compressPrompt(sample);
+                console.log(chalk.cyan(`  Compressed (${compressed.length} chars):`));
+                console.log(chalk.cyan(`  ${compressed}\n`));
+                const savings = Math.round((1 - compressed.length / sample.length) * 100);
+                console.log(chalk.green(`  Savings: ${savings}%`));
+            }
+            return;
+        }
+
+        console.log(chalk.dim('  Usage: /compress [stats|on|off|light|medium|aggressive|reset|context|test]'));
     }
 
     showSkills() {

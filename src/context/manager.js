@@ -11,17 +11,22 @@ export class ContextManager {
         this.compressed = false;
     }
 
-    addMessage(role, content) {
+    addMessage(role, content, metadata = {}) {
         this.messages.push({
             role,
             content: content.slice(0, 4000),
-            timestamp: Date.now(),
+            timestamp: metadata.timestamp || Date.now(),
+            ...metadata,
         });
         this.totalTokensEstimate += Math.ceil(content.length / 4);
     }
 
     getContext() {
         return this.messages;
+    }
+
+    getRecentMessages(count = 5) {
+        return this.messages.slice(-count);
     }
 
     needsCompression() {

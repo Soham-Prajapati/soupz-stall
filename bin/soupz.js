@@ -10,10 +10,17 @@ import { ContextManager } from '../src/context/manager.js';
 import { MemoryStore } from '../src/memory/store.js';
 import { GradingSystem } from '../src/grading/scorer.js';
 import { AuthManager } from '../src/auth/manager.js';
+import { UserAuth } from '../src/auth/user-auth.js';
 import { Session } from '../src/session.js';
 import { autoImport } from '../src/auto-import.js';
+import { TokenCompressor } from '../src/core/token-compressor.js';
+import { OllamaPreprocessor } from '../src/core/ollama-preprocessor.js';
+import { StallMonitor } from '../src/core/stall-monitor.js';
+import { CostTracker } from '../src/core/cost-tracker.js';
+import { MCPClient } from '../src/mcp/client.js';
+import { MemoryPool } from '../src/memory/pool.js';
 
-const VERSION = '2.5.0';
+const VERSION = '0.1.0-alpha';
 
 // Auto-import personas on startup (silent if already done)
 const importResult = autoImport();
@@ -34,21 +41,21 @@ ${chalk.hex('#6C63FF')('       ╚══════╝')}${chalk.hex('#A855F7')
 const cli = meow(`
 ${BANNER}
   ${chalk.bold('Usage')}
-    $ soupz-agents                        Launch interactive session
-    $ soupz-agents --yolo                 Launch with YOLO mode (auto-approve)
-    $ soupz-agents run <prompt>           Auto-route task to best agent
-    $ soupz-agents run --yolo <prompt>    Run with YOLO mode
-    $ soupz-agents ask <agent> <prompt>   Send to specific agent/persona
-    $ soupz-agents ask designer "brand identity for HealthAI"
-    $ soupz-agents ask svgart "create a modern logo SVG"
-    $ soupz-agents ask orchestrator "build a full product launch plan"
-    $ soupz-agents chain <a→b→c> <prompt> Chain agents sequentially
-    $ soupz-agents fan-out <prompt>       Send to ALL agents in parallel
-    $ soupz-agents agents                 List all agents + personas
-    $ soupz-agents skills                 List all available skills
-    $ soupz-agents auth [login|logout] <agent>  Manage authentication
-    $ soupz-agents grades                 Show agent report cards
-    $ soupz-agents docs                   Open documentation
+    $ soupz-stall                        Launch interactive session
+    $ soupz-stall --yolo                 Launch with YOLO mode (auto-approve)
+    $ soupz-stall run <prompt>           Auto-route task to best agent
+    $ soupz-stall run --yolo <prompt>    Run with YOLO mode
+    $ soupz-stall ask <agent> <prompt>   Send to specific agent/persona
+    $ soupz-stall ask designer "brand identity for HealthAI"
+    $ soupz-stall ask svgart "create a modern logo SVG"
+    $ soupz-stall ask orchestrator "build a full product launch plan"
+    $ soupz-stall chain <a→b→c> <prompt> Chain agents sequentially
+    $ soupz-stall fan-out <prompt>       Send to ALL agents in parallel
+    $ soupz-stall agents                 List all agents + personas
+    $ soupz-stall skills                 List all available skills
+    $ soupz-stall auth [login|logout] <agent>  Manage authentication
+    $ soupz-stall grades                 Show agent report cards
+    $ soupz-stall docs                   Open documentation
 
   ${chalk.bold('Interactive Commands')}
     /help           Full command reference
@@ -64,16 +71,16 @@ ${BANNER}
     @agent <text>   Route to specific agent or persona
 
   ${chalk.bold('Examples')}
-    $ soupz-agents
-    $ soupz-agents --yolo
-    $ soupz-agents run "Fix the auth bug"
-    $ soupz-agents ask designer "Create brand identity for HealthAI startup"
-    $ soupz-agents ask svgart "Create a modern logo SVG with gradient"
-    $ soupz-agents ask orchestrator "Build a full product launch plan"
-    $ soupz-agents chain designer→svgart "brand assets for HealthAI"
-    $ soupz-agents ask strategist "Evaluate my startup idea"
-    $ soupz-agents ask presenter "Create hackathon pitch for AI trip planner"
-    $ soupz-agents ask researcher "Find best free maps API"
+    $ soupz-stall
+    $ soupz-stall --yolo
+    $ soupz-stall run "Fix the auth bug"
+    $ soupz-stall ask designer "Create brand identity for HealthAI startup"
+    $ soupz-stall ask svgart "Create a modern logo SVG with gradient"
+    $ soupz-stall ask orchestrator "Build a full product launch plan"
+    $ soupz-stall chain designer→svgart "brand assets for HealthAI"
+    $ soupz-stall ask strategist "Evaluate my startup idea"
+    $ soupz-stall ask presenter "Create hackathon pitch for AI trip planner"
+    $ soupz-stall ask researcher "Find best free maps API"
 `, {
     importMeta: import.meta,
     flags: {
@@ -95,10 +102,18 @@ async function main() {
     const spawner = new AgentSpawner(registry);
     const context = new ContextManager();
     const memory = new MemoryStore();
+    const compressor = new TokenCompressor('medium');
+    const preprocessor = new OllamaPreprocessor();
+    const costTracker = new CostTracker();
     const grading = new GradingSystem(registry);
     grading.init();
-    const orchestrator = new Orchestrator(registry, spawner, context, memory);
     const auth = new AuthManager(registry);
+    const userAuth = new UserAuth();
+    const mcpClient = new MCPClient();
+    const memoryPool = new MemoryPool();
+    const orchestrator = new Orchestrator(registry, spawner, context, memory, { compressor, preprocessor, costTracker, userAuth, memoryPool });
+    const kitchenMonitor = new StallMonitor(orchestrator, registry, { costTracker });
+    kitchenMonitor.start();
 
     // Apply YOLO flags if set
     if (yoloFlag) applyYolo(registry);
@@ -106,7 +121,7 @@ async function main() {
     // ── add <binary> ──────────────────────────────────────────────────────────
     if (command === 'add') {
         const binary = rest[0];
-        if (!binary) { console.error(chalk.red('  Usage: soupz-agents add <binary-name>\n  Example: soupz-agents add ollama')); process.exit(1); }
+        if (!binary) { console.error(chalk.red('  Usage: soupz-stall add <binary-name>\n  Example: soupz-stall add ollama')); process.exit(1); }
         const { execSync } = await import('child_process');
         const { writeFileSync } = await import('fs');
         const { join } = await import('path');
@@ -134,7 +149,7 @@ usage_count: 0
 
 # ${binary} Agent
 
-Custom agent added via \`soupz-agents add ${binary}\`.
+Custom agent added via \`soupz-stall add ${binary}\`.
 Binary: ${binPath}
 `;
         const agentPath = join(homedir(), '.soupz-agents', 'agents', `${id}.md`);
@@ -144,7 +159,7 @@ Binary: ${binPath}
         console.log(chalk.dim(`    Binary: ${binPath}`));
         console.log(chalk.dim(`    Config: ${agentPath}`));
         console.log(chalk.dim(`    Edit the .md file to customize icon, color, build_args, etc.`));
-        console.log(chalk.dim(`\n    Now all 22 personas can run through @${id}!`));
+        console.log(chalk.dim(`\n    Now all chefs can run through @${id}!`));
         process.exit(0);
     }
 
@@ -168,7 +183,7 @@ Binary: ${binPath}
                 const via = chalk.dim(`→ @${a.uses_tool}`);
                 console.log(`  ${a.icon}  ${chalk.bold(`@${a.id}`.padEnd(18))} ${via}  ${chalk.dim(a.description || '')}`);
             }
-            console.log(chalk.dim('\n  Use: soupz-agents ask <persona> "<prompt>" or @<persona> in interactive mode'));
+            console.log(chalk.dim('\n  Use: soupz-stall ask <persona> "<prompt>" or @<persona> in interactive mode'));
         }
         process.exit(0);
     }
@@ -225,7 +240,7 @@ Binary: ${binPath}
             console.log(chalk.hex(catColors[cat] || '#888').bold(`\n  ${cat.toUpperCase()}`));
             for (const s of catSkills) console.log(`    ${s.icon}  ${chalk.bold(s.invoke.padEnd(18))} ${chalk.dim(s.description.slice(0, 65))}`);
         }
-        console.log(chalk.dim('\n  Usage: soupz-agents ask <skill-name> "your prompt"\n'));
+        console.log(chalk.dim('\n  Usage: soupz-stall ask <skill-name> "your prompt"\n'));
         process.exit(0);
     }
 
@@ -233,7 +248,7 @@ Binary: ${binPath}
     if (command === 'chain') {
         const chainStr = rest[0];
         const prompt = rest.slice(1).join(' ');
-        if (!chainStr || !prompt) { console.error(chalk.red('  Usage: soupz-agents chain designer→svgart "your prompt"')); process.exit(1); }
+        if (!chainStr || !prompt) { console.error(chalk.red('  Usage: soupz-stall chain designer→svgart "your prompt"')); process.exit(1); }
         const agentIds = chainStr.split(/→|->/).map(s => s.trim());
         console.log(BANNER);
         console.log(chalk.hex('#A855F7')(`  🔗 Chain: ${agentIds.join(' → ')}\n`));
@@ -263,7 +278,7 @@ Binary: ${binPath}
         try {
             const docs = readFileSync(join(__dirname, '..', 'docs.md'), 'utf8');
             console.log(docs);
-        } catch { console.log('  Docs not found. Run from the soupz-agents directory.'); }
+        } catch { console.log('  Docs not found. Run from the soupz-stall directory.'); }
         process.exit(0);
     }
 
@@ -286,9 +301,9 @@ Binary: ${binPath}
     if (command === 'ask') {
         const agentId = rest[0];
         const prompt = rest.slice(1).join(' ');
-        if (!agentId || !prompt) { console.error(chalk.red('  Usage: soupz-agents ask <agent> <prompt>')); process.exit(1); }
+        if (!agentId || !prompt) { console.error(chalk.red('  Usage: soupz-stall ask <agent> <prompt>')); process.exit(1); }
         const agent = registry.get(agentId);
-        if (!agent) { console.error(chalk.red(`  Unknown: ${agentId}. Run: soupz-agents agents`)); process.exit(1); }
+        if (!agent) { console.error(chalk.red(`  Unknown: ${agentId}. Run: soupz-stall agents`)); process.exit(1); }
         console.log(BANNER);
         spawner.on('output', (_, p) => { if (p?.text) process.stdout.write(p.text + '\n'); });
         try {
@@ -329,7 +344,7 @@ Binary: ${binPath}
     }
 
     // ── Interactive Session (default) ───────────────────────────────────────
-    const session = new Session({ registry, spawner, orchestrator, contextManager: context, memory, grading, auth, cwd });
+    const session = new Session({ registry, spawner, orchestrator, contextManager: context, memory, grading, auth, userAuth, cwd, compressor, preprocessor, kitchenMonitor, mcpClient, memoryPool });
     if (yoloFlag) session.yolo = true;
     session.start();
 

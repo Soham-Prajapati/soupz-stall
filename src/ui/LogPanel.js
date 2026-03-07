@@ -4,8 +4,8 @@ import { Box, Text } from 'ink';
 const e = React.createElement;
 
 const COLORS = {
-    gemini: '#4285F4', claude: '#D97757', copilot: '#6E40C9',
-    antigravity: '#00D4AA', system: '#6C63FF', user: '#FFD93D',
+    gemini: '#4285F4', copilot: '#6E40C9',
+    system: '#6C63FF', user: '#FFD93D',
 };
 
 export default function LogPanel({ logs, focusedAgent, showThinking, maxLines = 16 }) {

@@ -20,6 +20,7 @@ export class AgentRegistry {
     list() { return Array.from(this.agents.values()); }
     available() { return this.list().filter((a) => a.available); }
     headless() { return this.available().filter((a) => a.headless); }
+    personas() { return this.list().filter((a) => a.type === 'persona'); }
 
     updateState(id, patch) {
         const agent = this.agents.get(id);

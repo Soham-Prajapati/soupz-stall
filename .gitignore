@@ -36,3 +36,7 @@ report/
 
 # Misc
 *.tgz
+
+_bmad
+_bmad-output
+.github

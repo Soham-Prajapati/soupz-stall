@@ -51,7 +51,7 @@ npm install -g github:yourusername/soupz-agents
 On first run, Soupz-Stall automatically:
 1. ✅ Creates config directories
 2. ✅ Imports personas to Kiro/BMAD
-3. ✅ Sets up memory shards
+3. ✅ Sets up memory banks
 4. ✅ Initializes cost tracking
 
 No manual setup needed!
