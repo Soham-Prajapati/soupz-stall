@@ -1,4 +1,4 @@
-// Popup controller — OTP pairing flow
+// Popup controller — Kitchen Bridge
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
 const pairForm = document.getElementById('pairForm');
@@ -10,10 +10,18 @@ const hostInput = document.getElementById('hostInput');
 const portInput = document.getElementById('portInput');
 const errorMsg = document.getElementById('errorMsg');
 const hostnameText = document.getElementById('hostnameText');
+const inspectBtn = document.getElementById('inspectBtn');
+const receiptView = document.getElementById('receiptView');
+const closeReceipt = document.getElementById('closeReceipt');
+const receiptItems = document.getElementById('receiptItems');
+const receiptUrl = document.getElementById('receiptUrl');
+const receiptTime = document.getElementById('receiptTime');
+
+let isInspecting = false;
 
 function updateUI(connected, hostname) {
     statusDot.className = `dot ${connected ? 'on' : 'off'}`;
-    statusText.textContent = connected ? `Connected to ${hostname || 'server'}` : 'Not paired';
+    statusText.textContent = connected ? `Connected to ${hostname || 'Kitchen'}` : 'Not paired';
     pairForm.style.display = connected ? 'none' : 'block';
     actions.style.display = connected ? 'flex' : 'none';
     if (hostname) hostnameText.textContent = `🖥️ ${hostname}`;
@@ -32,14 +40,15 @@ chrome.runtime.sendMessage({ type: 'get_status' }, (response) => {
     }
 });
 
-// Also check storage for hostname
-chrome.storage.local.get(['connected', 'hostname'], (data) => {
-    if (data.connected) updateUI(true, data.hostname);
-});
-
 // Listen for status changes
 chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'status') updateUI(msg.connected, msg.hostname);
+    if (msg.type === 'element_selected') {
+        isInspecting = false;
+        inspectBtn.classList.remove('active');
+        // Show selected element in a receipt or just console
+        console.log('Selected:', msg.selector);
+    }
 });
 
 // Pair button
@@ -49,35 +58,31 @@ pairBtn.addEventListener('click', async () => {
     const port = portInput.value.trim() || '7533';
 
     if (!code || code.length < 6) {
-        showError('Enter the pairing code from your laptop (6-8 digits)');
+        showError('Enter the order number (6-8 digits)');
         return;
     }
 
     pairBtn.disabled = true;
-    pairBtn.textContent = '🔄 Pairing...';
+    pairBtn.textContent = '🔄 Starting stove...';
     errorMsg.style.display = 'none';
 
     chrome.runtime.sendMessage({ type: 'pair', host, port, code }, (response) => {
         pairBtn.disabled = false;
-        pairBtn.textContent = '🔗 Pair Device';
+        pairBtn.textContent = '🔗 Connect to Kitchen';
 
         if (response?.ok) {
             updateUI(true, host);
         } else {
-            showError(response?.error || 'Pairing failed. Check code and try again.');
+            showError(response?.error || 'Pairing failed. Check code.');
         }
     });
-});
-
-// Enter key on OTP input triggers pair
-otpInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') pairBtn.click();
 });
 
 disconnectBtn.addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'disconnect' });
     updateUI(false);
     otpInput.value = '';
+    receiptView.style.display = 'none';
 });
 
 document.getElementById('captureBtn').addEventListener('click', () => {
@@ -85,12 +90,8 @@ document.getElementById('captureBtn').addEventListener('click', () => {
 });
 
 document.getElementById('domBtn').addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab) {
-        chrome.tabs.sendMessage(tab.id, { type: 'get_page_summary' }, (summary) => {
-            console.log('Page summary:', summary);
-        });
-    }
+    // Send DOM to server
+    chrome.runtime.sendMessage({ type: 'manual_dom' });
 });
 
 document.getElementById('summaryBtn').addEventListener('click', async () => {
@@ -98,16 +99,49 @@ document.getElementById('summaryBtn').addEventListener('click', async () => {
     if (tab) {
         chrome.tabs.sendMessage(tab.id, { type: 'get_page_summary' }, (summary) => {
             if (summary) {
-                alert(`📋 ${summary.title}\n\n` +
-                    `Links: ${summary.stats.links}\n` +
-                    `Images: ${summary.stats.images}\n` +
-                    `Buttons: ${summary.stats.buttons}\n` +
-                    `Inputs: ${summary.stats.inputs}\n` +
-                    `Headings: ${summary.stats.headings}\n\n` +
-                    `⚠️ Images without alt: ${summary.accessibility.imagesWithoutAlt}\n` +
-                    `⚠️ Inputs without label: ${summary.accessibility.inputsWithoutLabel}`
-                );
+                showReceipt(summary);
             }
         });
     }
+});
+
+inspectBtn.addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) return;
+
+    isInspecting = !isInspecting;
+    inspectBtn.classList.toggle('active', isInspecting);
+
+    chrome.tabs.sendMessage(tab.id, { 
+        type: isInspecting ? 'start_inspect' : 'stop_inspect' 
+    });
+});
+
+function showReceipt(summary) {
+    receiptUrl.textContent = summary.url;
+    receiptTime.textContent = new Date().toLocaleString();
+    
+    const items = [
+        { label: 'LINKS', value: summary.stats.links },
+        { label: 'IMAGES', value: summary.stats.images },
+        { label: 'BUTTONS', value: summary.stats.buttons },
+        { label: 'INPUTS', value: summary.stats.inputs },
+        { label: 'HEADINGS', value: summary.stats.headings },
+        { label: '---', value: '---' },
+        { label: 'IMG NO ALT', value: summary.accessibility.imagesWithoutAlt },
+        { label: 'INP NO LBL', value: summary.accessibility.inputsWithoutLabel },
+    ];
+
+    receiptItems.innerHTML = items.map(item => `
+        <div class="receipt-row">
+            <span>${item.label}</span>
+            <span>${item.value}</span>
+        </div>
+    `).join('');
+
+    receiptView.style.display = 'block';
+}
+
+closeReceipt.addEventListener('click', () => {
+    receiptView.style.display = 'none';
 });

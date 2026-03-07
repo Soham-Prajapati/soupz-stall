@@ -3,447 +3,401 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🍜 Soupz Stall — Stall Monitor</title>
+<title>🫕 Soupz Cloud Kitchen — Command Center</title>
 <style>
   :root {
-    --bg: #0a0a0a; --card: #141414; --border: #222; --text: #e0e0e0;
-    --dim: #666; --accent: #d4a574; --green: #4ECDC4; --red: #FF6B6B;
-    --yellow: #FFE66D; --purple: #6E40C9; --blue: #58a6ff;
+    --bg: #0f0f1b;
+    --card-bg: rgba(22, 33, 62, 0.7);
+    --glass: rgba(255, 255, 255, 0.03);
+    --border: rgba(255, 255, 255, 0.1);
+    --accent: #e94560;
+    --accent-glow: rgba(233, 69, 96, 0.3);
+    --text: #ffffff;
+    --text-dim: #94a3b8;
+    --green: #4ade80;
+    --yellow: #facc15;
+    --red: #f87171;
+    --blue: #3b82f6;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --font-sans: 'Inter', -apple-system, sans-serif;
   }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; padding: 16px; }
-  h1 { font-size: 18px; color: var(--accent); margin-bottom: 4px; }
-  .subtitle { color: var(--dim); font-size: 11px; margin-bottom: 16px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
-  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
-  .card-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-bottom: 8px; }
-  .stat-big { font-size: 28px; font-weight: bold; color: var(--accent); }
-  .stat-label { font-size: 10px; color: var(--dim); margin-top: 2px; }
-  .chef-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
-  .chef-card { background: #1a1a1a; border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; align-items: flex-start; gap: 10px; transition: all 0.3s; position: relative; cursor: pointer; }
-  .chef-card:hover { transform: translateY(-2px); border-color: var(--accent); }
-  .chef-card.active { border-color: var(--green); box-shadow: 0 0 12px rgba(78,205,196,0.25); }
-  .chef-card.active .chef-avatar { animation: chefBounce 1.5s infinite; }
-  .chef-avatar { font-size: 32px; line-height: 1; position: relative; }
-  .chef-avatar::after { content: ''; position: absolute; bottom: -2px; left: 50%; transform: translateX(-50%); width: 20px; height: 3px; border-radius: 2px; background: var(--dim); opacity: 0.3; }
-  .chef-card .info { flex: 1; min-width: 0; }
-  .chef-card .name { font-size: 12px; font-weight: bold; }
-  .chef-card .meta { font-size: 10px; color: var(--dim); }
-  .chef-card .grade-bar { width: 100%; height: 4px; background: #222; border-radius: 2px; margin-top: 6px; }
-  .chef-card .grade-fill { height: 4px; border-radius: 2px; transition: width 0.5s; }
-  .thought-bubble { display: none; position: absolute; top: -32px; left: 50%; transform: translateX(-50%); background: var(--card); border: 1px solid var(--accent); border-radius: 10px; padding: 4px 10px; font-size: 9px; color: var(--text); white-space: nowrap; z-index: 10; pointer-events: none; }
-  .thought-bubble::after { content: ''; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%); border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid var(--accent); }
-  .chef-card:hover .thought-bubble { display: block; animation: fadeIn 0.2s ease; }
-  @keyframes chefBounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-  @keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(4px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
-  .chef-status-dot { width: 6px; height: 6px; border-radius: 50%; position: absolute; top: 6px; right: 6px; }
-  .chef-status-dot.idle { background: var(--dim); }
-  .chef-status-dot.cooking { background: var(--yellow); animation: pulse 1s infinite; }
-  .chef-status-dot.resting { background: var(--green); }
-  .kitchen-status { display: flex; gap: 8px; align-items: center; padding: 6px 10px; background: #1a1a1a; border-radius: 6px; border: 1px solid var(--border); }
-  .kitchen-status .dot { width: 8px; height: 8px; border-radius: 50%; }
-  .kitchen-status .dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
-  .kitchen-status .dot.offline { background: var(--red); }
-  .kitchen-status .dot.cooking { background: var(--yellow); animation: pulse 1s infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-  .order-list { max-height: 300px; overflow-y: auto; }
-  .order { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid #1a1a1a; font-size: 11px; }
-  .order:last-child { border-bottom: none; }
-  .order .badge { padding: 2px 6px; border-radius: 3px; font-size: 9px; text-transform: uppercase; font-weight: bold; }
-  .badge.cooking { background: rgba(255,230,109,0.15); color: var(--yellow); }
-  .badge.served { background: rgba(78,205,196,0.15); color: var(--green); }
-  .badge.burnt { background: rgba(255,107,107,0.15); color: var(--red); }
-  .order .prompt { flex: 1; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .order .duration { color: var(--dim); font-size: 10px; }
-  .route-entry { padding: 6px 8px; border-bottom: 1px solid #1a1a1a; font-size: 11px; }
-  .route-entry .reason { color: var(--dim); font-size: 10px; }
-  /* Kitchen Floor — Door + Chef Characters */
-  .stall-door { width: 50px; height: 90px; position: relative; flex-shrink: 0; }
-  .door-frame { width: 44px; height: 80px; border: 2px solid var(--accent); border-radius: 4px 4px 0 0; position: relative; overflow: hidden; background: #0a0a0a; }
-  .door-panel { width: 100%; height: 100%; background: linear-gradient(135deg, #2a1f14, #1a1410); transition: transform 0.6s ease; transform-origin: left center; }
-  .door-panel.open { transform: perspective(200px) rotateY(-70deg); }
-  .door-label { text-align: center; font-size: 7px; color: var(--dim); letter-spacing: 1px; margin-top: 2px; }
-  .floor-chef { display: flex; flex-direction: column; align-items: center; transition: all 0.5s ease; position: relative; cursor: pointer; }
-  .floor-chef.entering { animation: chefEnter 0.8s ease forwards; }
-  .floor-chef.idle .floor-chef-body { opacity: 0.6; }
-  .floor-chef.working .floor-chef-body { animation: chefWork 1s infinite; }
-  .floor-chef-body { font-size: 28px; line-height: 1; transition: opacity 0.3s; }
-  .floor-chef-name { font-size: 7px; color: var(--dim); white-space: nowrap; max-width: 50px; overflow: hidden; text-overflow: ellipsis; text-align: center; }
-  .floor-chef-thought { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--card); border: 1px solid var(--accent); border-radius: 8px; padding: 6px 10px; font-size: 9px; color: var(--text); white-space: nowrap; z-index: 20; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
-  .floor-chef-thought::after { content: ''; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%); border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid var(--accent); }
-  .floor-chef:hover .floor-chef-thought { display: block; animation: fadeIn 0.2s ease; }
-  @keyframes chefEnter { 0% { transform: translateX(-60px); opacity: 0; } 100% { transform: translateX(0); opacity: 1; } }
-  @keyframes chefWork { 0%,100% { transform: translateY(0) rotate(0deg); } 25% { transform: translateY(-2px) rotate(-3deg); } 75% { transform: translateY(-2px) rotate(3deg); } }
-  .bar-chart { display: flex; flex-direction: column; gap: 4px; }
-  .bar-row { display: flex; align-items: center; gap: 8px; }
-  .bar-label { width: 80px; font-size: 10px; color: var(--dim); text-align: right; }
-  .bar-track { flex: 1; height: 14px; background: #1a1a1a; border-radius: 3px; overflow: hidden; }
-  .bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; display: flex; align-items: center; justify-content: flex-end; padding-right: 4px; font-size: 9px; color: var(--bg); font-weight: bold; }
-  .no-data { color: var(--dim); font-style: italic; text-align: center; padding: 20px; }
-  .live-dot { display: inline-block; width: 6px; height: 6px; background: var(--green); border-radius: 50%; animation: pulse 2s infinite; margin-right: 6px; }
-  .stall-status { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: 10px; }
-  .stall-status.idle { background: rgba(102,102,102,0.2); color: var(--dim); }
-  .stall-status.cooking { background: rgba(255,230,109,0.15); color: var(--yellow); }
-  #error-banner { display: none; background: rgba(255,107,107,0.1); border: 1px solid var(--red); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; color: var(--red); font-size: 11px; }
-  .leaderboard-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
-  .leaderboard-row .rank { width: 20px; color: var(--accent); font-weight: bold; }
-  .leaderboard-row .agent-name { flex: 1; }
-  .leaderboard-row .grade-val { font-weight: bold; }
+  
+  body { 
+    background: var(--bg); 
+    color: var(--text); 
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    overflow-x: hidden;
+    background-image: 
+        radial-gradient(circle at 20% 20%, rgba(233, 69, 96, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.05) 0%, transparent 40%);
+    min-height: 100vh;
+  }
+
+  /* Layout */
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+  
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo-area { display: flex; align-items: center; gap: 16px; }
+  .logo-icon { font-size: 40px; filter: drop-shadow(0 0 10px var(--accent-glow)); }
+  .logo-text h1 { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; }
+  .logo-text p { font-size: 13px; color: var(--text-dim); }
+
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--glass);
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .status-dot.online { background: var(--green); box-shadow: 0 0 10px var(--green); }
+  .status-dot.cooking { background: var(--yellow); animation: pulse 1s infinite; }
+
+  /* Dashboard Grid */
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    grid-template-rows: auto;
+    gap: 20px;
+  }
+
+  .card {
+    background: var(--card-bg);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .card:hover { border-color: rgba(255,255,255,0.2); }
+  
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    font-weight: 700;
+  }
+
+  /* Stats Cards */
+  .stat-card { grid-column: span 3; }
+  .stat-value { font-size: 32px; font-weight: 800; color: var(--accent); font-family: var(--font-mono); }
+  .stat-desc { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+  /* Health Monitor */
+  .health-card { grid-column: span 6; }
+  .health-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .health-item { display: flex; flex-direction: column; gap: 8px; }
+  .health-label { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; }
+  .progress-bg { width: 100%; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease-out; }
+
+  /* Kitchen Floor */
+  .floor-card { grid-column: span 12; min-height: 180px; display: flex; align-items: center; padding: 0 40px; }
+  .kitchen-door { width: 60px; height: 100px; border: 3px solid var(--accent); border-radius: 6px 6px 0 0; background: #000; position: relative; margin-right: 40px; flex-shrink: 0; }
+  .door-leaf { width: 100%; height: 100%; background: var(--accent); transform-origin: left; transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+  .door-leaf.open { transform: perspective(500px) rotateY(-80deg); }
+  
+  .floor-chefs { display: flex; gap: 16px; flex: 1; overflow-x: auto; padding-bottom: 10px; }
+  .floor-chef { display: flex; flex-direction: column; align-items: center; gap: 8px; animation: slideIn 0.5s ease-out; position: relative; }
+  .chef-icon { font-size: 40px; cursor: pointer; transition: transform 0.2s; }
+  .chef-icon:hover { transform: scale(1.2) translateY(-5px); }
+  .chef-name { font-size: 10px; font-weight: 600; color: var(--text-dim); text-align: center; max-width: 60px; }
+  .chef-bubble { 
+    position: absolute; bottom: 100%; background: #fff; color: #000; 
+    padding: 6px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;
+    white-space: nowrap; opacity: 0; visibility: hidden; transition: all 0.2s;
+    transform: translateY(10px); z-index: 100;
+  }
+  .floor-chef:hover .chef-bubble { opacity: 1; visibility: visible; transform: translateY(-10px); }
+
+  /* Active Orders */
+  .orders-card { grid-column: span 8; }
+  .order-list { display: flex; flex-direction: column; gap: 8px; }
+  .order-item { 
+    display: flex; align-items: center; gap: 16px; 
+    padding: 12px; background: rgba(255,255,255,0.02); 
+    border-radius: 10px; border: 1px solid var(--border);
+  }
+  .order-status { width: 10px; height: 10px; border-radius: 50%; }
+  .order-chef { font-size: 18px; }
+  .order-prompt { flex: 1; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); }
+  .order-meta { font-size: 11px; color: var(--text-dim); }
+
+  /* Leaderboard */
+  .leaderboard-card { grid-column: span 4; }
+  .lb-list { display: flex; flex-direction: column; gap: 12px; }
+  .lb-item { display: flex; align-items: center; gap: 12px; }
+  .lb-rank { font-size: 14px; font-weight: 800; color: var(--accent); width: 24px; }
+  .lb-avatar { font-size: 24px; }
+  .lb-info { flex: 1; }
+  .lb-name { font-size: 13px; font-weight: 700; }
+  .lb-grade-bar { width: 100%; height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; margin-top: 4px; }
+  .lb-grade-fill { height: 100%; border-radius: 2px; }
+  .lb-grade-val { font-size: 12px; font-weight: 800; width: 30px; text-align: right; }
+
+  /* Animations */
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.1); } }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+  @media (max-width: 1200px) {
+    .stat-card { grid-column: span 6; }
+    .orders-card { grid-column: span 12; }
+    .leaderboard-card { grid-column: span 12; }
+  }
 </style>
 </head>
 <body>
 
-<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
-  <div>
-    <h1>🍜 Soupz Stall — Stall Monitor</h1>
-    <div class="subtitle"><span class="live-dot"></span>Live dashboard • Auto-refreshes every 2s</div>
-  </div>
-  <div id="stall-status" class="stall-status idle">IDLE</div>
-</div>
-
-<div id="error-banner"></div>
-
-<!-- Stall Tabs (multiple terminals) -->
-<div id="stall-tabs" style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap"></div>
-
-<!-- Stats Row -->
-<div class="grid">
-  <div class="card">
-    <div class="card-title">Total Orders</div>
-    <div class="stat-big" id="total-orders">0</div>
-    <div class="stat-label">prompts processed</div>
-  </div>
-  <div class="card">
-    <div class="card-title">Success Rate</div>
-    <div class="stat-big" id="success-rate">—</div>
-    <div class="stat-label" id="success-detail">no data yet</div>
-  </div>
-  <div class="card">
-    <div class="card-title">Avg Cook Time</div>
-    <div class="stat-big" id="avg-time">—</div>
-    <div class="stat-label">milliseconds</div>
-  </div>
-  <div class="card">
-    <div class="card-title">🪙 Token Usage</div>
-    <div class="stat-big" id="total-tokens">0</div>
-    <div class="stat-label" id="token-detail">$0.00 spent</div>
-  </div>
-</div>
-
-<!-- Kitchens (Tool Engines) -->
-<div class="card" style="margin-bottom:12px">
-  <div class="card-title">🔥 Kitchens (Tool Engines)</div>
-  <div id="kitchens" style="display:flex; gap:8px; flex-wrap:wrap">
-    <div class="no-data">Waiting for data...</div>
-  </div>
-</div>
-
-<!-- Kitchen Floor — animated chef entrance -->
-<div class="card" style="margin-bottom:12px;position:relative;overflow:hidden;min-height:120px">
-  <div class="card-title">🚪 Kitchen Floor</div>
-  <div id="kitchen-floor" style="display:flex;align-items:flex-end;gap:0;position:relative;height:100px;padding:0 20px">
-    <!-- Door -->
-    <div class="stall-door" id="stall-door">
-      <div class="door-frame">
-        <div class="door-panel" id="door-panel"></div>
-      </div>
-      <div class="door-label">KITCHEN</div>
+<div class="container">
+  <header>
+    <div class="logo-area">
+        <div class="logo-icon">🫕</div>
+        <div class="logo-text">
+            <h1>Soupz Cloud Kitchen</h1>
+            <p id="session-info">Initializing secure link to remote stove...</p>
+        </div>
     </div>
-    <!-- Chef characters appear here -->
-    <div id="floor-chefs" style="display:flex;align-items:flex-end;gap:2px;flex:1;margin-left:30px;overflow-x:auto"></div>
-  </div>
-</div>
+    <div class="status-badge">
+        <div id="status-dot" class="status-dot online"></div>
+        <span id="status-text">KITCHEN ONLINE</span>
+    </div>
+  </header>
 
-<!-- Chefs & Orders -->
-<div class="grid-2">
-  <div class="card">
-    <div class="card-title">👨‍🍳 Active Chefs (Personas)</div>
-    <div id="chefs" class="chef-grid">
-      <div class="no-data">No chefs loaded yet</div>
+  <div class="dashboard-grid">
+    <!-- Row 1: Quick Stats -->
+    <div class="card stat-card">
+        <div class="card-header"><span class="card-title">Orders Served</span></div>
+        <div class="stat-value" id="total-orders">0</div>
+        <div class="stat-desc">Prompts this session</div>
     </div>
-  </div>
-  <div class="card">
-    <div class="card-title">📋 Order Board</div>
-    <div id="orders" class="order-list">
-      <div class="no-data">No orders yet</div>
+    <div class="card stat-card">
+        <div class="card-header"><span class="card-title">Success Rate</span></div>
+        <div class="stat-value" id="success-rate">0%</div>
+        <div id="success-indicator" class="stat-desc">0 successful • 0 failed</div>
     </div>
-  </div>
-</div>
+    <div class="card stat-card">
+        <div class="card-header"><span class="card-title">Avg Cook Time</span></div>
+        <div class="stat-value" id="avg-time">0s</div>
+        <div class="stat-desc">Response latency</div>
+    </div>
+    <div class="card stat-card">
+        <div class="card-header"><span class="card-title">Stall Revenue</span></div>
+        <div class="stat-value" id="total-tokens">$0.00</div>
+        <div class="stat-desc" id="token-count">0 tokens consumed</div>
+    </div>
 
-<!-- Routing & Leaderboard -->
-<div class="grid-2">
-  <div class="card">
-    <div class="card-title">🧠 Routing Decisions</div>
-    <div id="routing" style="max-height:200px; overflow-y:auto">
-      <div class="no-data">No routing data</div>
+    <!-- Row 2: Health Monitor -->
+    <div class="card health-card">
+        <div class="card-header"><span class="card-title">Kitchen Thermometer</span></div>
+        <div class="health-grid">
+            <div class="health-item">
+                <div class="health-label"><span>CPU LOAD</span><span id="cpu-val">0%</span></div>
+                <div class="progress-bg"><div id="cpu-fill" class="progress-fill" style="width: 0%; background: var(--blue)"></div></div>
+            </div>
+            <div class="health-item">
+                <div class="health-label"><span>RAM USAGE</span><span id="ram-val">0%</span></div>
+                <div class="progress-bg"><div id="ram-fill" class="progress-fill" style="width: 0%; background: var(--accent)"></div></div>
+            </div>
+        </div>
     </div>
-  </div>
-  <div class="card">
-    <div class="card-title">🏆 Chef Leaderboard</div>
-    <div id="leaderboard">
-      <div class="no-data">No grades yet</div>
+    <div class="card health-card">
+        <div class="card-header"><span class="card-title">Active Kitchens</span></div>
+        <div id="kitchens-list" style="display:flex; gap:12px; align-items:center; height:100%">
+            <!-- Injected via JS -->
+        </div>
     </div>
-  </div>
-</div>
 
-<!-- Call Distribution -->
-<div class="card" style="margin-top:12px">
-  <div class="card-title">📊 Call Distribution</div>
-  <div id="call-chart" class="bar-chart">
-    <div class="no-data">No call data yet</div>
+    <!-- Row 3: Kitchen Floor (Visual Chefs) -->
+    <div class="card floor-card">
+        <div class="kitchen-door">
+            <div id="door-leaf" class="door-leaf"></div>
+        </div>
+        <div id="floor-chefs" class="floor-chefs">
+            <!-- Animated chefs appear here -->
+        </div>
+    </div>
+
+    <!-- Row 4: Orders & Leaderboard -->
+    <div class="card orders-card">
+        <div class="card-header"><span class="card-title">Recent Orders (Receipts)</span></div>
+        <div id="orders-list" class="order-list">
+            <div style="text-align:center; padding: 40px; color: var(--text-dim)">No orders in the queue...</div>
+        </div>
+    </div>
+
+    <div class="card leaderboard-card">
+        <div class="card-header"><span class="card-title">Chef Leaderboard</span></div>
+        <div id="leaderboard-list" class="lb-list">
+            <!-- Injected via JS -->
+        </div>
+    </div>
   </div>
 </div>
 
 <script>
-const STATE_URL = 'stall-state.json';
-let lastTimestamp = 0;
-let allStalls = {};
-let activeStallId = null;
+  // High-end Dashboard Logic
+  let lastTimestamp = 0;
+  let floorChefIds = new Set();
 
-function gradeColor(g) {
-  if (g >= 90) return '#4ECDC4';
-  if (g >= 70) return '#58a6ff';
-  if (g >= 50) return '#FFE66D';
-  if (g >= 30) return '#d4a574';
-  return '#FF6B6B';
-}
-
-function formatDuration(ms) {
-  if (!ms) return '—';
-  if (ms < 1000) return ms + 'ms';
-  return (ms / 1000).toFixed(1) + 's';
-}
-
-function timeAgo(ts) {
-  const diff = Date.now() - ts;
-  if (diff < 60000) return Math.round(diff/1000) + 's ago';
-  if (diff < 3600000) return Math.round(diff/60000) + 'm ago';
-  return Math.round(diff/3600000) + 'h ago';
-}
-
-async function discoverStalls() {
-  try {
-    const res = await fetch('/api/stalls?t=' + Date.now());
-    const stalls = await res.json();
-    const tabsEl = document.getElementById('stall-tabs');
-    if (stalls.length <= 1) { tabsEl.innerHTML = ''; }
-    else {
-      if (!activeStallId && stalls.length > 0) activeStallId = stalls[0].file;
-      tabsEl.innerHTML = stalls.map(s => `
-        <button onclick="activeStallId='${s.file}'" 
-          style="padding:4px 12px;border-radius:4px;border:1px solid ${activeStallId===s.file?'var(--accent)':'var(--border)'};
-          background:${activeStallId===s.file?'rgba(212,165,116,0.15)':'var(--card)'};
-          color:${activeStallId===s.file?'var(--accent)':'var(--dim)'};cursor:pointer;font-size:11px;font-family:inherit">
-          🍜 ${s.name || s.sessionId} <span style="font-size:9px">${s.status}</span>
-        </button>
-      `).join('');
-    }
-    return stalls;
-  } catch { return []; }
-}
-
-async function refresh() {
-  const stalls = await discoverStalls();
-  
-  // If single stall, load it directly; if multiple, load the active one
-  let stateUrl;
-  if (stalls.length === 0) {
-    stateUrl = 'stall-state.json'; // legacy fallback
-  } else if (activeStallId) {
-    stateUrl = activeStallId;
-  } else if (stalls.length > 0) {
-    activeStallId = stalls[0].file;
-    stateUrl = stalls[0].file;
+  function getGradeColor(g) {
+    if (g >= 90) return '#4ade80';
+    if (g >= 75) return '#3b82f6';
+    if (g >= 60) return '#facc15';
+    return '#f87171';
   }
 
-  try {
-    const res = await fetch(stateUrl + '?t=' + Date.now());
-    if (!res.ok) throw new Error('State file not found');
-    const s = await res.json();
-    document.getElementById('error-banner').style.display = 'none';
-    
-    if (s.timestamp === lastTimestamp) return;
-    lastTimestamp = s.timestamp;
+  async function updateDashboard() {
+    try {
+      // In production, this fetches from the remote server
+      const res = await fetch('stall-state.json?t=' + Date.now());
+      if (!res.ok) throw new Error('Offline');
+      const data = await res.json();
+      
+      if (data.timestamp === lastTimestamp) return;
+      lastTimestamp = data.timestamp;
 
-    // Stall status
-    const statusEl = document.getElementById('stall-status');
-    statusEl.textContent = s.stall.status.toUpperCase();
-    statusEl.className = 'stall-status ' + s.stall.status;
+      // Update Header
+      document.getElementById('session-info').textContent = `${data.stall.name} • Uptime: ${Math.floor(data.stall.uptime / 60)}m`;
+      const dot = document.getElementById('status-dot');
+      dot.className = `status-dot ${data.stall.status === 'cooking' ? 'cooking' : 'online'}`;
+      document.getElementById('status-text').textContent = data.stall.status === 'cooking' ? 'CHEF IS COOKING' : 'KITCHEN READY';
 
-    // Stats
-    document.getElementById('total-orders').textContent = s.stats.totalOrders;
-    const rate = s.stats.totalOrders > 0 
-      ? Math.round((s.stats.completedOrders / s.stats.totalOrders) * 100) + '%' : '—';
-    document.getElementById('success-rate').textContent = rate;
-    document.getElementById('success-detail').textContent = 
-      `${s.stats.completedOrders} served, ${s.stats.failedOrders} burnt`;
-    document.getElementById('avg-time').textContent = 
-      s.stats.avgCookTime ? formatDuration(s.stats.avgCookTime) : '—';
+      // Update Stats
+      document.getElementById('total-orders').textContent = data.stats.totalOrders;
+      const rate = data.stats.totalOrders > 0 ? Math.round((data.stats.completedOrders / data.stats.totalOrders) * 100) : 0;
+      document.getElementById('success-rate').textContent = rate + '%';
+      document.getElementById('success-indicator').textContent = `${data.stats.completedOrders} served • ${data.stats.failedOrders} burnt`;
+      document.getElementById('avg-time').textContent = data.stats.avgCookTime ? (data.stats.avgCookTime / 1000).toFixed(1) + 's' : '0s';
+      document.getElementById('total-tokens').textContent = '$' + (data.tokens?.cost || 0).toFixed(3);
+      document.getElementById('token-count').textContent = `${data.tokens?.total || 0} tokens consumed`;
 
-    // Token usage
-    if (s.tokens) {
-      document.getElementById('total-tokens').textContent = 
-        s.tokens.total > 1000 ? (s.tokens.total / 1000).toFixed(1) + 'k' : s.tokens.total;
-      document.getElementById('token-detail').textContent = 
-        `$${(s.tokens.cost || 0).toFixed(4)} spent`;
-    }
+      // Update Health
+      const cpu = data.stall.health?.cpu?.loadAvg['1m'] || 0;
+      const cores = data.stall.health?.cpu?.cores || 1;
+      const cpuPct = Math.min(100, Math.round((cpu / cores) * 100));
+      document.getElementById('cpu-val').textContent = cpuPct + '%';
+      document.getElementById('cpu-fill').style.width = cpuPct + '%';
+      
+      const ram = data.stall.health?.memory?.usagePercent || 0;
+      document.getElementById('ram-val').textContent = ram + '%';
+      document.getElementById('ram-fill').style.width = ram + '%';
 
-    // Kitchen Floor — animated chefs
-    if (s.chefs) renderKitchenFloor(s.chefs, s.activeOrders || []);
-
-    // Kitchens
-    const kitchensEl = document.getElementById('kitchens');
-    if (s.kitchens.length > 0) {
-      kitchensEl.innerHTML = s.kitchens.map(k => `
-        <div class="kitchen-status">
-          <div class="dot ${k.state === 'running' ? 'cooking' : k.available ? 'online' : 'offline'}"></div>
-          <span>${k.icon} ${k.name}</span>
-          <span style="color:var(--dim);font-size:10px">${k.calls} calls</span>
+      // Update Kitchens
+      const kitchensList = document.getElementById('kitchens-list');
+      kitchensList.innerHTML = data.kitchens.map(k => `
+        <div style="display:flex; align-items:center; gap:8px; padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border)">
+            <span style="font-size: 20px">${k.icon}</span>
+            <span style="font-size: 12px; font-weight: 700">${k.name}</span>
+            <div class="status-dot ${k.state === 'running' ? 'cooking' : 'online'}" style="width: 6px; height: 6px"></div>
         </div>
       `).join('');
-    }
 
-    // Chefs — show top 12 by usage + grade
-    const chefsEl = document.getElementById('chefs');
-    if (s.chefs.length > 0) {
-      const sorted = [...s.chefs].sort((a,b) => (b.calls + b.grade) - (a.calls + a.grade)).slice(0, 12);
-      chefsEl.innerHTML = sorted.map(c => {
-        const statusClass = c.calls > 0 ? 'cooking' : 'idle';
-        const thoughts = [
-          c.calls > 5 ? 'On a roll! 🔥' : c.calls > 0 ? 'Ready for more...' : 'Waiting for orders',
-          `Grade: ${Math.round(c.grade)}`,
-          c.capabilities?.length ? c.capabilities[0] : 'general',
-        ];
-        return `
-        <div class="chef-card ${c.calls > 0 ? 'active' : ''}">
-          <div class="thought-bubble">${thoughts[0]}</div>
-          <div class="chef-status-dot ${statusClass}"></div>
-          <div class="chef-avatar">${c.icon}</div>
-          <div class="info">
-            <div class="name">${c.name}</div>
-            <div class="meta">${c.calls} orders • Grade: ${Math.round(c.grade)}</div>
-            <div class="grade-bar">
-              <div class="grade-fill" style="width:${c.grade}%;background:${gradeColor(c.grade)}"></div>
+      // Update Kitchen Floor
+      renderFloor(data.chefs, data.activeOrders || []);
+
+      // Update Orders
+      const ordersList = document.getElementById('orders-list');
+      if (data.orders.length > 0) {
+        ordersList.innerHTML = data.orders.slice(0, 6).map(o => `
+            <div class="order-item">
+                <div class="order-status" style="background: ${o.status === 'served' ? 'var(--green)' : o.status === 'burnt' ? 'var(--red)' : 'var(--yellow)'}"></div>
+                <div class="order-chef">${data.grades[o.persona || o.agent]?.icon || '🤖'}</div>
+                <div class="order-prompt">${o.prompt}</div>
+                <div class="order-meta">${o.duration ? (o.duration / 1000).toFixed(1) + 's' : '...'}</div>
             </div>
-          </div>
-        </div>
-      `}).join('');
-    }
+        `).join('');
+      }
 
-    // Orders
-    const ordersEl = document.getElementById('orders');
-    if (s.orders.length > 0) {
-      ordersEl.innerHTML = s.orders.slice(0, 20).map(o => `
-        <div class="order">
-          <span class="badge ${o.status}">${o.status}</span>
-          <span style="font-size:11px">${o.agent}${o.persona ? ' ← ' + o.persona : ''}</span>
-          <span class="prompt">${o.prompt}</span>
-          <span class="duration">${o.duration ? formatDuration(o.duration) : '...'}</span>
-        </div>
-      `).join('');
-    }
-
-    // Routing
-    const routingEl = document.getElementById('routing');
-    if (s.stats.routingHistory.length > 0) {
-      routingEl.innerHTML = s.stats.routingHistory.map(r => `
-        <div class="route-entry">
-          <span>${r.persona ? '👨‍🍳 ' + r.persona + ' → ' : ''}🔥 ${r.agent}</span>
-          <span style="float:right;color:var(--dim)">${timeAgo(r.timestamp)}</span>
-          <div class="reason">${r.reason} (${(r.confidence*100).toFixed(0)}% confidence)</div>
-        </div>
-      `).join('');
-    }
-
-    // Leaderboard
-    const lbEl = document.getElementById('leaderboard');
-    const gradeEntries = Object.entries(s.grades)
-      .filter(([,v]) => v.usage > 0)
-      .sort((a,b) => b[1].grade - a[1].grade)
-      .slice(0, 10);
-    if (gradeEntries.length > 0) {
-      lbEl.innerHTML = gradeEntries.map(([id, v], i) => `
-        <div class="leaderboard-row">
-          <span class="rank">#${i+1}</span>
-          <span>${v.icon}</span>
-          <span class="agent-name">${v.name}</span>
-          <span class="grade-val" style="color:${gradeColor(v.grade)}">${Math.round(v.grade)}</span>
-        </div>
-      `).join('');
-    }
-
-    // Call distribution chart
-    const chartEl = document.getElementById('call-chart');
-    const allCalls = { ...s.stats.toolCalls, ...s.stats.personaCalls };
-    const callEntries = Object.entries(allCalls).sort((a,b) => b[1] - a[1]);
-    const maxCalls = callEntries.length > 0 ? callEntries[0][1] : 1;
-    if (callEntries.length > 0) {
-      chartEl.innerHTML = callEntries.map(([id, count]) => {
-        const info = s.grades[id] || { name: id, icon: '' };
-        const pct = Math.round((count / maxCalls) * 100);
-        return `
-          <div class="bar-row">
-            <span class="bar-label">${info.icon} ${info.name || id}</span>
-            <div class="bar-track">
-              <div class="bar-fill" style="width:${pct}%;background:var(--accent)">${count}</div>
+      // Update Leaderboard
+      const lbList = document.getElementById('leaderboard-list');
+      const sortedGrades = Object.entries(data.grades)
+        .filter(([,v]) => v.usage > 0)
+        .sort((a,b) => b[1].grade - a[1].grade)
+        .slice(0, 5);
+      
+      lbList.innerHTML = sortedGrades.map(([id, v], i) => `
+        <div class="lb-item">
+            <div class="lb-rank">#${i+1}</div>
+            <div class="lb-avatar">${v.icon}</div>
+            <div class="lb-info">
+                <div class="lb-name">${v.name}</div>
+                <div class="lb-grade-bar"><div class="lb-grade-fill" style="width: ${v.grade}%; background: ${getGradeColor(v.grade)}"></div></div>
             </div>
-          </div>
+            <div class="lb-grade-val" style="color: ${getGradeColor(v.grade)}">${Math.round(v.grade)}</div>
+        </div>
+      `).join('');
+
+    } catch(e) {
+      document.getElementById('status-dot').className = 'status-dot';
+      document.getElementById('status-text').textContent = 'KITCHEN OFFLINE';
+    }
+  }
+
+  function renderFloor(chefs, activeOrders) {
+    const floorEl = document.getElementById('floor-chefs');
+    const door = document.getElementById('door-leaf');
+    const activeChefIds = new Set(activeOrders.map(o => o.persona || o.agent));
+    const chefsOnFloor = chefs.filter(c => c.calls > 0 || activeChefIds.has(c.id));
+
+    let newEntry = false;
+    chefsOnFloor.forEach(c => {
+        if (!floorChefIds.has(c.id)) {
+            floorChefIds.add(c.id);
+            newEntry = true;
+        }
+    });
+
+    if (newEntry) {
+        door.classList.add('open');
+        setTimeout(() => door.classList.remove('open'), 1000);
+    }
+
+    floorEl.innerHTML = chefsOnFloor.slice(0, 10).map(c => {
+        const working = activeChefIds.has(c.id);
+        const order = activeOrders.find(o => (o.persona || o.agent) === c.id);
+        const thought = working ? (order?.prompt || 'Cooking...').slice(0, 30) + '...' : `Served ${c.calls} orders`;
+        return `
+            <div class="floor-chef">
+                <div class="chef-bubble">${thought}</div>
+                <div class="chef-icon">${c.icon}</div>
+                <div class="chef-name">${c.name.split(' ')[0]}</div>
+                ${working ? '<div class="status-dot cooking" style="position:absolute; top:0; right:0"></div>' : ''}
+            </div>
         `;
-      }).join('');
-    }
-
-  } catch(e) {
-    const banner = document.getElementById('error-banner');
-    banner.style.display = 'block';
-    banner.textContent = '⚠ Cannot read stall state. Is Soupz Stall running? (' + e.message + ')';
+    }).join('');
   }
-}
 
-// Track which chefs are on the floor (for enter animation)
-const floorChefIds = new Set();
-
-function renderKitchenFloor(chefs, activeOrders) {
-  const floorEl = document.getElementById('floor-chefs');
-  const doorPanel = document.getElementById('door-panel');
-  
-  // Determine active chef IDs (those with orders in progress)
-  const activeChefSet = new Set((activeOrders || []).map(o => o.persona || o.agent));
-  const chefsOnFloor = chefs.filter(c => c.calls > 0 || activeChefSet.has(c.id));
-  
-  // Open door if new chefs are entering
-  let newEntries = false;
-  for (const c of chefsOnFloor) {
-    if (!floorChefIds.has(c.id)) {
-      floorChefIds.add(c.id);
-      newEntries = true;
-    }
-  }
-  
-  if (newEntries) {
-    doorPanel.classList.add('open');
-    setTimeout(() => doorPanel.classList.remove('open'), 1500);
-  }
-  
-  floorEl.innerHTML = chefsOnFloor.slice(0, 15).map(c => {
-    const isWorking = activeChefSet.has(c.id);
-    const isNew = !document.querySelector(`[data-chef-floor="${c.id}"]`);
-    const thought = isWorking 
-      ? (activeOrders.find(o => (o.persona || o.agent) === c.id)?.prompt || 'Cooking...').slice(0, 40)
-      : c.calls > 3 ? `${c.calls} orders done 🔥` : 'Ready for orders';
-    return `
-      <div class="floor-chef ${isNew ? 'entering' : ''} ${isWorking ? 'working' : 'idle'}" data-chef-floor="${c.id}">
-        <div class="floor-chef-thought">${thought}</div>
-        <div class="floor-chef-body">${c.icon}</div>
-        <div class="floor-chef-name">${(c.name || c.id).split(/[\s(]/)[0]}</div>
-      </div>
-    `;
-  }).join('');
-}
-
-// Poll every 2 seconds
-setInterval(refresh, 2000);
-refresh();
+  setInterval(updateDashboard, 2000);
+  updateDashboard();
 </script>
 </body>
 </html>

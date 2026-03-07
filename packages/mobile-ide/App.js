@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, Alert, AsyncStorage } from 'react-native';
+import { View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 
 const DEFAULT_HOST = 'localhost';
 const DEFAULT_PORT = '7533';
@@ -151,21 +151,30 @@ export default function App() {
         wsRef.current?.send(JSON.stringify({ type: 'kill_terminal', terminalId: id }));
     };
 
-    const sendInput = () => {
-        if (!input.trim() || !activeTerminal) return;
+    const sendInput = (cmd) => {
+        const text = cmd || input;
+        if (!text.trim() || !activeTerminal) return;
         wsRef.current?.send(JSON.stringify({
             type: 'input',
             terminalId: activeTerminal,
-            data: input + '\n',
+            data: text + '\n',
         }));
-        setInput('');
+        if (!cmd) setInput('');
     };
 
     const getMemoryColor = (percent) => {
-        if (percent > 90) return '#FF4444';
+        if (percent > 90) return '#e94560';
         if (percent > 70) return '#FFAA00';
         return '#4CAF50';
     };
+
+    const recipes = [
+        { label: '🫕 soupz', cmd: 'soupz' },
+        { label: '🔨 build', cmd: 'npm run build' },
+        { label: '🧪 test', cmd: 'npm test' },
+        { label: '📁 status', cmd: 'git status' },
+        { label: '🧹 clear', cmd: 'clear' },
+    ];
 
     // ═══════════════════════════════════════
     // PAIRING SCREEN
@@ -176,29 +185,29 @@ export default function App() {
                 <View style={styles.pairScreen}>
                     <Text style={styles.logo}>🫕</Text>
                     <Text style={styles.title}>Soupz Cloud Kitchen</Text>
-                    <Text style={styles.subtitle}>Connect to your laptop remotely</Text>
+                    <Text style={styles.subtitle}>Remote terminal for your AI stall</Text>
 
                     <View style={styles.divider} />
 
-                    <Text style={styles.stepLabel}>① Start the server on your laptop:</Text>
+                    <Text style={styles.stepLabel}>① Start the stove on your laptop:</Text>
                     <View style={styles.codeBlock}>
                         <Text style={styles.codeText}>cd packages/remote-server && npm start</Text>
                     </View>
 
-                    <Text style={styles.stepLabel}>② Enter the pairing code shown:</Text>
+                    <Text style={styles.stepLabel}>② Enter the order number (Pairing Code):</Text>
                     <TextInput
                         style={styles.otpInput}
                         value={pairingCode}
                         onChangeText={setPairingCode}
-                        placeholder="Enter 8-digit code"
-                        placeholderTextColor="#555"
+                        placeholder="• • • • • • • •"
+                        placeholderTextColor="#333"
                         keyboardType="number-pad"
                         maxLength={8}
                         textAlign="center"
                         autoFocus
                     />
 
-                    <Text style={styles.stepLabel}>Server address (optional):</Text>
+                    <Text style={styles.stepLabel}>Kitchen address (optional):</Text>
                     <View style={styles.hostRow}>
                         <TextInput
                             style={[styles.hostInput, { flex: 2 }]}
@@ -221,17 +230,17 @@ export default function App() {
 
                     <TouchableOpacity
                         style={[styles.pairBtn, pairing && styles.pairBtnDisabled]}
-                        onPress={pair}
+                        onPress={() => pair()}
                         disabled={pairing}
                     >
                         <Text style={styles.pairBtnText}>
-                            {pairing ? '🔄 Pairing...' : '🔗 Pair Device'}
+                            {pairing ? '🔄 Starting stove...' : '🔗 Pair with Kitchen'}
                         </Text>
                     </TouchableOpacity>
 
                     <Text style={styles.footerHint}>
-                        The code expires in 5 minutes.{'\n'}
-                        Generate a new one: curl -X POST http://laptop:7533/pair
+                        Order codes expire in 5 minutes.{'\n'}
+                        Generate new: curl -X POST http://laptop:7533/pair
                     </Text>
                 </View>
             </View>
@@ -247,27 +256,32 @@ export default function App() {
             <View style={styles.header}>
                 <View>
                     <Text style={styles.headerTitle}>🫕 Cloud Kitchen</Text>
-                    {hostname ? <Text style={styles.headerHost}>{hostname}</Text> : null}
+                    <Text style={styles.headerStatus}>
+                        {connected ? '🟢 Stove hot' : '🔴 Stove cold'} • {hostname || 'Remote'}
+                    </Text>
                 </View>
                 <View style={styles.headerActions}>
-                    <TouchableOpacity onPress={() => setShowHealth(!showHealth)}>
-                        <Text style={styles.headerBtn}>
-                            {health?.warnings?.length > 0 ? '⚠️' : '💚'}
+                    <TouchableOpacity onPress={() => setShowHealth(!showHealth)} style={styles.headerActionBtn}>
+                        <Text style={styles.headerBtnIcon}>
+                            {health?.warnings?.length > 0 ? '⚠️' : '📊'}
                         </Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={createTerminal}>
-                        <Text style={styles.headerBtn}>+ Term</Text>
+                    <TouchableOpacity onPress={createTerminal} style={styles.headerActionBtn}>
+                        <Text style={styles.headerBtnIcon}>➕</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={disconnect}>
-                        <Text style={[styles.headerBtn, { color: '#FF4444' }]}>⏻</Text>
+                    <TouchableOpacity onPress={disconnect} style={styles.headerActionBtn}>
+                        <Text style={[styles.headerBtnIcon, { color: '#e94560' }]}>⏻</Text>
                     </TouchableOpacity>
                 </View>
             </View>
 
-            {/* Health Panel */}
+            {/* Health Panel (Thermometer) */}
             {showHealth && health && (
                 <View style={styles.healthPanel}>
-                    <Text style={styles.healthTitle}>🖥️ {hostname || health.hostname}</Text>
+                    <View style={styles.healthHeader}>
+                        <Text style={styles.healthTitle}>🌡️ Kitchen Thermometer</Text>
+                        <Text style={styles.healthUptime}>Up: {Math.floor(health.uptime / 3600)}h {Math.floor((health.uptime % 3600) / 60)}m</Text>
+                    </View>
                     <View style={styles.healthRow}>
                         <Text style={styles.healthLabel}>RAM</Text>
                         <View style={styles.progressBar}>
@@ -282,14 +296,20 @@ export default function App() {
                     </View>
                     <View style={styles.healthRow}>
                         <Text style={styles.healthLabel}>CPU</Text>
+                        <View style={styles.progressBar}>
+                            <View style={[styles.progressFill, {
+                                width: `${Math.min(100, (health.cpu.loadAvg['1m'] / health.cpu.cores) * 100)}%`,
+                                backgroundColor: '#4285F4'
+                            }]} />
+                        </View>
                         <Text style={styles.healthValue}>
-                            {health.cpu.loadAvg['1m'].toFixed(1)} / {health.cpu.cores} cores
+                            {health.cpu.loadAvg['1m'].toFixed(1)}
                         </Text>
                     </View>
                     {health.cpu.temperature && (
                         <View style={styles.healthRow}>
-                            <Text style={styles.healthLabel}>Temp</Text>
-                            <Text style={[styles.healthValue, health.cpu.temperature > 85 ? styles.warning : null]}>
+                            <Text style={styles.healthLabel}>TEMP</Text>
+                            <Text style={[styles.healthValue, health.cpu.temperature > 85 ? styles.warning : { color: '#FFAA00' }]}>
                                 {health.cpu.temperature}°C
                             </Text>
                         </View>
@@ -310,7 +330,7 @@ export default function App() {
                         onLongPress={() => killTerminal(t.id)}
                     >
                         <Text style={[styles.tabText, activeTerminal === t.id && styles.activeTabText]}>
-                            Terminal {t.id}
+                            🍳 Station {t.id}
                         </Text>
                     </TouchableOpacity>
                 ))}
@@ -330,9 +350,24 @@ export default function App() {
             ) : (
                 <View style={styles.emptyState}>
                     <Text style={styles.emptyIcon}>🍳</Text>
-                    <Text style={styles.emptyText}>No terminals open</Text>
-                    <Text style={styles.emptyHint}>Tap "+ Term" to start cooking</Text>
+                    <Text style={styles.emptyText}>Kitchen is quiet</Text>
+                    <Text style={styles.emptyHint}>Tap "➕" to open a new station</Text>
                 </View>
+            )}
+
+            {/* Recipe Bar */}
+            {activeTerminal && (
+                <ScrollView horizontal style={styles.recipeBar} showsHorizontalScrollIndicator={false}>
+                    {recipes.map((r, i) => (
+                        <TouchableOpacity
+                            key={i}
+                            style={styles.recipeBtn}
+                            onPress={() => sendInput(r.cmd)}
+                        >
+                            <Text style={styles.recipeBtnText}>{r.label}</Text>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
             )}
 
             {/* Input Bar */}
@@ -343,14 +378,14 @@ export default function App() {
                         style={styles.input}
                         value={input}
                         onChangeText={setInput}
-                        onSubmitEditing={sendInput}
-                        placeholder="Type command..."
-                        placeholderTextColor="#666"
+                        onSubmitEditing={() => sendInput()}
+                        placeholder="Add ingredients (commands)..."
+                        placeholderTextColor="#444"
                         autoCapitalize="none"
                         autoCorrect={false}
                         returnKeyType="send"
                     />
-                    <TouchableOpacity onPress={sendInput} style={styles.sendBtn}>
+                    <TouchableOpacity onPress={() => sendInput()} style={styles.sendBtn}>
                         <Text style={styles.sendBtnText}>⏎</Text>
                     </TouchableOpacity>
                 </View>
@@ -396,48 +431,56 @@ const styles = StyleSheet.create({
     // Header
     header: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        padding: 16, paddingTop: 56, backgroundColor: '#16213e',
+        padding: 16, paddingTop: 56, backgroundColor: '#16213e', borderBottomWidth: 1, borderBottomColor: '#222',
     },
     headerTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-    headerHost: { color: '#888', fontSize: 11, marginTop: 2 },
-    headerActions: { flexDirection: 'row', gap: 16, alignItems: 'center' },
-    headerBtn: { color: '#e94560', fontSize: 14, fontWeight: '600' },
+    headerStatus: { color: '#666', fontSize: 11, marginTop: 2 },
+    headerActions: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+    headerActionBtn: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center', borderRadius: 18, backgroundColor: '#1a1a2e' },
+    headerBtnIcon: { fontSize: 14, color: '#fff' },
 
-    // Health Panel
+    // Health Panel (Thermometer)
     healthPanel: { backgroundColor: '#16213e', padding: 16, borderBottomWidth: 1, borderBottomColor: '#333' },
-    healthTitle: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 12 },
-    healthRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-    healthLabel: { color: '#888', width: 50, fontSize: 13 },
-    healthValue: { color: '#4CAF50', fontSize: 13, fontWeight: '600' },
-    progressBar: { flex: 1, height: 8, backgroundColor: '#333', borderRadius: 4, marginHorizontal: 8 },
-    progressFill: { height: '100%', borderRadius: 4 },
-    warning: { color: '#FF4444' },
-    warningText: { color: '#FFAA00', fontSize: 12, marginTop: 4 },
+    healthHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+    healthTitle: { color: '#fff', fontSize: 15, fontWeight: '600' },
+    healthUptime: { color: '#444', fontSize: 11 },
+    healthRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+    healthLabel: { color: '#888', width: 45, fontSize: 12, fontWeight: '600' },
+    healthValue: { width: 50, fontSize: 12, fontWeight: 'bold', textAlign: 'right' },
+    progressBar: { flex: 1, height: 6, backgroundColor: '#0f0f23', borderRadius: 3, marginHorizontal: 8 },
+    progressFill: { height: '100%', borderRadius: 3 },
+    warning: { color: '#e94560' },
+    warningText: { color: '#FFAA00', fontSize: 12, marginTop: 6, fontStyle: 'italic' },
 
     // Tabs
     tabs: { backgroundColor: '#16213e', maxHeight: 44, borderBottomWidth: 1, borderBottomColor: '#333' },
-    tab: { paddingHorizontal: 16, paddingVertical: 10 },
-    activeTab: { borderBottomWidth: 2, borderBottomColor: '#e94560' },
-    tabText: { color: '#888', fontSize: 13 },
-    activeTabText: { color: '#e94560', fontWeight: '600' },
+    tab: { paddingHorizontal: 16, paddingVertical: 12, marginRight: 2 },
+    activeTab: { borderBottomWidth: 2, borderBottomColor: '#e94560', backgroundColor: '#1a1a2e' },
+    tabText: { color: '#555', fontSize: 12 },
+    activeTabText: { color: '#fff', fontWeight: 'bold' },
 
     // Terminal
     terminal: { flex: 1, backgroundColor: '#0f0f23', padding: 12 },
-    terminalText: { color: '#33ff33', fontFamily: 'monospace', fontSize: 13, lineHeight: 18 },
+    terminalText: { color: '#33ff33', fontFamily: 'monospace', fontSize: 13, lineHeight: 20 },
 
     // Empty State
     emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     emptyIcon: { fontSize: 64, marginBottom: 16 },
-    emptyText: { color: '#666', fontSize: 18, marginBottom: 8 },
+    emptyText: { color: '#666', fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
     emptyHint: { color: '#444', fontSize: 14 },
+
+    // Recipe Bar
+    recipeBar: { backgroundColor: '#16213e', maxHeight: 40, borderTopWidth: 1, borderTopColor: '#333', paddingVertical: 6 },
+    recipeBtn: { backgroundColor: '#1a1a2e', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, marginHorizontal: 4, borderWidth: 1, borderColor: '#333' },
+    recipeBtnText: { color: '#aaa', fontSize: 11, fontWeight: '600' },
 
     // Input Bar
     inputBar: {
         flexDirection: 'row', alignItems: 'center', backgroundColor: '#16213e',
-        padding: 8, borderTopWidth: 1, borderTopColor: '#333',
+        padding: 6, borderTopWidth: 1, borderTopColor: '#333',
     },
-    prompt: { color: '#e94560', fontSize: 18, fontWeight: 'bold', marginRight: 8, marginLeft: 8 },
-    input: { flex: 1, color: '#fff', fontSize: 16, padding: 10 },
-    sendBtn: { padding: 10 },
-    sendBtnText: { color: '#e94560', fontSize: 22 },
+    prompt: { color: '#e94560', fontSize: 18, fontWeight: 'bold', marginRight: 4, marginLeft: 8 },
+    input: { flex: 1, color: '#fff', fontSize: 15, padding: 8, fontFamily: 'monospace' },
+    sendBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
+    sendBtnText: { color: '#e94560', fontSize: 24 },
 });

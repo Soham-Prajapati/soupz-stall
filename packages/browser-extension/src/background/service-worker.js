@@ -219,6 +219,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     } else if (msg.type === 'manual_capture') {
         handleServerMessage({ type: 'capture_screenshot', requestId: 'manual' });
         sendResponse({ ok: true });
+    } else if (msg.type === 'manual_dom') {
+        handleServerMessage({ type: 'get_dom', requestId: 'manual' });
+        sendResponse({ ok: true });
     }
     return true;
 });

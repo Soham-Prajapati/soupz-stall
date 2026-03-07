@@ -1,7 +1,9 @@
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
-import { spawn } from 'child_process';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pty = require('node-pty');
 import os from 'os';
 import { execSync } from 'child_process';
 import crypto from 'crypto';
@@ -207,7 +209,7 @@ app.get('/health/full', requireAuth, (req, res) => {
 app.get('/terminals', requireAuth, (req, res) => {
     const list = [];
     for (const [id, t] of terminals) {
-        list.push({ id, pid: t.proc?.pid, alive: !t.proc?.killed, lines: t.buffer.length });
+        list.push({ id, pid: t.proc?.pid, alive: true, lines: t.buffer.length });
     }
     res.json(list);
 });
@@ -215,34 +217,28 @@ app.get('/terminals', requireAuth, (req, res) => {
 // AUTHENTICATED: Create terminal
 app.post('/terminal', requireAuth, (req, res) => {
     const id = ++terminalCounter;
-    const shell = process.env.SHELL || '/bin/bash';
-    const proc = spawn(shell, ['-i'], {
+    const shell = process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : 'bash');
+    const proc = pty.spawn(shell, [], {
+        name: 'xterm-256color',
+        cols: 80,
+        rows: 24,
         cwd: process.cwd(),
-        env: { ...process.env, TERM: 'xterm-256color' },
+        env: process.env,
     });
 
     const terminal = { id, proc, buffer: [], listeners: new Set() };
 
-    proc.stdout.on('data', (data) => {
-        const text = data.toString();
-        terminal.buffer.push(text);
+    proc.onData((data) => {
+        terminal.buffer.push(data);
         if (terminal.buffer.length > 1000) terminal.buffer.shift();
         for (const ws of terminal.listeners) {
-            ws.send(JSON.stringify({ type: 'output', terminalId: id, data: text }));
+            ws.send(JSON.stringify({ type: 'output', terminalId: id, data }));
         }
     });
 
-    proc.stderr.on('data', (data) => {
-        const text = data.toString();
-        terminal.buffer.push(text);
+    proc.onExit(({ exitCode }) => {
         for (const ws of terminal.listeners) {
-            ws.send(JSON.stringify({ type: 'output', terminalId: id, data: text }));
-        }
-    });
-
-    proc.on('exit', (code) => {
-        for (const ws of terminal.listeners) {
-            ws.send(JSON.stringify({ type: 'exit', terminalId: id, code }));
+            ws.send(JSON.stringify({ type: 'exit', terminalId: id, code: exitCode }));
         }
         terminals.delete(id);
     });
@@ -347,14 +343,17 @@ wss.on('connection', (ws) => {
 
                 case 'input': {
                     const terminal = terminals.get(msg.terminalId);
-                    if (terminal?.proc && !terminal.proc.killed) {
-                        terminal.proc.stdin.write(msg.data);
+                    if (terminal?.proc) {
+                        terminal.proc.write(msg.data);
                     }
                     break;
                 }
 
                 case 'resize': {
-                    // Future: node-pty support
+                    const terminal = terminals.get(msg.terminalId);
+                    if (terminal?.proc && msg.cols && msg.rows) {
+                        terminal.proc.resize(msg.cols, msg.rows);
+                    }
                     break;
                 }
 
@@ -365,31 +364,27 @@ wss.on('connection', (ws) => {
 
                 case 'create_terminal': {
                     const id = ++terminalCounter;
-                    const shell = process.env.SHELL || '/bin/bash';
-                    const proc = spawn(shell, ['-i'], {
+                    const shell = process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : 'bash');
+                    const proc = pty.spawn(shell, [], {
+                        name: 'xterm-256color',
+                        cols: msg.cols || 80,
+                        rows: msg.rows || 24,
                         cwd: msg.cwd || process.cwd(),
-                        env: { ...process.env, TERM: 'xterm-256color' },
+                        env: process.env,
                     });
                     const terminal = { id, proc, buffer: [], listeners: new Set([ws]) };
 
-                    proc.stdout.on('data', (data) => {
-                        const text = data.toString();
-                        terminal.buffer.push(text);
+                    proc.onData((data) => {
+                        terminal.buffer.push(data);
                         if (terminal.buffer.length > 1000) terminal.buffer.shift();
                         for (const listener of terminal.listeners) {
-                            listener.send(JSON.stringify({ type: 'output', terminalId: id, data: text }));
+                            listener.send(JSON.stringify({ type: 'output', terminalId: id, data }));
                         }
                     });
-                    proc.stderr.on('data', (data) => {
-                        const text = data.toString();
-                        terminal.buffer.push(text);
+
+                    proc.onExit(({ exitCode }) => {
                         for (const listener of terminal.listeners) {
-                            listener.send(JSON.stringify({ type: 'output', terminalId: id, data: text }));
-                        }
-                    });
-                    proc.on('exit', (code) => {
-                        for (const listener of terminal.listeners) {
-                            listener.send(JSON.stringify({ type: 'exit', terminalId: id, code }));
+                            listener.send(JSON.stringify({ type: 'exit', terminalId: id, code: exitCode }));
                         }
                         terminals.delete(id);
                     });
@@ -402,7 +397,7 @@ wss.on('connection', (ws) => {
                 case 'kill_terminal': {
                     const terminal = terminals.get(msg.terminalId);
                     if (terminal?.proc) {
-                        terminal.proc.kill('SIGTERM');
+                        terminal.proc.kill();
                         terminals.delete(msg.terminalId);
                     }
                     break;
@@ -476,28 +471,31 @@ server.listen(PORT, () => {
     const pairing = createPairingCode();
 
     console.log(`
-  🫕  ═══════════════════════════════════════════
-      SOUPZ CLOUD KITCHEN — Remote Server
-      ═══════════════════════════════════════════
+  \x1b[38;5;197m🫕  ═══════════════════════════════════════════\x1b[0m
+  \x1b[38;5;197m    SOUPZ CLOUD KITCHEN — Remote Stove\x1b[0m
+  \x1b[38;5;197m  ═══════════════════════════════════════════\x1b[0m
 
-      REST:      http://localhost:${PORT}
-      WebSocket: ws://localhost:${PORT}
-${localIPs.map(ip => `      LAN:       ws://${ip}:${PORT}`).join('\n')}
+  \x1b[1mSTOVE STATUS:\x1b[0m  \x1b[32m🔥 HOT\x1b[0m
+  \x1b[1mREST API:\x1b[0m      \x1b[34mhttp://localhost:${PORT}\x1b[0m
+  \x1b[1mWEBSOCKET:\x1b[0m     \x1b[34mws://localhost:${PORT}\x1b[0m
+${localIPs.map(ip => `  \x1b[1mLAN ACCESS:\x1b[0m    \x1b[34mws://${ip}:${PORT}\x1b[0m`).join('\n')}
 
-  🔑  PAIRING CODE:  ${pairing.code}
-      Expires in ${pairing.expiresIn}s — enter this on your phone or browser extension.
-      New code: curl -X POST http://localhost:${PORT}/pair
+  \x1b[38;5;214m🔑  ORDER NUMBER (Pairing Code):  ${pairing.code}\x1b[0m
+      \x1b[2mExpires in ${pairing.expiresIn}s\x1b[0m
 
-  📱  How to connect:
-      1. Open Soupz Mobile IDE on your phone
-      2. Enter pairing code: ${pairing.code}
-      3. Or scan the QR code (coming soon)
+  \x1b[1m📱  MOBILE IDE:\x1b[0m
+      1. Open Expo Go on your phone
+      2. Connect to LAN URL
+      3. Enter order number: \x1b[1m${pairing.code}\x1b[0m
 
-  🔌  Browser Extension:
-      1. Click the Soupz Bridge icon
-      2. Enter pairing code: ${pairing.code}
-      3. Connected until you close the extension
+  \x1b[1m🔌  BROWSER BRIDGE:\x1b[0m
+      1. Click 🫕 extension icon
+      2. Enter order number: \x1b[1m${pairing.code}\x1b[0m
 
-  ═══════════════════════════════════════════════
+  \x1b[1m💻  COMMAND CENTER:\x1b[0m
+      1. Open \x1b[34msrc/dashboard/index.html\x1b[0m
+      2. Real-time glassmorphism analytics
+
+  \x1b[38;5;197m═══════════════════════════════════════════════\x1b[0m
 `);
 });
