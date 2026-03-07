@@ -62,6 +62,8 @@ const COMMANDS = [
     { cmd: '/dashboard', desc: 'Open live stall monitor', icon: '📺' },
     { cmd: '/memory',     desc: 'Recipe memory stats', icon: '🧠' },
     { cmd: '/compress',   desc: 'Token compression settings & stats', icon: '📦' },
+    { cmd: '/recipe',     desc: 'Pre-built chef workflows: /recipe list', icon: '📖' },
+    { cmd: '/health',     desc: 'System diagnostics — CLI auth, Ollama, memory', icon: '🩺' },
     { cmd: '/skills',     desc: 'Spice rack (available skills)', icon: '🫙' },
     { cmd: '/user',       desc: 'User account (signup/login/logout/status)', icon: '👤' },
     { cmd: '/mcp',        desc: 'MCP servers (list/register/connect/tools)', icon: '🔌' },
@@ -852,6 +854,11 @@ export class Session {
         // /user — user auth commands
         if (input === '/user' || input.startsWith('/user ')) { await this.handleUserAuth(input); return; }
         if (input === '/mcp' || input.startsWith('/mcp ')) { await this.handleMcp(input); return; }
+        // /recipe — pre-built chef workflows
+        if (input === '/recipe' || input === '/recipe list') { this.showRecipes(); return; }
+        if (input.startsWith('/recipe ')) { await this.runRecipe(input.slice(8).trim()); return; }
+        // /health — system diagnostics
+        if (input === '/health') { await this.showHealth(); return; }
 
         // Resolve #file refs
         let resolved = input;
@@ -1747,6 +1754,143 @@ export class Session {
             for (const b of pool.banks) {
                 console.log(chalk.dim(`    📦 ${b.label} (${b.id}): ${b.chunks} chunks, ~${b.tokens} tokens`));
             }
+        }
+        console.log();
+    }
+
+    /** /recipe — pre-built chef workflow templates */
+    showRecipes() {
+        const recipes = [
+            { id: 'product-launch', name: 'Full Product Launch', chefs: 'researcher→strategist→pm→designer→dev→tester→devops', desc: 'End-to-end product from research to deployment' },
+            { id: 'brand-identity', name: 'Brand Identity', chefs: 'domain-scout→researcher→brand-chef→designer→svgart→contentwriter', desc: 'Complete brand from market research to visual identity' },
+            { id: 'mvp-sprint', name: 'MVP Sprint', chefs: 'quick-flow→dev→tester→devops', desc: 'Rapid prototype to deployed MVP' },
+            { id: 'ux-audit', name: 'UX Audit', chefs: 'ux-designer→analyst→qa→presenter', desc: 'Evaluate and present UX improvements' },
+            { id: 'pitch-deck', name: 'Pitch Deck', chefs: 'strategist→storyteller→presenter→svgart', desc: 'Investor-ready pitch with narrative and visuals' },
+            { id: 'code-quality', name: 'Code Quality', chefs: 'architect→dev→tea→qa', desc: 'Architecture review, refactoring, test coverage' },
+            { id: 'content-campaign', name: 'Content Campaign', chefs: 'researcher→contentwriter→storyteller→designer', desc: 'Research-backed content with visual assets' },
+            { id: 'security-review', name: 'Security Review', chefs: 'security→tea→devops', desc: 'Security audit, test coverage, deployment hardening' },
+        ];
+
+        console.log(chalk.bold('\n  📖 Recipes — Pre-built Chef Workflows\n'));
+        for (const r of recipes) {
+            console.log(chalk.cyan(`  ${r.id}`));
+            console.log(chalk.white(`    ${r.name} — ${r.desc}`));
+            console.log(chalk.dim(`    /recipe ${r.id} "your project description"`));
+            console.log(chalk.dim(`    Chefs: ${r.chefs}\n`));
+        }
+        console.log(chalk.dim('  Run: /recipe <id> "prompt"  — or — /chain to build your own\n'));
+    }
+
+    async runRecipe(input) {
+        const recipes = {
+            'product-launch': 'researcher→strategist→pm→designer→dev→tester→devops',
+            'brand-identity': 'domain-scout→researcher→brand-chef→designer→svgart→contentwriter',
+            'mvp-sprint': 'quick-flow→dev→tester→devops',
+            'ux-audit': 'ux-designer→analyst→qa→presenter',
+            'pitch-deck': 'strategist→storyteller→presenter→svgart',
+            'code-quality': 'architect→dev→tea→qa',
+            'content-campaign': 'researcher→contentwriter→storyteller→designer',
+            'security-review': 'security→tea→devops',
+        };
+
+        const match = input.match(/^([\w-]+)\s+"(.+)"$/s) || input.match(/^([\w-]+)\s+(.+)$/s);
+        if (!match) {
+            console.log(chalk.dim('  Usage: /recipe <recipe-id> "your prompt"'));
+            console.log(chalk.dim('  Run /recipe list to see available recipes'));
+            return;
+        }
+        const [, recipeId, prompt] = match;
+        const chain = recipes[recipeId];
+        if (!chain) {
+            console.log(chalk.red(`  Unknown recipe: ${recipeId}`));
+            this.showRecipes();
+            return;
+        }
+        console.log(chalk.cyan(`\n  📖 Running recipe: ${recipeId}`));
+        console.log(chalk.dim(`  Chain: ${chain}\n`));
+        await this.handleChain(`${chain} "${prompt}"`);
+    }
+
+    /** /health — system diagnostics */
+    async showHealth() {
+        console.log(chalk.bold('\n  🩺 System Health Check\n'));
+        const checks = [];
+
+        // Check Copilot CLI
+        try {
+            const { execFileSync } = await import('child_process');
+            execFileSync('gh', ['copilot', '--version'], { timeout: 5000 });
+            checks.push({ name: 'GitHub Copilot CLI', status: '✅', detail: 'Installed and authenticated' });
+        } catch {
+            checks.push({ name: 'GitHub Copilot CLI', status: '❌', detail: 'Not found or not authenticated — run: gh auth login' });
+        }
+
+        // Check Gemini CLI
+        try {
+            const { execFileSync } = await import('child_process');
+            execFileSync('which', ['gemini'], { timeout: 3000 });
+            checks.push({ name: 'Gemini CLI', status: '✅', detail: 'Installed' });
+        } catch {
+            checks.push({ name: 'Gemini CLI', status: '⚠️', detail: 'Not found — optional but recommended' });
+        }
+
+        // Check Ollama
+        try {
+            const resp = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(3000) });
+            if (resp.ok) {
+                const data = await resp.json();
+                const models = data.models?.map(m => m.name).join(', ') || 'none';
+                checks.push({ name: 'Ollama', status: '✅', detail: `Running — models: ${models}` });
+            } else {
+                checks.push({ name: 'Ollama', status: '⚠️', detail: 'Responding but error — restart Ollama' });
+            }
+        } catch {
+            checks.push({ name: 'Ollama', status: '⚠️', detail: 'Not running — optional, rule-based fallback active' });
+        }
+
+        // Memory usage
+        const os = await import('os');
+        const totalMem = os.totalmem();
+        const freeMem = os.freemem();
+        const usedPercent = Math.round(((totalMem - freeMem) / totalMem) * 100);
+        const memIcon = usedPercent > 90 ? '🔴' : usedPercent > 70 ? '🟡' : '🟢';
+        checks.push({ name: 'RAM Usage', status: memIcon, detail: `${usedPercent}% used (${Math.round(freeMem / 1024 / 1024)}MB free of ${Math.round(totalMem / 1024 / 1024)}MB)` });
+
+        // CPU load
+        const load = os.loadavg();
+        const cores = os.cpus().length;
+        const loadIcon = load[0] > cores * 0.8 ? '🔴' : load[0] > cores * 0.5 ? '🟡' : '🟢';
+        checks.push({ name: 'CPU Load', status: loadIcon, detail: `${load[0].toFixed(1)} (1m) / ${cores} cores` });
+
+        // Chef count
+        const fs = await import('fs');
+        const path = await import('path');
+        const agentsDir = path.join(process.cwd(), 'defaults', 'agents');
+        try {
+            const files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'));
+            const toolEngines = ['copilot.md', 'gemini.md', 'ollama.md'];
+            const chefs = files.filter(f => !toolEngines.includes(f));
+            checks.push({ name: 'Chefs Available', status: '👨‍🍳', detail: `${chefs.length} persona chefs + ${toolEngines.filter(t => files.includes(t)).length} tool engines` });
+        } catch {
+            checks.push({ name: 'Chefs', status: '⚠️', detail: 'Could not read agents directory' });
+        }
+
+        // Memory pool
+        const memDir = path.join(os.homedir(), '.soupz-agents', 'memory-pool');
+        try {
+            const banks = fs.readdirSync(memDir).filter(f => f.endsWith('.json'));
+            const totalSize = banks.reduce((sum, f) => sum + fs.statSync(path.join(memDir, f)).size, 0);
+            checks.push({ name: 'Memory Pool', status: '🧠', detail: `${banks.length} banks, ${Math.round(totalSize / 1024)}KB total` });
+        } catch {
+            checks.push({ name: 'Memory Pool', status: '🧠', detail: 'Empty — auto-populates after first task' });
+        }
+
+        // Active session
+        checks.push({ name: 'Session', status: '📋', detail: `${this.context?.history?.length || 0} messages, station: ${this.activeStation || 'auto'}` });
+
+        for (const c of checks) {
+            console.log(`  ${c.status}  ${chalk.bold(c.name)}`);
+            console.log(chalk.dim(`     ${c.detail}`));
         }
         console.log();
     }

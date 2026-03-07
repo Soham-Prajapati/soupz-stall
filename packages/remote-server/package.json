@@ -1,0 +1,16 @@
+{
+  "name": "soupz-remote-server",
+  "version": "0.1.0-alpha",
+  "description": "Remote access server for Soupz Stall — enables mobile IDE and browser extension connectivity",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ws": "^8.18.0",
+    "os-utils": "^0.0.14"
+  }
+}

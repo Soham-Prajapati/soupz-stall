@@ -22,7 +22,7 @@
 
 ## What is Soupz Stall?
 
-Soupz Stall is a **multi-agent CLI** that orchestrates multiple AI tools (GitHub Copilot, Gemini) through a cast of **48 specialized chefs** (personas). Think of it like Claude Code's sub-agent system but running on your existing AI subscriptions — no extra API keys needed.
+Soupz Stall is a **multi-agent CLI** that orchestrates multiple AI tools (GitHub Copilot, Gemini) through a cast of **38 specialized chefs** (personas). Think of it like Claude Code's sub-agent system but running on your existing AI subscriptions — no extra API keys needed.
 
 **Key differentiators:**
 - **Parallel agent execution** — delegate design, architecture, and planning simultaneously across tool engines
@@ -524,6 +524,44 @@ Soupz agents are also available as **Copilot CLI skills** (toggle in `/skills` p
 - [BMAD Integration →](docs/integrations/BMAD_IMPORT_GUIDE.md)
 - [Ollama (Local LLMs) →](docs/guides/OLLAMA_SETUP.md)
 - [Token Optimization Research →](docs/research/token-optimization-evidence.md) — peer-reviewed citations backing all efficiency claims
+- [Chef Usage Guide →](docs/guides/chef-usage-guide.md) — all 38 chefs organized by workflow phase
+- [Kitchen Floor Dashboard →](docs/guides/kitchen-floor.md) — live HTML dashboard docs
+- [Mobile IDE →](docs/guides/mobile-ide.md) — remote terminal app architecture, WebSocket protocol, setup
+- [Browser Extension →](docs/guides/browser-extension.md) — AI-to-browser bridge, DOM access, screenshot capture
+- [Publishing Guide →](docs/guides/publishing.md) — npm, Homebrew, Chrome Web Store
+
+---
+
+## 📦 Packages
+
+| Package | Description | Status |
+|---------|-------------|--------|
+| `packages/remote-server` | WebSocket + REST server for remote terminal access | Alpha |
+| `packages/mobile-ide` | React Native / Expo app — terminal access from phone | Alpha |
+| `packages/browser-extension` | Chrome extension — AI agents can see and interact with websites | Alpha |
+
+### Remote Server (Laptop ↔ Phone Bridge)
+
+```bash
+cd packages/remote-server
+npm install
+npm start   # starts on port 7533
+```
+
+### Mobile IDE
+
+```bash
+cd packages/mobile-ide
+npx expo install
+npx expo start  # scan QR with Expo Go
+```
+
+### Browser Extension
+
+```bash
+# In Chrome: chrome://extensions → Developer mode → Load unpacked
+# Select: packages/browser-extension/
+```
 
 ---
 

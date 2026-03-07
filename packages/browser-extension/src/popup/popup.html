@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            width: 340px; min-height: 420px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #1a1a2e; color: #fff;
+        }
+        .header { padding: 16px; background: #16213e; text-align: center; border-bottom: 1px solid #333; }
+        .header h1 { font-size: 18px; margin-bottom: 4px; }
+        .header .subtitle { color: #888; font-size: 12px; }
+        .status { padding: 12px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #222; }
+        .status .dot { width: 10px; height: 10px; border-radius: 50%; }
+        .dot.on { background: #4CAF50; box-shadow: 0 0 8px #4CAF50; }
+        .dot.off { background: #FF4444; }
+        .status .text { font-size: 13px; flex: 1; }
+
+        /* Pairing Form */
+        .pair-form { padding: 20px 16px; }
+        .pair-form .step { color: #aaa; font-size: 12px; margin-bottom: 6px; }
+        .pair-form .code-block {
+            background: #0f0f23; padding: 8px 12px; border-radius: 6px;
+            border: 1px solid #333; margin-bottom: 16px;
+        }
+        .pair-form .code-text { color: #33ff33; font-family: monospace; font-size: 12px; }
+        .pair-form label { color: #aaa; font-size: 12px; display: block; margin-bottom: 4px; }
+        .pair-form .otp-input {
+            width: 100%; padding: 14px; background: #0f0f23; border: 2px solid #e94560;
+            border-radius: 10px; color: #fff; font-size: 24px; font-weight: bold;
+            text-align: center; letter-spacing: 6px; font-family: monospace; margin-bottom: 12px;
+        }
+        .pair-form .otp-input::placeholder { color: #333; font-size: 16px; letter-spacing: 2px; }
+        .host-row { display: flex; gap: 4px; margin-bottom: 16px; }
+        .host-row input {
+            padding: 8px; background: #0f0f23; border: 1px solid #333;
+            border-radius: 6px; color: #fff; font-size: 13px;
+        }
+        .host-row .host { flex: 2; }
+        .host-row .port { flex: 1; }
+        .host-row .colon { color: #666; font-size: 16px; align-self: center; }
+
+        .btn {
+            width: 100%; padding: 12px; border: none; border-radius: 10px;
+            font-size: 15px; font-weight: 600; cursor: pointer;
+        }
+        .btn-primary { background: #e94560; color: #fff; }
+        .btn-danger { background: #222; color: #FF4444; border: 1px solid #333; }
+        .btn:hover { opacity: 0.9; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .error { color: #FF4444; font-size: 12px; margin-top: 8px; text-align: center; }
+        .hint { color: #444; font-size: 11px; text-align: center; margin-top: 12px; line-height: 16px; }
+
+        /* Connected Actions */
+        .actions { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+        .connected-info {
+            background: #16213e; padding: 12px; border-radius: 8px;
+            border: 1px solid #333; margin-bottom: 8px; text-align: center;
+        }
+        .connected-info .hostname { color: #4CAF50; font-weight: 600; font-size: 14px; }
+        .connected-info .detail { color: #666; font-size: 11px; margin-top: 4px; }
+        .action-btn {
+            padding: 12px; background: #16213e; border: 1px solid #333;
+            border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 10px;
+            color: #fff; font-size: 13px;
+        }
+        .action-btn:hover { background: #1e2a4a; border-color: #e94560; }
+        .action-btn .icon { font-size: 20px; }
+        .action-btn .label { font-weight: 600; }
+        .action-btn .desc { color: #888; font-size: 11px; }
+
+        .footer { padding: 12px 16px; text-align: center; color: #444; font-size: 11px; border-top: 1px solid #222; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🫕 Soupz Bridge</h1>
+        <div class="subtitle">AI Agent ↔ Browser</div>
+    </div>
+
+    <div class="status">
+        <div class="dot" id="statusDot"></div>
+        <span class="text" id="statusText">Checking...</span>
+    </div>
+
+    <!-- Pairing Screen -->
+    <div class="pair-form" id="pairForm">
+        <p class="step">① Start the server on your laptop:</p>
+        <div class="code-block">
+            <span class="code-text">cd packages/remote-server && npm start</span>
+        </div>
+
+        <p class="step">② Enter the pairing code:</p>
+        <input type="text" class="otp-input" id="otpInput" placeholder="• • • • • • • •" maxlength="8" autofocus>
+
+        <label>Server address:</label>
+        <div class="host-row">
+            <input type="text" class="host" id="hostInput" value="localhost" placeholder="IP or hostname">
+            <span class="colon">:</span>
+            <input type="text" class="port" id="portInput" value="7533" placeholder="7533">
+        </div>
+
+        <button class="btn btn-primary" id="pairBtn">🔗 Pair Device</button>
+        <div class="error" id="errorMsg" style="display:none"></div>
+        <p class="hint">Code expires in 5 min. Stays connected until you close the extension.</p>
+    </div>
+
+    <!-- Connected Actions -->
+    <div class="actions" id="actions" style="display:none">
+        <div class="connected-info">
+            <div class="hostname" id="hostnameText">Connected</div>
+            <div class="detail">Session active — closes when extension quits</div>
+        </div>
+
+        <div class="action-btn" id="captureBtn">
+            <span class="icon">📸</span>
+            <div>
+                <div class="label">Capture Screenshot</div>
+                <div class="desc">Send current page screenshot to AI</div>
+            </div>
+        </div>
+        <div class="action-btn" id="domBtn">
+            <span class="icon">🔍</span>
+            <div>
+                <div class="label">Send DOM</div>
+                <div class="desc">Send page structure to AI for analysis</div>
+            </div>
+        </div>
+        <div class="action-btn" id="summaryBtn">
+            <span class="icon">📋</span>
+            <div>
+                <div class="label">Page Summary</div>
+                <div class="desc">Quick stats: links, images, accessibility</div>
+            </div>
+        </div>
+        <button class="btn btn-danger" id="disconnectBtn" style="margin-top:8px">🚪 Disconnect</button>
+    </div>
+
+    <div class="footer">v0.1.0-alpha • Soupz Cloud Kitchen</div>
+
+    <script src="popup.js"></script>
+</body>
+</html>
