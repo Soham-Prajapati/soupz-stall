@@ -66,6 +66,8 @@ ${BANNER}
     /model          Show current agent + mode
     /yolo           Toggle YOLO mode
     /grades         Report cards
+    /dashboard      Open the Command Center (Web Dashboard)
+    /tunnel         Expose Cloud Kitchen publicly (no same-WiFi needed)
     /compress       Compress context
     /chain          Chain agents: /chain designer→svgart "prompt"
     @agent <text>   Route to specific agent or persona

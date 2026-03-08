@@ -1,7 +1,8 @@
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
+import os from 'os';
 import { writeFileSync, mkdirSync, existsSync, unlinkSync, readdirSync, statSync } from 'fs';
-
+import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 
 /**
@@ -21,11 +22,17 @@ export class StallMonitor {
         this.active = false;
         this.sessionId = randomUUID().slice(0, 8);
         this.stateFile = join(DASHBOARD_DIR, `stall-${this.sessionId}.json`);
+        this.localStateFile = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packages', 'dashboard', 'public', 'stall-state.json');
         this.updateInterval = null;
         this.state = {
             sessionId: this.sessionId,
             timestamp: Date.now(),
-            stall: { name: `Stall ${this.sessionId.slice(0, 4)}`, status: 'idle', uptime: 0 },
+            stall: { 
+                name: `Stall ${this.sessionId.slice(0, 4)}`, 
+                status: 'idle', 
+                uptime: 0,
+                health: { cpu: 0, ram: 0 }
+            },
             chefs: [],
             kitchens: [],
             orders: [],
@@ -39,6 +46,10 @@ export class StallMonitor {
                 toolCalls: {},
                 routingHistory: [],
             },
+            recommendations: [
+                { type: 'insight', text: 'Stove is pre-heating. Ready for heavy throughput.' },
+                { type: 'tip', text: 'Try using @designer for UI tasks to see the latest glassmorphism patterns.' }
+            ],
             grades: {},
             tokens: { total: 0, input: 0, output: 0, cost: 0, byModel: {}, savings: 0 },
         };
@@ -51,7 +62,10 @@ export class StallMonitor {
         this._cleanupStaleFiles();
         this._bindEvents();
         this._refreshState();
-        this.updateInterval = setInterval(() => this._writeState(), 2000);
+        this.updateInterval = setInterval(() => {
+            this._refreshState();
+            this._writeState();
+        }, 2000);
         this._writeState();
         this.dashboardHtml = this.createSessionDashboard();
     }
@@ -108,8 +122,6 @@ export class StallMonitor {
             this.state.activeOrders.push(order);
             this.state.orders.unshift(order);
             if (this.state.orders.length > 50) this.state.orders.pop();
-            this._refreshState();
-            this._writeState();
         });
 
         o.on('task-done', (entry) => {
@@ -124,8 +136,6 @@ export class StallMonitor {
                 order.endTime = entry.endTime;
             }
             this._updateAvgCookTime(entry.duration);
-            this._refreshState();
-            this._writeState();
         });
 
         o.on('task-error', (entry) => {
@@ -137,18 +147,6 @@ export class StallMonitor {
                 order.error = entry.result;
                 order.endTime = Date.now();
             }
-            this._refreshState();
-            this._writeState();
-        });
-
-        o.on('chain-start', (data) => {
-            this._refreshState();
-            this._writeState();
-        });
-
-        o.on('fan-out', (data) => {
-            this._refreshState();
-            this._writeState();
         });
     }
 
@@ -156,6 +154,23 @@ export class StallMonitor {
         this.state.timestamp = Date.now();
         this.state.stall.uptime = Date.now() - this.startTime;
         this.state.stall.status = this.state.activeOrders.length > 0 ? 'cooking' : 'idle';
+
+        // Update RAM
+        const totalMem = os.totalmem();
+        const freeMem = os.freemem();
+        this.state.stall.health.ram = Math.round(((totalMem - freeMem) / totalMem) * 100);
+
+        // Update CPU using os.cpus() delta
+        const cpus = os.cpus();
+        const total = cpus.reduce((a, c) => a + Object.values(c.times).reduce((s, t) => s + t, 0), 0);
+        const idle = cpus.reduce((a, c) => a + c.times.idle, 0);
+        if (this._lastCpuTotal) {
+            const dTotal = total - this._lastCpuTotal;
+            const dIdle = idle - this._lastCpuIdle;
+            this.state.stall.health.cpu = dTotal > 0 ? Math.round(((dTotal - dIdle) / dTotal) * 100) : 0;
+        }
+        this._lastCpuTotal = total;
+        this._lastCpuIdle = idle;
 
         // Refresh chef (persona) list
         const personas = this.registry.personas();
@@ -167,7 +182,7 @@ export class StallMonitor {
             grade: p.grade || 50,
             usageCount: p.usage_count || 0,
             capabilities: (p.capabilities || []).slice(0, 5),
-            state: p.state || 'idle',
+            state: this.state.activeOrders.some(o => (o.persona || o.agent) === p.id) ? 'cooking' : 'idle',
             calls: this.state.stats.personaCalls[p.id] || 0,
         }));
 
@@ -180,7 +195,7 @@ export class StallMonitor {
             color: t.color || '#888',
             grade: t.grade || 50,
             available: t.available,
-            state: t.state || 'idle',
+            state: this.state.activeOrders.some(o => o.agent === t.id) ? 'cooking' : 'idle',
             calls: this.state.stats.toolCalls[t.id] || 0,
         }));
 
@@ -239,7 +254,9 @@ export class StallMonitor {
 
     _writeState() {
         try {
-            writeFileSync(this.stateFile, JSON.stringify(this.state, null, 2));
+            const json = JSON.stringify(this.state, null, 2);
+            writeFileSync(this.stateFile, json);
+            writeFileSync(this.localStateFile, json);
         } catch { /* ignore write errors */ }
     }
 
@@ -247,75 +264,118 @@ export class StallMonitor {
     createSessionDashboard() {
         const htmlPath = join(DASHBOARD_DIR, `stall-${this.sessionId}.html`);
         const html = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><title>🫕 Stall ${this.sessionId.slice(0, 4)}</title>
-<style>
-:root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#e6edf3;--dim:#8b949e;--accent:#58a6ff;--green:#3fb950;--yellow:#ffe66d;--red:#f85149;--purple:#bc8cff}
-*{margin:0;padding:0;box-sizing:border-box}body{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',monospace;padding:16px}
-h1{font-size:16px;margin-bottom:12px}.section{margin-bottom:20px}.section-title{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
-.token-bar{display:flex;gap:16px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px}
-.token-stat{display:flex;flex-direction:column}.token-label{font-size:9px;color:var(--dim)}.token-value{font-size:16px;font-weight:bold;color:var(--accent)}
-.floor{display:flex;align-items:flex-end;gap:0;min-height:180px;background:linear-gradient(180deg,var(--bg) 0%,#1a1e26 60%,#22272e 100%);border-radius:10px;padding:16px 24px;position:relative;overflow:hidden;border:1px solid var(--border)}
-.floor::after{content:'';position:absolute;bottom:0;left:0;right:0;height:36px;background:repeating-linear-gradient(90deg,#2d333b 0,#2d333b 60px,#22272e 60px,#22272e 62px);border-radius:0 0 10px 10px}
-.door{width:50px;height:100px;position:relative;flex-shrink:0;margin-right:16px;z-index:2}
-.door-frame{width:44px;height:90px;border:3px solid var(--yellow);border-radius:5px 5px 0 0;position:absolute;bottom:0;background:rgba(255,230,109,0.05)}
-.door-panel{width:38px;height:82px;background:linear-gradient(180deg,#2d1f00,#1a1200);border-radius:3px 3px 0 0;position:absolute;bottom:3px;left:6px;transform-origin:left;transform:perspective(600px) rotateY(-75deg);transition:transform 0.8s}
-.door-sign{position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--yellow);white-space:nowrap}
-.chef{display:flex;flex-direction:column;align-items:center;z-index:1;margin:0 6px;animation:enter 0.6s ease-out}
-@keyframes enter{from{transform:translateX(-50px);opacity:0}to{transform:translateX(0);opacity:1}}
-.chef-body{width:36px;height:50px;display:flex;flex-direction:column;align-items:center;cursor:pointer;position:relative}
-.chef-hat{font-size:18px;line-height:1}.chef-face{width:24px;height:24px;background:var(--card);border:2px solid var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px}
-.chef-apron{width:18px;height:14px;background:var(--card);border:1px solid var(--border);border-radius:0 0 5px 5px;margin-top:-2px}
-.chef-name{font-size:7px;color:var(--dim);margin-top:3px;max-width:55px;text-align:center;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.chef-grade{font-size:6px;color:var(--accent)}
-.chef-body.cooking{animation:bounce 0.6s ease infinite alternate}.chef-body.cooking .chef-apron{background:rgba(255,230,109,0.2);border-color:var(--yellow)}
-@keyframes bounce{from{transform:translateY(0)}to{transform:translateY(-3px)}}
-.dot{width:5px;height:5px;border-radius:50%;margin-top:2px}.dot.cooking{background:var(--yellow);animation:pulse 1s ease infinite}.dot.idle{background:var(--dim)}.dot.done{background:var(--green)}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
-.bubble{display:none;position:absolute;bottom:60px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);border-radius:8px;padding:4px 8px;font-size:8px;max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:10}
-.chef:hover .bubble{display:block}
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:8px;display:flex;gap:8px;align-items:center;transition:transform 0.2s}
-.card:hover{transform:translateY(-2px);border-color:var(--accent)}
-.card-icon{font-size:20px}.card-info{flex:1}.card-name{font-size:11px;font-weight:bold}.card-task{font-size:9px;color:var(--dim);margin-top:1px}.card-grade{font-size:8px;color:var(--purple);margin-top:1px}
-.orders{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:10px;max-height:200px;overflow-y:auto}
-.order{padding:3px 0;border-bottom:1px solid var(--border)}.order:last-child{border:none}
-.order-status{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
-.order-status.cooking{background:var(--yellow)}.order-status.served{background:var(--green)}.order-status.burnt{background:var(--red)}
-#last-update{font-size:9px;color:var(--dim);position:fixed;bottom:8px;right:12px}
-</style></head><body>
-<h1>🫕 Soupz Stall — <span id="stall-name">Stall ${this.sessionId.slice(0, 4)}</span></h1>
-<div class="section"><div class="section-title">📊 Tokens</div><div class="token-bar" id="tokens"></div></div>
-<div class="section"><div class="section-title">🏪 Kitchen Floor</div><div class="floor" id="floor"><div class="door"><div class="door-sign">🫕 ENTRANCE</div><div class="door-frame"><div class="door-panel"></div></div></div></div></div>
-<div class="section"><div class="section-title">👨‍🍳 Active Chefs</div><div class="cards" id="chef-cards"></div></div>
-<div class="section"><div class="section-title">📝 Orders</div><div class="orders" id="orders"></div></div>
-<div id="last-update">Loading...</div>
-<script>
-const STATE_FILE = 'stall-${this.sessionId}.json';
-async function refresh(){
-  try{
-    const res=await fetch(STATE_FILE+'?t='+Date.now());
-    if(!res.ok)return;
-    const s=await res.json();
-    document.getElementById('stall-name').textContent=s.stall.name+' ('+s.stall.status+')';
-    // Tokens
-    const t=s.tokens||{};
-    document.getElementById('tokens').innerHTML=
-      '<div class="token-stat"><span class="token-label">Total</span><span class="token-value">'+(t.total||0).toLocaleString()+'</span></div>'+
-      '<div class="token-stat"><span class="token-label">Cost</span><span class="token-value" style="color:var(--green)">$'+(t.cost||0).toFixed(4)+'</span></div>';
-    // Floor chefs
-    const floor=document.getElementById('floor');
-    const door=floor.querySelector('.door').outerHTML;
-    const activeChefs=(s.chefs||[]).filter(c=>c.calls>0||c.state==='cooking');
-    floor.innerHTML=door+activeChefs.map((c,i)=>'<div class="chef" style="animation-delay:'+(i*0.15)+'s"><div class="bubble">'+(c.task||'Waiting...')+'</div><div class="chef-body '+(c.state||'idle')+'"><div class="chef-hat">👨‍🍳</div><div class="chef-face">'+(c.icon||'🍳')+'</div><div class="chef-apron"></div></div><div class="dot '+(c.state||'idle')+'"></div><div class="chef-name">'+c.name+'</div><div class="chef-grade">⭐ '+c.grade+'</div></div>').join('');
-    // Chef cards
-    document.getElementById('chef-cards').innerHTML=(s.chefs||[]).filter(c=>c.calls>0).map(c=>'<div class="card"><div class="card-icon">'+(c.icon||'🍳')+'</div><div class="card-info"><div class="card-name">'+c.name+'</div><div class="card-task">Calls: '+c.calls+'</div><div class="card-grade">Grade: '+c.grade+'</div></div></div>').join('')||(s.chefs||[]).length>0?'<div style="color:var(--dim);font-size:10px">No chefs called yet</div>':'';
-    // Orders
-    document.getElementById('orders').innerHTML=(s.orders||[]).slice(0,20).map(o=>'<div class="order"><span class="order-status '+o.status+'"></span><b>'+o.agent+'</b>'+(o.persona?' → '+o.persona:'')+': '+o.prompt+(o.duration?' <span style="color:var(--dim)">('+(o.duration/1000).toFixed(1)+'s)</span>':'')+'</div>').join('')||'<div style="color:var(--dim)">No orders yet</div>';
-    document.getElementById('last-update').textContent='Last updated: '+new Date().toLocaleTimeString();
-  }catch(e){document.getElementById('last-update').textContent='Waiting for stall data...';}
-}
-refresh();setInterval(refresh,2000);
-</script></body></html>`;
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🫕 Soupz Command Center — ${this.sessionId.slice(0, 4)}</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@500;700&display=swap');
+        :root {
+            --bg: #050508; --card-bg: rgba(10, 10, 18, 0.8); --border: rgba(255, 255, 255, 0.08);
+            --accent: #e94560; --accent-glow: rgba(233, 69, 96, 0.4); --text: #ffffff;
+            --text-dim: #64748b; --green: #4ade80; --blue: #3b82f6; --yellow: #facc15;
+            --font-mono: 'JetBrains Mono', monospace; --font-sans: 'Inter', sans-serif;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: var(--bg); color: var(--text); font-family: var(--font-sans); overflow-x: hidden;
+            background-image: radial-gradient(circle at 0% 0%, rgba(233, 69, 96, 0.08) 0%, transparent 50%), radial-gradient(circle at 100% 100%, rgba(59, 130, 246, 0.08) 0%, transparent 50%);
+            min-height: 100vh; padding: 24px;
+        }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+        .logo-area { display: flex; align-items: center; gap: 12px; }
+        .logo-icon { font-size: 32px; filter: drop-shadow(0 0 8px var(--accent-glow)); }
+        .logo-text h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+        .logo-text p { font-size: 11px; color: var(--text-dim); }
+        .status-badge { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 99px; font-size: 11px; font-weight: 600; }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .status-dot.online { background: var(--green); box-shadow: 0 0 10px var(--green); }
+        .status-dot.cooking { background: var(--yellow); animation: pulse 1s infinite; }
+        .dashboard-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+        .card { background: var(--card-bg); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 16px; position: relative; overflow: hidden; }
+        .card-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-weight: 700; margin-bottom: 12px; display: block; }
+        .stat-card { grid-column: span 3; }
+        .stat-val { font-size: 28px; font-weight: 800; color: #fff; font-family: var(--font-mono); letter-spacing: -1px; }
+        .floor-card { grid-column: span 12; height: 180px; display: flex; align-items: center; padding: 0 30px; }
+        .kitchen-door { width: 50px; height: 80px; border: 2px solid var(--accent); border-radius: 4px 4px 0 0; background: #000; position: relative; margin-right: 30px; flex-shrink: 0; }
+        .door-panel { width: 100%; height: 100%; background: var(--accent); transform-origin: left; transition: transform 0.8s; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 800; color: #000; writing-mode: vertical-rl; }
+        .door-panel.open { transform: rotateY(-110deg); }
+        .chef-assembly { display: flex; gap: 24px; align-items: flex-end; flex: 1; overflow-x: auto; }
+        .chef-unit { display: flex; flex-direction: column; align-items: center; gap: 8px; position: relative; }
+        .chef-avatar { font-size: 32px; transition: 0.3s; }
+        .chef-tag { font-size: 9px; font-weight: 700; color: var(--text-dim); }
+        .receipts-card { grid-column: span 8; }
+        .top-chefs-card { grid-column: span 4; }
+        .receipt-item { display: grid; grid-template-columns: 10px 1fr 80px; align-items: center; gap: 15px; padding: 12px; background: rgba(255,255,255,0.02); border-radius: 10px; margin-bottom: 6px; }
+        .receipt-status { width: 8px; height: 8px; border-radius: 50%; }
+        .receipt-prompt { font-family: var(--font-mono); font-size: 12px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .leader-item { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+        .leader-info { flex: 1; }
+        .leader-name { font-size: 12px; font-weight: 700; }
+        .leader-bar-bg { width: 100%; height: 3px; background: rgba(255,255,255,0.05); border-radius: 2px; }
+        .leader-bar-fill { height: 100%; border-radius: 2px; background: var(--blue); }
+        .rec-card { grid-column: span 12; }
+        .rec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+        .rec-item { padding: 12px; background: rgba(255,255,255,0.03); border-radius: 12px; border-left: 3px solid var(--accent); }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-5px); } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo-area"><div class="logo-icon">🫕</div><div class="logo-text"><h1 id="stall-name">Stall ${this.sessionId.slice(0, 4)}</h1><p id="uptime">Uptime: 0m</p></div></div>
+        <div class="status-badge"><div id="status-dot" class="status-dot online"></div><span id="status-text">KITCHEN READY</span></div>
+    </div>
+    <div class="dashboard-grid">
+        <div class="card stat-card"><span class="card-label">Orders</span><div class="stat-val" id="total-orders">0</div></div>
+        <div class="card stat-card"><span class="card-label">Success</span><div class="stat-val" id="success-rate">0%</div></div>
+        <div class="card stat-card"><span class="card-label">Avg Speed</span><div class="stat-val" id="avg-time">0s</div></div>
+        <div class="card stat-card"><span class="card-label">Stall Value</span><div class="stat-val" id="total-cost">$0.000</div></div>
+        <div class="card floor-card"><div class="kitchen-door"><div id="door-leaf" class="door-panel">KITCHEN</div></div><div id="chef-assembly" class="chef-assembly"></div></div>
+        <div class="card receipts-card"><span class="card-label">Recent Orders</span><div id="receipt-list"></div></div>
+        <div class="card top-chefs-card"><span class="card-label">Elite Chefs</span><div id="leaderboard"></div></div>
+        <div class="card rec-card"><span class="card-label">Chef's Insights</span><div id="recommendation-list" class="rec-grid"></div></div>
+    </div>
+    <script>
+        const STATE_FILE = 'stall-${this.sessionId}.json';
+        let lastTimestamp = 0; let knownChefIds = new Set();
+        async function refresh() {
+            try {
+                const res = await fetch(STATE_FILE + '?t=' + Date.now());
+                const data = await res.json();
+                if (data.timestamp === lastTimestamp) return;
+                lastTimestamp = data.timestamp;
+                document.getElementById('stall-name').textContent = data.stall.name;
+                document.getElementById('uptime').textContent = 'Uptime: ' + Math.floor(data.stall.uptime / 60000) + 'm';
+                const dot = document.getElementById('status-dot');
+                dot.className = 'status-dot ' + (data.stall.status === 'cooking' ? 'cooking' : 'online');
+                document.getElementById('status-text').textContent = data.stall.status === 'cooking' ? 'CHEF IS COOKING' : 'STOVE READY';
+                document.getElementById('total-orders').textContent = data.stats.totalOrders;
+                const rate = data.stats.totalOrders > 0 ? Math.round((data.stats.completedOrders / data.stats.totalOrders) * 100) : 0;
+                document.getElementById('success-rate').textContent = rate + '%';
+                document.getElementById('avg-time').textContent = data.stats.avgCookTime ? (data.stats.avgCookTime / 1000).toFixed(1) + 's' : '0s';
+                document.getElementById('total-cost').textContent = '$' + (data.tokens?.cost || 0).toFixed(3);
+                const assembly = document.getElementById('chef-assembly');
+                const activeIds = new Set(data.activeOrders.map(o => o.persona || o.agent));
+                const onFloor = data.chefs.filter(c => c.calls > 0 || activeIds.has(c.id));
+                let entered = false;
+                onFloor.forEach(c => { if (!knownChefIds.has(c.id)) { knownChefIds.add(c.id); entered = true; } });
+                if (entered) { document.getElementById('door-leaf').classList.add('open'); setTimeout(() => document.getElementById('door-leaf').classList.remove('open'), 1200); }
+                assembly.innerHTML = onFloor.slice(0, 12).map(c => \`<div class="chef-unit"><div class="chef-avatar" style="\${activeIds.has(c.id) ? 'animation: bounce 0.5s infinite alternate' : ''}">\${c.icon}</div><div class="chef-tag">\${c.name.split(' ')[0]}</div></div>\`).join('');
+                document.getElementById('receipt-list').innerHTML = (data.orders || []).slice(0, 5).map(o => \`<div class="receipt-item"><div class="receipt-status" style="background: \${o.status === 'served' ? 'var(--green)' : o.status === 'burnt' ? 'var(--red)' : 'var(--yellow)'}"></div><div class="receipt-prompt">\${o.prompt}</div><div style="font-size:10px; color:var(--text-dim); text-align:right">\${o.duration ? (o.duration / 1000).toFixed(1) + 's' : '...'}</div></div>\`).join('');
+                document.getElementById('recommendation-list').innerHTML = (data.recommendations || []).map(r => \`<div class="rec-item" style="border-left-color: \${r.type === 'insight' ? 'var(--blue)' : 'var(--accent)'}"><div style="font-size: 9px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase;">\${r.type}</div><div style="font-size: 12px; font-weight: 600;">\${r.text}</div></div>\`).join('');
+                const top = Object.entries(data.grades).filter(([,v]) => v.usage > 0).sort((a,b) => b[1].grade - a[1].grade).slice(0, 5);
+                document.getElementById('leaderboard').innerHTML = top.map(([id, v]) => \`<div class="leader-item"><div class="leader-info"><div class="leader-name">\${v.icon} \${v.name}</div><div class="leader-bar-bg"><div class="leader-bar-fill" style="width: \${v.grade}%; background: \${v.grade > 80 ? 'var(--green)' : 'var(--blue)'}"></div></div></div><div style="font-size:11px; font-weight:800;">\${Math.round(v.grade)}</div></div>\`).join('');
+            } catch (e) { }
+        }
+        setInterval(refresh, 2000); refresh();
+        gsap.from(".hero > *", { y: 20, opacity: 0, stagger: 0.1, duration: 1 });
+        gsap.from(".card", { opacity: 0, y: 20, stagger: 0.05, duration: 0.8, delay: 0.3 });
+    </script>
+</body>
+</html>`;
         writeFileSync(htmlPath, html);
         return htmlPath;
     }

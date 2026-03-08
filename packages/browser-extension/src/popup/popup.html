@@ -1,180 +1,421 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soupz Kitchen Bridge</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&family=JetBrains+Mono:wght@600;800&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-color: #f8f9fa;
+            --black: #0f1115;
+            --white: #ffffff;
+            --brand-red: #ff3b30;
+            --brand-yellow: #ffd60a;
+            --brand-green: #34c759;
+            --brand-blue: #007aff;
+            --sans: 'Space Grotesk', -apple-system, sans-serif;
+            --mono: 'JetBrains Mono', monospace;
+            --border-width: 3px;
+        }
+
         body {
-            width: 340px; min-height: 420px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            background: #1a1a2e; color: #fff; overflow-x: hidden;
+            width: 420px; min-height: 600px;
+            font-family: var(--sans);
+            background-color: var(--bg-color);
+            color: var(--black);
+            display: flex; flex-direction: column;
+            -webkit-font-smoothing: antialiased;
+            transition: all 0.3s ease;
         }
-        .header { padding: 16px; background: #16213e; text-align: center; border-bottom: 1px solid #333; }
-        .header h1 { font-size: 18px; margin-bottom: 4px; color: #fff; }
-        .header .subtitle { color: #888; font-size: 12px; }
-        .status { padding: 12px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #222; background: #1a1a2e; }
-        .status .dot { width: 10px; height: 10px; border-radius: 50%; }
-        .dot.on { background: #4CAF50; box-shadow: 0 0 8px #4CAF50; }
-        .dot.off { background: #FF4444; }
-        .status .text { font-size: 13px; flex: 1; color: #aaa; }
 
-        /* Pairing Form */
-        .pair-form { padding: 20px 16px; }
-        .pair-form .step { color: #aaa; font-size: 12px; margin-bottom: 6px; }
-        .pair-form .code-block {
-            background: #0f0f23; padding: 8px 12px; border-radius: 6px;
-            border: 1px solid #333; margin-bottom: 16px;
+        /* Well-Lit Kitchen Theme (Default) */
+        body.theme-kitchen {
+            background-color: #ffffff;
+            background-image: 
+                linear-gradient(#f0f0f0 2px, transparent 2px),
+                linear-gradient(90deg, #f0f0f0 2px, transparent 2px);
+            background-size: 50px 50px;
         }
-        .pair-form .code-text { color: #33ff33; font-family: monospace; font-size: 12px; }
-        .pair-form label { color: #aaa; font-size: 12px; display: block; margin-bottom: 4px; }
-        .pair-form .otp-input {
-            width: 100%; padding: 14px; background: #0f0f23; border: 2px solid #e94560;
-            border-radius: 10px; color: #fff; font-size: 24px; font-weight: bold;
-            text-align: center; letter-spacing: 6px; font-family: monospace; margin-bottom: 12px;
+
+        /* Neo-Brutalism Theme */
+        body.theme-brutal {
+            background-color: #f8f9fa;
+            background-image: 
+                linear-gradient(var(--black) 1px, transparent 1px),
+                linear-gradient(90deg, var(--black) 1px, transparent 1px);
+            background-size: 40px 40px;
         }
-        .pair-form .otp-input::placeholder { color: #333; font-size: 16px; letter-spacing: 2px; }
-        .host-row { display: flex; gap: 4px; margin-bottom: 16px; }
+
+        /* Theme Toggle */
+        .theme-toggle {
+            position: absolute; top: 12px; left: 12px;
+            z-index: 100; cursor: pointer;
+            background: white; border: 2px solid black;
+            padding: 4px 8px; font-size: 14px; border-radius: 4px;
+            box-shadow: 2px 2px 0px black;
+        }
+        .theme-toggle:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0px black; }
+
+        /* Container to sit over the tiles */
+        .wrapper {
+            background-color: var(--bg-color);
+            margin: 20px;
+            border: var(--border-width) solid var(--black);
+            box-shadow: 6px 6px 0px var(--black);
+            border-radius: 12px;
+            display: flex; flex-direction: column;
+            overflow: hidden;
+            flex: 1;
+        }
+
+        /* ── Header ───────────────────────────── */
+        .header {
+            padding: 24px 20px;
+            background-color: var(--brand-yellow);
+            border-bottom: var(--border-width) solid var(--black);
+            text-align: center;
+        }
+        .header .logo { font-size: 42px; margin-bottom: 8px; display: block; filter: drop-shadow(2px 2px 0px rgba(0,0,0,1)); }
+        .header h1 {
+            font-size: 24px; font-weight: 800; letter-spacing: -0.5px;
+            text-transform: uppercase;
+        }
+        .header .subtitle {
+            color: var(--black); font-size: 12px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 2px; margin-top: 4px;
+        }
+
+        /* ── Status Bar ───────────────────────── */
+        .status-bar {
+            padding: 14px 20px;
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            border-bottom: var(--border-width) solid var(--black);
+            background: var(--white);
+        }
+        .status-bar .dot {
+            width: 12px; height: 12px; border-radius: 50%;
+            border: 2px solid var(--black);
+            flex-shrink: 0;
+        }
+        .dot.on { background: var(--brand-green); animation: blink 1.5s infinite; }
+        .dot.off { background: var(--brand-red); }
+        .status-bar .label {
+            font-size: 13px; font-weight: 800; color: var(--black);
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        /* ── Main Content ─────────────────────── */
+        .main { flex: 1; padding: 24px; display: flex; flex-direction: column; gap: 24px; background: var(--white); overflow-y: auto; }
+
+        /* ── Pair Form ─────────────────────────── */
+        .pair-form { display: flex; flex-direction: column; gap: 20px; }
+
+        .step { 
+            background: var(--bg-color); border-radius: 8px; padding: 16px; 
+            border: 2px solid var(--black); box-shadow: 3px 3px 0px var(--black);
+        }
+        .step-num {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 24px; height: 24px; border-radius: 4px;
+            background: var(--brand-red); color: var(--white); font-size: 14px; font-weight: 800;
+            margin-right: 12px; border: 2px solid var(--black);
+        }
+        .step-title {
+            font-size: 14px; font-weight: 800; color: var(--black);
+            display: flex; align-items: center; margin-bottom: 12px;
+            text-transform: uppercase;
+        }
+        .step-code {
+            font-family: var(--mono); font-size: 13px; font-weight: 800;
+            color: var(--black); padding: 10px 12px;
+            background: var(--brand-yellow); border-radius: 4px;
+            border: 2px solid var(--black);
+        }
+
+        .otp-group { text-align: center; }
+        .otp-group .step-title { justify-content: center; margin-bottom: 12px; }
+        .otp-input {
+            width: 100%; padding: 20px 12px;
+            background: var(--white);
+            border: 3px solid var(--black);
+            border-radius: 8px; color: var(--black);
+            font-size: 36px; font-weight: 800;
+            text-align: center; letter-spacing: 12px;
+            font-family: var(--mono);
+            box-shadow: inset 4px 4px 0px rgba(0,0,0,0.05);
+            outline: none; transition: all 0.2s ease;
+        }
+        .otp-input:focus {
+            background: var(--brand-yellow);
+            box-shadow: 4px 4px 0px var(--black);
+            transform: translate(-2px, -2px);
+        }
+        .otp-input::placeholder { color: #ccc; font-size: 24px; letter-spacing: 8px; }
+
+        .host-row { display: flex; gap: 12px; align-items: center; }
         .host-row input {
-            padding: 8px; background: #0f0f23; border: 1px solid #333;
-            border-radius: 6px; color: #fff; font-size: 13px;
+            padding: 14px; background: var(--white);
+            border: 2px solid var(--black); box-shadow: 2px 2px 0px var(--black);
+            border-radius: 6px; color: var(--black);
+            font-size: 14px; font-weight: 800;
+            outline: none; transition: all 0.2s;
+            font-family: var(--mono);
         }
-        .host-row .host { flex: 2; }
-        .host-row .port { flex: 1; }
-        .host-row .colon { color: #666; font-size: 16px; align-self: center; }
+        .host-row input:focus { background: var(--brand-yellow); transform: translate(-2px, -2px); box-shadow: 4px 4px 0px var(--black); }
+        .host-row .host { flex: 2; min-width: 0; }
+        .host-row .port { flex: 1; min-width: 0; text-align: center; }
+        .host-row .colon { color: var(--black); font-weight: 800; font-size: 20px; }
 
+        /* ── Buttons ──────────────────────────── */
         .btn {
-            width: 100%; padding: 12px; border: none; border-radius: 10px;
-            font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+            width: 100%; padding: 18px; border: var(--border-width) solid var(--black); border-radius: 8px;
+            font-size: 16px; font-weight: 800; cursor: pointer;
+            transition: all 0.1s ease; text-transform: uppercase;
+            letter-spacing: 1px; font-family: var(--sans);
+            box-shadow: 4px 4px 0px var(--black);
         }
-        .btn-primary { background: #e94560; color: #fff; }
-        .btn-danger { background: #222; color: #FF4444; border: 1px solid #333; }
-        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
-        .btn:active { transform: translateY(0); }
-        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-        .error { color: #FF4444; font-size: 12px; margin-top: 8px; text-align: center; }
-        .hint { color: #444; font-size: 11px; text-align: center; margin-top: 12px; line-height: 16px; }
-
-        /* Connected Actions */
-        .actions { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
-        .connected-info {
-            background: #16213e; padding: 12px; border-radius: 8px;
-            border: 1px solid #333; margin-bottom: 8px; text-align: center;
-        }
-        .connected-info .hostname { color: #4CAF50; font-weight: 600; font-size: 14px; }
-        .connected-info .detail { color: #666; font-size: 11px; margin-top: 4px; }
+        .btn-primary { background: var(--brand-blue); color: var(--white); }
+        .btn-primary:hover:not(:disabled) { background: #0062cc; transform: translate(-2px, -2px); box-shadow: 6px 6px 0px var(--black); }
         
-        .action-row { display: flex; gap: 8px; }
-        .action-btn {
-            flex: 1; padding: 12px; background: #16213e; border: 1px solid #333;
-            border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; 
-            align-items: center; gap: 6px; color: #fff; text-align: center;
-        }
-        .action-btn:hover { background: #1e2a4a; border-color: #e94560; }
-        .action-btn.active { border-color: #e94560; background: #1e2a4a; }
-        .action-btn .icon { font-size: 20px; }
-        .action-btn .label { font-weight: 600; font-size: 12px; }
-        .action-btn .desc { color: #888; font-size: 10px; }
+        .btn-danger { background: var(--brand-red); color: var(--white); }
+        .btn-danger:hover:not(:disabled) { transform: translate(-2px, -2px); box-shadow: 6px 6px 0px var(--black); }
+        
+        .btn:active:not(:disabled) { transform: translate(4px, 4px) !important; box-shadow: 0px 0px 0px var(--black) !important; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; transform: translate(4px, 4px); }
 
-        /* Receipt View (Analysis Results) */
+        .error-msg {
+            color: var(--black); font-size: 13px; font-weight: 800; text-align: center;
+            padding: 14px; background: var(--brand-red);
+            border-radius: 6px; border: 2px solid var(--black);
+            box-shadow: 3px 3px 0px var(--black);
+            display: none; text-transform: uppercase;
+        }
+        .hint {
+            color: var(--black); font-size: 12px; text-align: center;
+            line-height: 1.5; font-weight: 700; opacity: 0.6;
+            text-transform: uppercase;
+        }
+
+        /* ── Connected Panel ──────────────────── */
+        .connected-panel { display: none; flex-direction: column; gap: 24px; }
+
+        .conn-card {
+            background: var(--brand-green);
+            padding: 20px; border-radius: 8px;
+            border: var(--border-width) solid var(--black);
+            box-shadow: 4px 4px 0px var(--black);
+            text-align: center;
+        }
+        .conn-card .hostname {
+            color: var(--black); font-weight: 800; font-size: 20px;
+            margin-bottom: 6px; text-transform: uppercase;
+        }
+        .conn-card .detail {
+            color: var(--black); font-size: 11px; font-weight: 800;
+            text-transform: uppercase; letter-spacing: 1px; opacity: 0.8;
+        }
+
+        .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .action-btn {
+            padding: 24px 16px; background: var(--white);
+            border: var(--border-width) solid var(--black);
+            border-radius: 12px; cursor: pointer;
+            display: flex; flex-direction: column;
+            align-items: center; gap: 12px;
+            color: var(--black); text-align: center;
+            transition: all 0.1s ease;
+            box-shadow: 4px 4px 0px var(--black);
+        }
+        /* Give alternating colors to buttons */
+        .action-btn:nth-child(1) { background: #E8F0FE; }
+        .action-btn:nth-child(2) { background: #FEF0E8; }
+        .action-btn:nth-child(3) { background: #E8FEF0; }
+        .action-btn:nth-child(4) { background: #FEE8F0; }
+
+        .action-btn:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 6px 6px 0px var(--black);
+        }
+        .action-btn:active {
+            transform: translate(4px, 4px) !important;
+            box-shadow: 0px 0px 0px var(--black) !important;
+        }
+        .action-btn.active {
+            background: var(--brand-yellow);
+            transform: translate(4px, 4px);
+            box-shadow: 0px 0px 0px var(--black);
+        }
+        .action-btn .icon { font-size: 32px; filter: drop-shadow(2px 2px 0px rgba(0,0,0,0.5)); }
+        .action-btn .label {
+            font-weight: 800; font-size: 13px;
+            text-transform: uppercase; letter-spacing: 1px;
+            color: var(--black);
+        }
+
+        /* ── Toast / Feedback ─────────────────── */
+        .toast {
+            position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+            background: var(--black); color: var(--brand-yellow); padding: 12px 24px;
+            border-radius: 4px; font-size: 14px; font-weight: 800;
+            border: 2px solid var(--brand-yellow); box-shadow: 4px 4px 0px var(--brand-yellow);
+            opacity: 0; transition: opacity 0.2s; pointer-events: none;
+            z-index: 100; white-space: nowrap; text-transform: uppercase;
+        }
+        .toast.show { opacity: 1; }
+
+        /* ── Receipt View (Neo-Brutalist Order Pad) ─────────────────────── */
         .receipt {
-            background: #fff; color: #000; padding: 16px; margin: 16px;
-            border-radius: 4px; font-family: 'Courier New', Courier, monospace;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5); position: relative;
-            transform: rotate(-1deg); display: none;
+            background: #fffdf5; color: var(--black); padding: 24px;
+            border: var(--border-width) solid var(--black);
+            border-radius: 0; font-family: var(--mono); font-size: 13px;
+            box-shadow: 6px 6px 0px var(--black);
+            position: relative; display: none;
         }
         .receipt::before {
-            content: ""; position: absolute; top: -8px; left: 0; width: 100%; height: 8px;
-            background: linear-gradient(-45deg, #fff 4px, transparent 0), linear-gradient(45deg, #fff 4px, transparent 0);
-            background-size: 8px 8px;
+            content: ""; position: absolute; top: -16px; left: -3px; right: -3px; height: 16px;
+            background: repeating-linear-gradient(45deg, transparent, transparent 10px, var(--black) 10px, var(--black) 20px);
+            border: var(--border-width) solid var(--black); border-bottom: none;
         }
-        .receipt-header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 8px; }
-        .receipt-title { font-weight: bold; font-size: 14px; }
-        .receipt-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
-        .receipt-footer { border-top: 1px dashed #000; padding-top: 8px; margin-top: 8px; text-align: center; font-size: 10px; }
-        .receipt-close { position: absolute; top: 4px; right: 4px; cursor: pointer; font-size: 16px; padding: 4px; }
+        .receipt-header {
+            text-align: center; border-bottom: 3px dashed var(--black);
+            padding-bottom: 16px; margin-bottom: 16px;
+        }
+        .receipt-title { font-weight: 800; font-size: 18px; margin-bottom: 8px; text-transform: uppercase; }
+        .receipt-url { font-size: 11px; word-break: break-all; font-weight: 600; line-height: 1.4; }
+        .receipt-row {
+            display: flex; justify-content: space-between;
+            font-size: 12px; font-weight: 800; margin-bottom: 8px;
+            padding: 4px 0; text-transform: uppercase;
+        }
+        .receipt-row .val { font-weight: 800; color: var(--brand-blue); }
+        .receipt-divider { border-top: 2px dashed var(--black); margin: 12px 0; }
+        .receipt-footer {
+            border-top: 3px dashed var(--black); padding-top: 16px; margin-top: 16px;
+            text-align: center; font-size: 11px; font-weight: 800; text-transform: uppercase;
+        }
+        .receipt-close {
+            position: absolute; top: 12px; right: 12px;
+            cursor: pointer; font-size: 20px; font-weight: 900;
+            width: 32px; height: 32px; display: flex;
+            align-items: center; justify-content: center;
+            border-radius: 4px; background: var(--brand-red);
+            color: var(--white); border: 2px solid var(--black);
+            box-shadow: 2px 2px 0px var(--black);
+            transition: all 0.1s;
+        }
+        .receipt-close:hover { transform: translate(-1px,-1px); box-shadow: 3px 3px 0px var(--black); }
+        .receipt-close:active { transform: translate(2px,2px); box-shadow: 0px 0px 0px var(--black); }
 
-        .footer { padding: 12px 16px; text-align: center; color: #444; font-size: 11px; border-top: 1px solid #222; }
+        /* ── Footer ───────────────────────────── */
+        .footer {
+            padding: 16px; text-align: center;
+            background: var(--black); color: var(--brand-yellow);
+            font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px;
+        }
     </style>
 </head>
-<body>
+<body class="theme-kitchen">
+
+<button class="theme-toggle" id="themeToggle">Toggle Theme</button>
+
+<div class="wrapper">
+    <!-- Header -->
     <div class="header">
-        <h1>🫕 Kitchen Bridge</h1>
-        <div class="subtitle">AI Chef ↔ Browser Stove</div>
+        <span class="logo">🫕</span>
+        <h1>Kitchen Bridge</h1>
+        <div class="subtitle">Order Station</div>
     </div>
 
-    <div class="status">
-        <div class="dot" id="statusDot"></div>
-        <span class="text" id="statusText">Checking...</span>
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div class="dot off" id="statusDot"></div>
+        <span class="label" id="statusText">Stove Offline</span>
     </div>
 
-    <!-- Pairing Screen -->
-    <div class="pair-form" id="pairForm">
-        <p class="step">① Start the stove on your laptop:</p>
-        <div class="code-block">
-            <span class="code-text">cd packages/remote-server && npm start</span>
+    <div class="main">
+
+        <!-- ── Pairing Screen ────────────────── -->
+        <div class="pair-form" id="pairForm">
+            <div class="step">
+                <div class="step-title"><span class="step-num">1</span> Start the stall</div>
+                <div class="step-code">soupz-stall</div>
+            </div>
+
+            <div class="step">
+                <div class="step-title"><span class="step-num">2</span> Enter the ticket</div>
+                <div class="otp-group" style="margin-top: 12px;">
+                    <input type="text" class="otp-input" id="otpInput" placeholder="••••••••" maxlength="8" autocomplete="off" spellcheck="false">
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title" style="margin-bottom: 12px;">Address</div>
+                <div class="host-row">
+                    <input type="text" class="host" id="hostInput" value="localhost" placeholder="hostname">
+                    <span class="colon">:</span>
+                    <input type="text" class="port" id="portInput" value="7533" placeholder="port">
+                </div>
+            </div>
+
+            <button class="btn btn-primary" id="pairBtn">Submit Order Ticket</button>
+            <div class="error-msg" id="errorMsg"></div>
+            <div class="hint">Tickets expire in 5 min.</div>
         </div>
 
-        <p class="step">② Enter the order number:</p>
-        <input type="text" class="otp-input" id="otpInput" placeholder="• • • • • • • •" maxlength="8" autofocus>
+        <!-- ── Connected Panel ───────────────── -->
+        <div class="connected-panel" id="connectedPanel">
+            <div class="conn-card">
+                <div class="hostname" id="hostnameText">Linked</div>
+                <div class="detail">Awaiting Chef Orders</div>
+            </div>
 
-        <label>Kitchen address:</label>
-        <div class="host-row">
-            <input type="text" class="host" id="hostInput" value="localhost" placeholder="IP or hostname">
-            <span class="colon">:</span>
-            <input type="text" class="port" id="portInput" value="7533" placeholder="7533">
+            <div class="action-grid">
+                <div class="action-btn" id="captureBtn">
+                    <span class="icon">📸</span>
+                    <span class="label">Snapshot</span>
+                </div>
+                <div class="action-btn" id="domBtn">
+                    <span class="icon">🔍</span>
+                    <span class="label">Source</span>
+                </div>
+                <div class="action-btn" id="summaryBtn">
+                    <span class="icon">📋</span>
+                    <span class="label">Receipt</span>
+                </div>
+                <div class="action-btn" id="inspectBtn">
+                    <span class="icon">🎯</span>
+                    <span class="label">Inspect</span>
+                </div>
+            </div>
+
+            <!-- Receipt Result -->
+            <div class="receipt" id="receiptView">
+                <button class="receipt-close" id="closeReceipt">×</button>
+                <div class="receipt-header">
+                    <div class="receipt-title">ORDER RECEIPT</div>
+                    <div class="receipt-url" id="receiptUrl"></div>
+                </div>
+                <div id="receiptItems"></div>
+                <div class="receipt-footer">
+                    END OF TICKET<br>
+                    <span id="receiptTime" style="margin-top: 6px; display: block; color: var(--black); font-size: 10px;"></span>
+                </div>
+            </div>
+
+            <button class="btn btn-danger" id="disconnectBtn">Close Station</button>
         </div>
-
-        <button class="btn btn-primary" id="pairBtn">🔗 Connect to Kitchen</button>
-        <div class="error" id="errorMsg" style="display:none"></div>
-        <p class="hint">Code expires in 5 min. Stays connected until you close the extension.</p>
     </div>
 
-    <!-- Connected Actions -->
-    <div class="actions" id="actions" style="display:none">
-        <div class="connected-info">
-            <div class="hostname" id="hostnameText">Connected</div>
-            <div class="detail">Bridge active — ready to take orders</div>
-        </div>
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
 
-        <div class="action-row">
-            <div class="action-btn" id="captureBtn">
-                <span class="icon">📸</span>
-                <span class="label">Snapshot</span>
-            </div>
-            <div class="action-btn" id="domBtn">
-                <span class="icon">🔍</span>
-                <span class="label">Ingredients</span>
-            </div>
-            <div class="action-btn" id="summaryBtn">
-                <span class="icon">📋</span>
-                <span class="label">Receipt</span>
-            </div>
-            <div class="action-btn" id="inspectBtn">
-                <span class="icon">🎯</span>
-                <span class="label">Inspect</span>
-            </div>
-        </div>
-
-        <!-- Receipt Result View -->
-        <div class="receipt" id="receiptView">
-            <div class="receipt-close" id="closeReceipt">×</div>
-            <div class="receipt-header">
-                <div class="receipt-title">SOUPZ KITCHEN ORDER</div>
-                <div id="receiptUrl" style="font-size:9px; word-break: break-all;"></div>
-            </div>
-            <div id="receiptItems">
-                <!-- Injected via JS -->
-            </div>
-            <div class="receipt-footer">
-                THANK YOU FOR COOKING WITH SOUPZ<br>
-                <span id="receiptTime"></span>
-            </div>
-        </div>
-
-        <button class="btn btn-danger" id="disconnectBtn" style="margin-top:8px">🚪 Close Bridge</button>
-    </div>
-
-    <div class="footer">v0.1.0-alpha • Soupz Cloud Kitchen</div>
+    <div class="footer">v0.1.0-alpha</div>
+</div>
 
     <script src="popup.js"></script>
 </body>

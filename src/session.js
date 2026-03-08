@@ -15,6 +15,8 @@ const VIBES = [
     '🧠 big brain energy loading…', '⚡ no cap, about to go crazy.',
     '🎯 main character energy.', '✨ vibes: immaculate.',
     '🫡 at your service, boss.', '💻 built different.',
+    '🫕 stove is hot. let\'s cook.', '🔪 mise en place. ready to slice.',
+    '🍜 serving up fresh code.', '👨‍🍳 chef\'s kiss incoming.',
 ];
 const BYES = ['✌️ peace out!', '👋 later!', '🫡 until next time, boss.', '🔥 that was fire. see ya.', '💤 zzz…'];
 
@@ -32,42 +34,52 @@ ${chalk.hex('#6C63FF')('       ╚══════╝ ')}${chalk.hex('#A855F7'
 const HR = chalk.hex('#444')('━'.repeat(65));
 
 const COMMANDS = [
-    { cmd: '/help',       desc: 'Show all commands', icon: '❓' },
-    { cmd: '/kitchen',    desc: 'List kitchens (AI cooking stations)', icon: '🍳' },
-    { cmd: '/chefs',      desc: 'List all chefs (personas)', icon: '👨‍🍳' },
-    { cmd: '/station',    desc: 'Switch station: /station copilot', icon: '🍳' },
-    { cmd: '/utensil',    desc: 'Switch utensil (AI model): /utensil <model>', icon: '🔪' },
-    { cmd: '/auto',       desc: 'Full auto — best station + chef decides', icon: '🎯' },
-    { cmd: '/chain',      desc: 'Chain chefs: /chain designer→researcher "prompt"', icon: '🔗' },
-    { cmd: '/delegate',   desc: 'Delegate to chef: /delegate designer "prompt"', icon: '📤' },
-    { cmd: '/parallel',   desc: 'Run chefs in parallel: /parallel a b c "prompt"', icon: '⚡' },
-    { cmd: '/svgart',     desc: 'Generate SVG asset: /svgart logo "HealthAI logo, blue, geometric"', icon: '🎨' },
-    { cmd: '/hackathon',  desc: 'Hackathon mode — phased plan, todos, chef assignments', icon: '🏁' },
-    { cmd: '/spill',      desc: 'Toggle spill mode — no restrictions, full send 🫕', icon: '🌊' },
-    { cmd: '/browse',     desc: 'Screenshot localhost', icon: '🌐' },
-    { cmd: '/todo',       desc: 'The menu (task list)', icon: '📋' },
-    { cmd: '/do',         desc: 'Cook a dish: /do 1 (execute todo)', icon: '▶️' },
-    { cmd: '/tokens',     desc: 'Ingredient usage (token stats)', icon: '📊' },
-    { cmd: '/costs',      desc: 'Bill tracker (cost tracking)', icon: '💰' },
-    { cmd: '/grades',     desc: 'Kitchen ratings per station', icon: '🏆' },
-    { cmd: '/sandbox',    desc: 'Toggle pantry lock (~/Developer)', icon: '🔒' },
-    { cmd: '/clear',      desc: 'Clear the counter (reset context)', icon: '🧹' },
-    { cmd: '/rename',     desc: 'Name this order (session)', icon: '💾' },
-    { cmd: '/sessions',   desc: 'Order history (saved sessions)', icon: '📂' },
-    { cmd: '/load',       desc: 'Reopen an order', icon: '📥' },
-    { cmd: '/login',      desc: 'Unlock a kitchen', icon: '🔑' },
-    { cmd: '/logout',     desc: 'Lock a kitchen', icon: '🚪' },
-    { cmd: '/pantry',    desc: 'Pantry storage status', icon: '🥫' },
-    { cmd: '/stock',     desc: 'Store/recall from pantry', icon: '📦' },
-    { cmd: '/dashboard', desc: 'Open live stall monitor', icon: '📺' },
-    { cmd: '/memory',     desc: 'Recipe memory stats', icon: '🧠' },
-    { cmd: '/compress',   desc: 'Token compression settings & stats', icon: '📦' },
-    { cmd: '/recipe',     desc: 'Pre-built chef workflows: /recipe list', icon: '📖' },
-    { cmd: '/health',     desc: 'System diagnostics — CLI auth, Ollama, memory', icon: '🩺' },
-    { cmd: '/skills',     desc: 'Spice rack (available skills)', icon: '🫙' },
-    { cmd: '/user',       desc: 'User account (signup/login/logout/status)', icon: '👤' },
-    { cmd: '/mcp',        desc: 'MCP servers (list/register/connect/tools)', icon: '🔌' },
-    { cmd: '/quit',       desc: 'Close the stall', icon: '👋' },
+    // 🍳 Cooking (core actions)
+    { cmd: '/help',       desc: 'Show all commands', icon: '❓', cat: 'cooking' },
+    { cmd: '/kitchen',    desc: 'List kitchens (AI cooking stations)', icon: '🍳', cat: 'cooking' },
+    { cmd: '/chefs',      desc: 'List all chefs (personas)', icon: '👨‍🍳', cat: 'cooking' },
+    { cmd: '/station',    desc: 'Switch station: /station copilot', icon: '🍳', cat: 'cooking' },
+    { cmd: '/utensil',    desc: 'Switch utensil (AI model): /utensil <model>', icon: '🔪', cat: 'cooking' },
+    { cmd: '/auto',       desc: 'Full auto — best station + chef decides', icon: '🎯', cat: 'cooking' },
+    { cmd: '/chain',      desc: 'Chain chefs: /chain designer→researcher "prompt"', icon: '🔗', cat: 'cooking' },
+    { cmd: '/delegate',   desc: 'Delegate to chef: /delegate designer "prompt"', icon: '📤', cat: 'cooking' },
+    { cmd: '/parallel',   desc: 'Run chefs in parallel: /parallel a b c "prompt"', icon: '⚡', cat: 'cooking' },
+    { cmd: '/fleet',      desc: 'Spawn hidden parallel workers: /fleet "prompt"', icon: '🚀', cat: 'cooking' },
+    { cmd: '/svgart',     desc: 'Generate SVG asset: /svgart logo "HealthAI logo, blue, geometric"', icon: '🎨', cat: 'cooking' },
+    { cmd: '/hackathon',  desc: 'Hackathon mode — phased plan, todos, chef assignments', icon: '🏁', cat: 'cooking' },
+    { cmd: '/spill',      desc: 'Toggle spill mode — no restrictions, full send 🫕', icon: '🌊', cat: 'cooking' },
+    { cmd: '/browse',     desc: 'Screenshot localhost', icon: '🌐', cat: 'cooking' },
+    // 📋 Tasks & tracking
+    { cmd: '/todo',       desc: 'The menu (task list)', icon: '📋', cat: 'tasks' },
+    { cmd: '/do',         desc: 'Cook a dish: /do 1 (execute todo)', icon: '▶️', cat: 'tasks' },
+    { cmd: '/tokens',     desc: 'Ingredient usage (token stats)', icon: '📊', cat: 'tasks' },
+    { cmd: '/costs',      desc: 'Bill tracker (cost tracking)', icon: '💰', cat: 'tasks' },
+    { cmd: '/grades',     desc: 'Kitchen ratings per station', icon: '🏆', cat: 'tasks' },
+    // 💾 Session
+    { cmd: '/rename',     desc: 'Name this order (session)', icon: '💾', cat: 'session' },
+    { cmd: '/sessions',   desc: 'Order history (saved sessions)', icon: '📂', cat: 'session' },
+    { cmd: '/load',       desc: 'Reopen an order', icon: '📥', cat: 'session' },
+    { cmd: '/clear',      desc: 'Clear the counter (reset context)', icon: '🧹', cat: 'session' },
+    { cmd: '/sandbox',    desc: 'Toggle pantry lock (~/Developer)', icon: '🔒', cat: 'session' },
+    // ☁️ Remote & monitoring
+    { cmd: '/cloud-kitchen', desc: 'Start/show remote access server', icon: '☁️', cat: 'remote' },
+    { cmd: '/tunnel', desc: 'Expose Cloud Kitchen publicly (no same-WiFi needed)', icon: '🌍', cat: 'remote' },
+    { cmd: '/dashboard', desc: 'Open live stall monitor', icon: '📺', cat: 'remote' },
+    // 🧠 Storage & memory
+    { cmd: '/pantry',    desc: 'Pantry storage status', icon: '🥫', cat: 'storage' },
+    { cmd: '/stock',     desc: 'Store/recall from pantry', icon: '📦', cat: 'storage' },
+    { cmd: '/memory',     desc: 'Recipe memory stats', icon: '🧠', cat: 'storage' },
+    { cmd: '/compress',   desc: 'Token compression settings & stats', icon: '📦', cat: 'storage' },
+    // 🔧 System
+    { cmd: '/health',     desc: 'System diagnostics — RAM, swap, CPU, disk, tools', icon: '🩺', cat: 'system' },
+    { cmd: '/recipe',     desc: 'Pre-built chef workflows: /recipe list', icon: '📖', cat: 'system' },
+    { cmd: '/skills',     desc: 'Spice rack (available skills)', icon: '🫙', cat: 'system' },
+    { cmd: '/login',      desc: 'Unlock a kitchen', icon: '🔑', cat: 'system' },
+    { cmd: '/logout',     desc: 'Lock a kitchen', icon: '🚪', cat: 'system' },
+    { cmd: '/user',       desc: 'User account (signup/login/logout/status)', icon: '👤', cat: 'system' },
+    { cmd: '/mcp',        desc: 'MCP servers (list/register/connect/tools)', icon: '🔌', cat: 'system' },
+    { cmd: '/version',    desc: 'Show version, Node, OS info', icon: '🏷️', cat: 'system' },
+    { cmd: '/quit',       desc: 'Close the stall', icon: '👋', cat: 'system' },
 ];
 
 const GEMINI_MODELS = [
@@ -78,22 +90,23 @@ const GEMINI_MODELS = [
 ];
 
 const COPILOT_MODELS = [
-    { id: 'GPT-5 mini', desc: '0x (FREE - use for redundant tasks)', priority: 'high' },
-    { id: 'Claude Sonnet 4.6 (default)', desc: '1x' },
-    { id: 'Claude Haiku 4.5', desc: '0.33x' },
-    { id: 'GPT-5.1-Codex-Mini (Preview)', desc: '0.33x' },
-    { id: 'Claude Opus 4.6', desc: '3x' },
-    { id: 'Claude Opus 4.6 (fast mode) (Preview)', desc: '30x' },
-    { id: 'Claude Opus 4.5', desc: '3x' },
-    { id: 'Claude Sonnet 4', desc: '1x' },
-    { id: 'Gemini 3 Pro (Preview)', desc: '1x' },
-    { id: 'GPT-5.3-Codex', desc: '1x' },
-    { id: 'GPT-5.2-Codex', desc: '1x' },
-    { id: 'GPT-5.2', desc: '1x' },
-    { id: 'GPT-5.1-Codex-Max', desc: '1x' },
-    { id: 'GPT-5.1-Codex', desc: '1x' },
-    { id: 'GPT-5.1', desc: '1x' },
-    { id: 'GPT-4.1', desc: '0x' }
+    { id: 'gpt-5-mini', desc: '0x (FREE)', cost: 0 },
+    { id: 'claude-sonnet-4.6', desc: '1x (default)', cost: 1 },
+    { id: 'claude-haiku-4.5', desc: '0.33x', cost: 0.33 },
+    { id: 'gpt-5.1-codex-mini', desc: '0.33x', cost: 0.33 },
+    { id: 'claude-opus-4.6', desc: '3x', cost: 3 },
+    { id: 'claude-opus-4.6-fast', desc: '30x (Preview)', cost: 30 },
+    { id: 'claude-opus-4.5', desc: '3x', cost: 3 },
+    { id: 'claude-sonnet-4', desc: '1x', cost: 1 },
+    { id: 'gemini-3-pro-preview', desc: '1x', cost: 1 },
+    { id: 'gpt-5.4', desc: '1x', cost: 1 },
+    { id: 'gpt-5.3-codex', desc: '1x', cost: 1 },
+    { id: 'gpt-5.2-codex', desc: '1x', cost: 1 },
+    { id: 'gpt-5.2', desc: '1x', cost: 1 },
+    { id: 'gpt-5.1-codex-max', desc: '1x', cost: 1 },
+    { id: 'gpt-5.1-codex', desc: '1x', cost: 1 },
+    { id: 'gpt-5.1', desc: '1x', cost: 1 },
+    { id: 'gpt-4.1', desc: '0x (FREE)', cost: 0 }
 ];
 
 const OLLAMA_MODELS = [
@@ -103,6 +116,17 @@ const OLLAMA_MODELS = [
 ];
 
 const SESSIONS_DIR = join(homedir(), '.soupz-agents', 'sessions');
+const HISTORY_FILE = join(homedir(), '.soupz-agents', 'cmd-history.txt');
+
+// Kitchen-themed auto-name generator
+const NAME_ADJECTIVES = ['spicy', 'smoky', 'crispy', 'tangy', 'zesty', 'golden', 'sizzling', 'savory', 'fiery', 'mellow', 'rustic', 'bold', 'fresh', 'hearty', 'silky'];
+const NAME_DISHES = ['ramen', 'curry', 'broth', 'stew', 'risotto', 'gumbo', 'chowder', 'bisque', 'pho', 'laksa', 'minestrone', 'gazpacho', 'dashi', 'congee', 'tom-yum'];
+function generateSessionName() {
+    const adj = NAME_ADJECTIVES[Math.floor(Math.random() * NAME_ADJECTIVES.length)];
+    const dish = NAME_DISHES[Math.floor(Math.random() * NAME_DISHES.length)];
+    const num = Math.floor(Math.random() * 100);
+    return `${adj}-${dish}-${num}`;
+}
 
 export class Session {
     constructor({ registry, spawner, orchestrator, contextManager, memory, grading, auth, userAuth, cwd, compressor, preprocessor, kitchenMonitor, mcpClient, memoryPool }) {
@@ -126,7 +150,7 @@ export class Session {
         this.activeModel = null;
         this.yolo = false;
         this.sandbox = true;
-        this.sessionName = null;
+        this.sessionName = generateSessionName();
         this.activePersonas = [];
         this.inputBuffer = '';
         this.dropdownItems = [];
@@ -138,11 +162,38 @@ export class Session {
         this.agentTokens = {};
         this.sessionStart = Date.now();
         this.totalPromptsSent = 0; // track prompts sent
+        this.cmdHistory = [];
+        this.cmdHistoryIndex = -1;
+        // Load persistent command history
+        try { if (existsSync(HISTORY_FILE)) this.cmdHistory = readFileSync(HISTORY_FILE, 'utf8').split('\n').filter(Boolean).slice(-100); } catch {}
         this.todoList = [];
         this.conversationLog = [];
         this.pantry = new ContextPantry();
         this.pantry.init();
         this.modelPrefs = this.loadModelPrefs();
+
+        // Apply saved model preferences to agents on startup
+        this._applyModelPrefs();
+    }
+
+    /** Apply saved model preferences to agent build_args */
+    _applyModelPrefs() {
+        if (!this.modelPrefs) return;
+        const copilotModel = this.modelPrefs.copilot || this.modelPrefs.auto;
+        if (copilotModel) {
+            const c = this.registry.get('copilot');
+            if (c) {
+                c.build_args = ['copilot', '-p', '{prompt}', '--model', copilotModel, ...(this.yolo ? ['--allow-all-tools'] : [])];
+                this.activeModel = copilotModel;
+            }
+        }
+        const geminiModel = this.modelPrefs.gemini;
+        if (geminiModel) {
+            const g = this.registry.get('gemini');
+            if (g) {
+                g.build_args = ['-p', '{prompt}', '--output-format', 'stream-json', '--model', geminiModel, ...(this.yolo ? ['--yolo'] : [])];
+            }
+        }
     }
 
     loadModelPrefs() {
@@ -152,6 +203,47 @@ export class Session {
     saveModelPrefs() {
         const p = join(homedir(), '.soupz-agents', 'model-prefs.json');
         writeFileSync(p, JSON.stringify(this.modelPrefs, null, 2));
+    }
+
+    /** Get cost multiplier for a model ID (0 = free, 30 = expensive) */
+    getModelCost(modelId) {
+        const m = COPILOT_MODELS.find(m => m.id === modelId);
+        return m?.cost ?? 1;
+    }
+
+    /** Get the user's max allowed cost (based on their saved model pref) */
+    getMaxCostBudget() {
+        const savedModel = this.modelPrefs.copilot || this.modelPrefs.auto;
+        if (!savedModel) return 1; // Default: 1x models OK
+        return this.getModelCost(savedModel);
+    }
+
+    /** Interactive yes/no/choice prompt (blocks until answered) */
+    askConfirmation(question, choices = ['Yes', 'No']) {
+        return new Promise((resolve) => {
+            let selected = 0;
+            const render = () => {
+                process.stdout.write('\x1b[2K\r');
+                const parts = choices.map((c, i) => i === selected ? chalk.hex('#FFD93D').bold(`▸ ${c}`) : chalk.dim(`  ${c}`));
+                process.stdout.write(`  ${question}  ${parts.join('  ')}`);
+            };
+            render();
+            const onKey = (ch, key) => {
+                if (key?.name === 'left' || key?.name === 'up') { selected = (selected - 1 + choices.length) % choices.length; render(); }
+                else if (key?.name === 'right' || key?.name === 'down') { selected = (selected + 1) % choices.length; render(); }
+                else if (key?.name === 'return') {
+                    process.stdin.removeListener('keypress', onKey);
+                    process.stdout.write('\n');
+                    resolve(choices[selected]);
+                }
+                else if (key?.name === 'escape' || (key?.ctrl && key?.name === 'c')) {
+                    process.stdin.removeListener('keypress', onKey);
+                    process.stdout.write('\n');
+                    resolve('No');
+                }
+            };
+            process.stdin.on('keypress', onKey);
+        });
     }
 
     getTools() { return this.registry.list().filter((a) => a.type !== 'persona' && a.headless && a.available); }
@@ -197,10 +289,14 @@ export class Session {
         
         // Build agent line
         const agentIcons = allAgents.map((t) => chalk.hex(t.color || '#888')(`${t.icon} ${t.id}`)).join(chalk.hex('#555')('  '));
-        const statusLine = chalk.hex('#FFD93D')(`${personas.length} chefs`) + chalk.hex('#555')(' · ') + 
-                          chalk.hex('#6BCB77')('sandbox') + chalk.hex('#555')(' · ') + 
-                          chalk.hex('#4ECDC4')('Tab') + chalk.dim(' complete') + chalk.hex('#555')(' · ') + 
-                          chalk.hex('#FFD93D')('↑↓') + chalk.dim(' nav') + chalk.hex('#555')(' · ') + 
+        const availableHeadless = this.registry.headless().filter(a => a.available);
+        const modeTag = availableHeadless.length >= 2 ? chalk.hex('#A855F7')('⚡ multi-agent') : chalk.hex('#FFD93D')('single');
+        const modelTag = this.activeModel ? chalk.hex('#4ECDC4')(`🔪 ${this.activeModel}`) : '';
+        const statusLine = modeTag + chalk.hex('#555')(' · ') +
+                          chalk.hex('#FFD93D')(`${personas.length} chefs`) + chalk.hex('#555')(' · ') + 
+                          chalk.hex('#6BCB77')('sandbox') +
+                          (modelTag ? chalk.hex('#555')(' · ') + modelTag : '') +
+                          chalk.hex('#555')(' · ') + 
                           chalk.hex('#4ECDC4')('/help');
         
         // Calculate visible width (strip ANSI codes)
@@ -226,7 +322,36 @@ export class Session {
         // Bottom border
         console.log(chalk.hex('#555')('  ╰' + '─'.repeat(boxWidth - 2) + '╯'));
         console.log();
+        // Random startup tip
+        const tips = [
+            '@auto <prompt> — auto-picks the best chef and cooks',
+            '/chain designer→svgart "prompt" — chain agents sequentially',
+            '/parallel a b c "prompt" — run chefs simultaneously',
+            '/fleet "build a landing page" — spawn hidden parallel workers',
+            'Tab to autocomplete commands and @chef names',
+            '/cloud-kitchen — see OTP for mobile/browser pairing',
+            '/health — RAM, swap, disk, CPU diagnostics',
+            '/hackathon — phased plan with chef assignments',
+            '#file.js — attach file content inline',
+            '↑↓ keys — navigate command history',
+            '/utensil sonnet — switch AI model (fuzzy match)',
+        ];
+        console.log(chalk.dim(`  💡 ${tips[Math.floor(Math.random() * tips.length)]}`));
         console.log(); // bottom padding
+
+        // Silently boot Cloud Kitchen + tunnel in background (no output)
+        this.startCloudKitchen(false).then(() => {
+            // Auto-start tunnel after Cloud Kitchen is up
+            if (this._cloudKitchen && !this._tunnel) {
+                this.startTunnel(true).catch(() => {});
+            }
+        }).catch(() => {});
+
+        // Silently check for new models across all tools on startup (then daily)
+        this.refreshAllModels().catch(() => {});
+        this._modelRefreshTimer = setInterval(() => {
+            this.refreshAllModels().catch(() => {});
+        }, 24 * 60 * 60 * 1000); // once per day
 
         // Wire events
         this.spinnerTimer = null;
@@ -354,7 +479,8 @@ export class Session {
         const msgCount = this.conversationLog.length;
 
         // Line 1: status — cwd  tool·model  msgs  /help
-        const statusLine = chalk.hex('#666')(cwdShort) + '  ' + toolPart + modelPart + yoloPart + sessPart
+        const cloudPart = this._cloudKitchen ? chalk.hex('#4ECDC4')(' ☁️') : '';
+        const statusLine = chalk.hex('#666')(cwdShort) + '  ' + toolPart + modelPart + yoloPart + sessPart + cloudPart
             + chalk.hex('#555')('  ·  ')
             + chalk.dim(`${msgCount} msgs · ${promptCount} sent`);
 
@@ -498,7 +624,7 @@ export class Session {
             }
 
             const models = allModels
-                .filter((m) => m.id.startsWith(prefix) || !prefix)
+                .filter((m) => !prefix || m.id.toLowerCase().startsWith(prefix) || m.id.toLowerCase().includes(prefix))
                 .map((m) => ({
                     label: m.id, desc: `🔪 ${m.desc} [${m.tool} kitchen]` + (this.activeModel === m.id ? ' ← active utensil' : ''),
                     icon: m.icon, value: `/utensil ${m.id}`
@@ -580,6 +706,24 @@ export class Session {
             this.refreshDropdown(); return;
         }
 
+        // ↑↓ command history when no dropdown
+        if (key.name === 'up' && this.dropdownItems.length === 0 && this.cmdHistory.length > 0) {
+            if (this.cmdHistoryIndex < 0) this.cmdHistoryIndex = this.cmdHistory.length;
+            this.cmdHistoryIndex = Math.max(0, this.cmdHistoryIndex - 1);
+            this.inputBuffer = this.cmdHistory[this.cmdHistoryIndex] || '';
+            this.renderPrompt(); return;
+        }
+        if (key.name === 'down' && this.dropdownItems.length === 0 && this.cmdHistoryIndex >= 0) {
+            this.cmdHistoryIndex++;
+            if (this.cmdHistoryIndex >= this.cmdHistory.length) {
+                this.cmdHistoryIndex = -1;
+                this.inputBuffer = '';
+            } else {
+                this.inputBuffer = this.cmdHistory[this.cmdHistoryIndex] || '';
+            }
+            this.renderPrompt(); return;
+        }
+
         // Tab on dropdown → fill buffer (for continued typing)
         if (key.name === 'tab' && this.dropdownItems.length > 0 && this.dropdownIndex >= 0) {
             const item = this.dropdownItems[this.dropdownIndex];
@@ -593,10 +737,12 @@ export class Session {
         if (key.name === 'return' && this.dropdownItems.length > 0 && this.dropdownIndex >= 0) {
             const item = this.dropdownItems[this.dropdownIndex];
             this.closeDropdown();
+            // Echo the full selected command so user sees what's executing
+            this.inputBuffer = item.value;
+            this.renderPrompt();
             this.inputBuffer = '';
-            this.resetPromptState();
             process.stdout.write('\n');
-            // Don't echo the input again - it's already in the dropdown
+            this.resetPromptState();
             this.busy = true;
             this.handleInput(item.value).then(() => { this.busy = false; this.busyAgentId = null; this.resetPromptState(); this.renderPrompt(); })
                 .catch((err) => { console.log(chalk.red(`  ✖ ${err.message}`)); this.busy = false; this.busyAgentId = null; this.resetPromptState(); this.renderPrompt(); });
@@ -623,8 +769,14 @@ export class Session {
             const input = this.inputBuffer.trim();
             this.inputBuffer = '';
             this.resetPromptState();
+            this.cmdHistoryIndex = -1;
             process.stdout.write('\n');
             if (!input) { this.renderPrompt(); return; }
+            // Save to command history (avoid duplicates)
+            if (this.cmdHistory[this.cmdHistory.length - 1] !== input) {
+                this.cmdHistory.push(input);
+                if (this.cmdHistory.length > 100) this.cmdHistory.shift();
+            }
             // Don't echo - the prompt already shows what was typed
             this.busy = true;
             this.handleInput(input).then(() => { this.busy = false; this.busyAgentId = null; this.resetPromptState(); this.renderPrompt(); })
@@ -671,6 +823,26 @@ export class Session {
         this.closeDropdown();
         if (this.sessionName) this.saveSession();
         this.context.save(); this.spawner.killAll();
+        // Save command history to disk
+        try { writeFileSync(HISTORY_FILE, this.cmdHistory.slice(-100).join('\n')); } catch {}
+        if (this._modelRefreshTimer) clearInterval(this._modelRefreshTimer);
+        if (this._cloudKitchen) {
+            this._cloudKitchen.stop();
+            this._cloudKitchen = null;
+        }
+        if (this._tunnel?.proc) {
+            try { this._tunnel.proc.kill(); } catch {}
+            this._tunnel = null;
+        }
+        // Kill any fleet workers still running
+        if (this._fleet) {
+            for (const w of this._fleet) {
+                if (w.proc && w.status === 'running') {
+                    try { w.proc.kill(); } catch {}
+                }
+            }
+            this._fleet = [];
+        }
         this.showSessionSummary();
         process.stdout.write(`\n${chalk.hex('#A855F7')(`  ${BYES[Math.floor(Math.random() * BYES.length)]}`)}\n\n`);
         process.exit(0);
@@ -734,20 +906,25 @@ export class Session {
 
     showSessionSummary() {
         const elapsed = Math.round((Date.now() - this.sessionStart) / 1000);
-        const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
+        const hrs = Math.floor(elapsed / 3600);
+        const mins = Math.floor((elapsed % 3600) / 60);
+        const secs = elapsed % 60;
+        const timeStr = hrs > 0 ? `${hrs}h ${mins}m ${secs}s` : `${mins}m ${secs}s`;
         let totalIn = 0, totalOut = 0, totalApi = 0;
         for (const t of Object.values(this.agentTokens)) { totalIn += t.in; totalOut += t.out; totalApi += t.apiTimeMs; }
         const totalTok = totalIn + totalOut;
-        // Compact single-line summary
         console.log();
         console.log(chalk.hex('#555')('  ───────────────────────────────────────────────────'));
+        if (this.sessionName) console.log(chalk.hex('#A855F7')(`  🫕 ${this.sessionName}`));
         console.log(
             chalk.dim('  📊 ') +
             chalk.hex('#4ECDC4')(`${totalTok.toLocaleString()} tok`) +
             chalk.hex('#555')(' · ') +
             chalk.hex('#6BCB77')(`${this.conversationLog.length} msgs`) +
             chalk.hex('#555')(' · ') +
-            chalk.hex('#FFD93D')(`${mins}m ${secs}s`) +
+            chalk.hex('#FFD93D')(timeStr) +
+            chalk.hex('#555')(' · ') +
+            chalk.dim(`${this.totalPromptsSent} prompts`) +
             chalk.hex('#555')(' · ') +
             chalk.dim(`api ${(totalApi / 1000).toFixed(1)}s`)
         );
@@ -809,6 +986,9 @@ export class Session {
         if (input === '/tokens') { this.showTokens(); return; }
         if (input === '/costs') { this.showCosts(); return; }
         if (input === '/grades') { this.showGrades(); return; }
+        if (input === '/dashboard') { this.openDashboard(); return; }
+        if (input === '/cloud-kitchen') { await this.startCloudKitchen(); return; }
+        if (input === '/tunnel') { await this.startTunnel(); return; }
         if (input === '/memory') { this.showMemory(); return; }
         if (input === '/compress' || input.startsWith('/compress ')) { this.handleCompress(input); return; }
         if (input === '/sandbox') { this.toggleSandbox(); return; }
@@ -827,6 +1007,10 @@ export class Session {
         // /parallel — run multiple agents simultaneously
         if (input.startsWith('/parallel ')) { await this.handleParallel(input.slice(10).trim()); return; }
         if (input === '/parallel') { console.log(chalk.dim('  Usage: /parallel agent1 agent2 agent3 "shared prompt"')); return; }
+        // /fleet — spawn hidden parallel worker processes
+        if (input.startsWith('/fleet peek')) { this.peekFleetWorker(input.slice(11).trim()); return; }
+        if (input.startsWith('/fleet ')) { await this.spawnFleet(input.slice(7).trim()); return; }
+        if (input === '/fleet') { this.showFleetStatus(); return; }
         // NEW: /clear — clear context
         if (input === '/clear') { this.clearContext(); return; }
         // NEW: /rename
@@ -847,8 +1031,6 @@ export class Session {
         if (input.startsWith('/stock store ')) { this.pantryStore(input.slice(13).trim()); return; }
         if (input.startsWith('/stock recall ')) { this.pantryRecall(input.slice(14).trim()); return; }
         if (input === '/stock') { this.showPantry(); return; }
-        // /dashboard — open stall monitor
-        if (input === '/dashboard') { this.openDashboard(); return; }
         // /skills — show all available skills
         if (input === '/skills') { this.showSkills(); return; }
         // /user — user auth commands
@@ -859,6 +1041,9 @@ export class Session {
         if (input.startsWith('/recipe ')) { await this.runRecipe(input.slice(8).trim()); return; }
         // /health — system diagnostics
         if (input === '/health') { await this.showHealth(); return; }
+
+        // /version — show version info
+        if (input === '/version') { this.showVersion(); return; }
 
         // Resolve #file refs
         let resolved = input;
@@ -924,10 +1109,361 @@ export class Session {
         }
 
         if (toolId) {
-            this.startSpinner(toolId);
-            await this.orchestrator.runOn(toolId, resolved, this.cwd);
+            // Multi-agent orchestration: detect complexity and auto-dispatch
+            const availableAgents = this.registry.headless().filter(a => a.available);
+            const complexity = this.getTaskComplexity(resolved);
+
+            if (complexity >= 2 && availableAgents.length >= 2) {
+                // Highly complex → auto-deploy fleet (hidden parallel workers)
+                console.log(chalk.hex('#A855F7')('  🚀 Complex task detected — auto-deploying fleet…'));
+                await this.spawnFleet(resolved);
+            } else if (complexity >= 1 && availableAgents.length >= 2) {
+                // Complex task → decompose and run sub-tasks across agents in parallel
+                await this.orchestrateMultiAgent(resolved, toolId);
+            } else {
+                // Simple/focused task → single agent (still with auto-delegation parsing)
+                this.startSpinner(toolId);
+                const result = await this.orchestrator.runOn(toolId, resolved, this.cwd);
+                // Parse response for auto-delegations
+                if (result) await this.processDelegations(result, toolId);
+            }
         }
         else { console.log(chalk.red('  No kitchens open (install gh (Copilot) or gemini).')); }
+    }
+
+    // ── Multi-Agent Orchestration (default for complex tasks) ─────────────────
+
+    /** Detect task complexity level: 0=simple, 1=complex (orchestrate), 2=highly complex (fleet) */
+    getTaskComplexity(prompt) {
+        const words = prompt.split(/\s+/).length;
+        if (words < 8) return 0;
+        const multiStepSignals = [
+            /\band\b.*\band\b/i,                    // "do X and Y and Z"
+            /\bthen\b/i,                             // "first X, then Y"
+            /\bfirst\b.*\bthen\b/i,                  // sequential
+            /\b(also|additionally|plus)\b/i,          // additive
+            /\b(both|all|every|each)\b/i,             // plural scope
+            /\b(create|build|implement|design|fix|test|review|plan)\b.*\b(create|build|implement|design|fix|test|review|plan)\b/i,
+            /\d+\.\s/,                                // numbered list
+            /[-*]\s.*\n[-*]\s/,                       // bullet list
+            /\b(full|complete|entire|whole|end-to-end)\b/i,
+        ];
+        const signalCount = multiStepSignals.filter(r => r.test(prompt)).length;
+
+        // Highly complex: lots of signals, or very long, or explicit parallel/fleet keywords
+        const fleetSignals = [
+            /\b(simultaneously|parallel|concurrently)\b/i,
+            /\b(multiple|several|different)\b.*\b(files|pages|components|features|services)\b/i,
+            /\b(frontend|backend|database|api|ui|server|client)\b.*\b(frontend|backend|database|api|ui|server|client)\b/i,
+        ];
+        const fleetCount = fleetSignals.filter(r => r.test(prompt)).length;
+
+        if ((signalCount >= 4 && words > 30) || fleetCount >= 2 || words > 100) return 2; // fleet
+        if (signalCount >= 2 || words > 50) return 1; // orchestrate
+        return 0; // simple
+    }
+
+    /** Legacy compat wrapper */
+    isComplexTask(prompt) { return this.getTaskComplexity(prompt) >= 1; }
+
+    /** Orchestrate multi-agent execution: decompose → assign → parallel run → merge */
+    async orchestrateMultiAgent(prompt, primaryToolId) {
+        const available = this.registry.headless().filter(a => a.available);
+        const agentNames = available.map(a => `${a.icon} ${a.id}`).join(', ');
+        console.log(chalk.hex('#A855F7')(`\n  ⚡ Multi-Agent Orchestration (${available.length} kitchens: ${agentNames})`));
+
+        // Step 1: Try to decompose the task into sub-tasks
+        let tasks;
+        try {
+            console.log(chalk.dim('  🔍 Analyzing task complexity…'));
+            tasks = await this.orchestrator.decompose(prompt);
+        } catch {
+            tasks = null;
+        }
+
+        if (!tasks || tasks.length <= 1) {
+            // Can't decompose → use best persona matching + auto-delegation
+            console.log(chalk.dim('  → Single-focus task, using smart routing with auto-delegation'));
+            this.startSpinner(primaryToolId);
+            const result = await this.orchestrator.routeAndRun(prompt, this.cwd);
+            if (result) await this.processDelegations(result, primaryToolId);
+            return;
+        }
+
+        // Step 2: Assign each sub-task to the best-matching agent
+        console.log(chalk.hex('#4ECDC4')(`  📋 Decomposed into ${tasks.length} sub-tasks:\n`));
+        const assignments = tasks.map((task, i) => {
+            const toolId = this.pickAgentForTask(task.prompt || task.title, available) || primaryToolId;
+            const toolAgent = this.registry.get(toolId);
+            console.log(chalk.hex('#4ECDC4')(`  ${i + 1}. `) + chalk.hex(toolAgent?.color || '#888')(`${toolAgent?.icon || '○'} ${toolId}`) + chalk.dim(` — ${task.title}`));
+            return { ...task, toolId };
+        });
+
+        // Step 3: Run all sub-tasks in parallel
+        console.log(chalk.dim(`\n  ─── Parallel dispatch (${assignments.length} agents) ──────────────────────`));
+        const startTime = Date.now();
+
+        const results = await Promise.allSettled(
+            assignments.map(a => {
+                this.getAgentTokens(a.toolId).prompts++;
+                return this.orchestrator.runOn(a.toolId, a.prompt, this.cwd);
+            })
+        );
+
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        let successCount = 0;
+        const outputs = [];
+
+        for (let i = 0; i < results.length; i++) {
+            const r = results[i];
+            const a = assignments[i];
+            if (r.status === 'fulfilled') {
+                successCount++;
+                outputs.push(r.value);
+                console.log(chalk.green(`  ✔ ${a.title}`) + chalk.dim(` (${a.toolId})`));
+            } else {
+                console.log(chalk.red(`  ✖ ${a.title}: ${r.reason?.message}`) + chalk.dim(` (${a.toolId})`));
+            }
+        }
+
+        console.log(chalk.hex('#4ECDC4')(`\n  ⚡ ${successCount}/${assignments.length} completed in ${elapsed}s`));
+
+        // Step 4: Process auto-delegations from ALL outputs
+        for (const output of outputs) {
+            if (output) await this.processDelegations(output, 'orchestrator');
+        }
+    }
+
+    // ── Fleet: Hidden Parallel Workers ───────────────────────────────────────
+
+    /** Spawn a fleet of hidden background CLI workers for parallel execution */
+    /** Pick the best agent for a specific sub-task based on its content */
+    pickAgentForTask(taskText, available) {
+        const lower = (taskText || '').toLowerCase();
+
+        // Gemini excels at: UI, design, frontend, creative, visual, CSS, HTML, images
+        const geminiSignals = /\b(ui|design|frontend|front-end|css|html|layout|visual|creative|style|color|animation|svg|image|icon|logo|illustration|landing|page|component|react|tailwind|responsive)\b/i;
+
+        // Copilot excels at: backend, API, database, logic, server, auth, testing, debugging, infrastructure
+        const copilotSignals = /\b(backend|back-end|api|database|db|server|auth|login|security|test|debug|fix|bug|deploy|docker|ci|cd|node|express|route|endpoint|middleware|schema|migration|infrastructure|devops|config)\b/i;
+
+        const geminiScore = (lower.match(geminiSignals) || []).length;
+        const copilotScore = (lower.match(copilotSignals) || []).length;
+
+        const gemini = available.find(a => a.id === 'gemini');
+        const copilot = available.find(a => a.id === 'copilot');
+
+        if (geminiScore > copilotScore && gemini) return gemini;
+        if (copilotScore > geminiScore && copilot) return copilot;
+        // Default: copilot (more general-purpose)
+        return copilot || available[0];
+    }
+
+    async spawnFleet(prompt) {
+        const { spawn } = await import('child_process');
+        const available = this.registry.headless().filter(a => a.available);
+        if (available.length === 0) {
+            console.log(chalk.red('  No kitchens available for fleet deployment.'));
+            return;
+        }
+
+        // Decompose the task first
+        let tasks;
+        try {
+            console.log(chalk.hex('#A855F7')(`\n  🚀 Fleet Deployment — analyzing task…`));
+            tasks = await this.orchestrator.decompose(prompt);
+        } catch { tasks = null; }
+
+        if (!tasks || tasks.length <= 1) {
+            tasks = [{ title: 'Execute task', description: prompt }];
+        }
+
+        const workerCount = Math.min(tasks.length, available.length, 4);
+        const workers = [];
+        if (!this._fleet) this._fleet = [];
+
+        console.log(chalk.hex('#4ECDC4')(`  📡 Deploying ${workerCount} hidden workers…\n`));
+
+        for (let i = 0; i < workerCount; i++) {
+            const task = tasks[i];
+            const taskPrompt = task.description || task.title || prompt;
+            // Smart assignment: match task content to best agent
+            const agent = this.pickAgentForTask(taskPrompt, available);
+
+            console.log(chalk.hex(agent.color || '#888')(`  ${i + 1}. ${agent.icon} ${agent.id}`) + chalk.dim(` — ${task.title}`));
+
+            // Build CLI args for the agent
+            const args = (agent.build_args || []).map(a => a === '{prompt}' ? taskPrompt : a);
+
+            // Apply saved model pref
+            const savedModel = this.modelPrefs[agent.id] || this.modelPrefs.auto;
+            if (savedModel && agent.id === 'copilot' && !args.includes('--model')) {
+                args.push('--model', savedModel);
+            }
+
+            const worker = {
+                id: `fleet-${Date.now()}-${i}`,
+                agentId: agent.id,
+                task: task.title,
+                startTime: Date.now(),
+                status: 'running',
+                output: '',
+                proc: null,
+            };
+
+            const proc = spawn(agent.binary, args, {
+                cwd: this.cwd || process.cwd(),
+                env: { ...process.env },
+                stdio: ['pipe', 'pipe', 'pipe'],
+            });
+
+            worker.proc = proc;
+
+            proc.stdout.on('data', (data) => { worker.output += data.toString(); });
+            proc.stderr.on('data', (data) => { worker.output += data.toString(); });
+            proc.on('close', (code) => {
+                worker.status = code === 0 ? 'done' : 'failed';
+                worker.endTime = Date.now();
+                worker.duration = worker.endTime - worker.startTime;
+                // Auto-report when done
+                const completed = this._fleet.filter(w => w.status !== 'running').length;
+                const total = this._fleet.length;
+                if (completed === total) {
+                    console.log(chalk.hex('#A855F7')(`\n  🚀 Fleet Complete — all ${total} workers finished`));
+                    this._fleet.forEach((w, j) => {
+                        const icon = w.status === 'done' ? chalk.green('✔') : chalk.red('✖');
+                        const dur = w.duration ? `${(w.duration / 1000).toFixed(1)}s` : '?';
+                        console.log(`  ${icon} ${w.task}` + chalk.dim(` (${w.agentId}, ${dur})`));
+                    });
+                    console.log(chalk.dim(`\n  /fleet to see full output from each worker\n`));
+                    this.renderPrompt();
+                }
+            });
+            proc.on('error', (err) => { worker.status = 'failed'; worker.output += err.message; });
+
+            workers.push(worker);
+            this._fleet.push(worker);
+        }
+
+        console.log(chalk.dim(`\n  Workers are running in the background. You can keep working.`));
+        console.log(chalk.dim(`  Type /fleet to check status or see results.\n`));
+    }
+
+    /** Show fleet status and results */
+    showFleetStatus() {
+        if (!this._fleet || this._fleet.length === 0) {
+            console.log(chalk.dim('\n  🚀 No fleet workers deployed. Use /fleet "prompt" to launch.\n'));
+            return;
+        }
+
+        console.log(chalk.hex('#A855F7').bold(`\n  🚀 Fleet Status — ${this._fleet.length} workers\n`));
+
+        for (const w of this._fleet) {
+            const dur = w.duration ? `${(w.duration / 1000).toFixed(1)}s` : `${((Date.now() - w.startTime) / 1000).toFixed(0)}s…`;
+            if (w.status === 'running') {
+                console.log(chalk.yellow(`  ⏳ ${w.task}`) + chalk.dim(` (${w.agentId}, ${dur})`));
+            } else if (w.status === 'done') {
+                console.log(chalk.green(`  ✔ ${w.task}`) + chalk.dim(` (${w.agentId}, ${dur})`));
+                // Show truncated output
+                const lines = w.output.trim().split('\n').filter(Boolean);
+                if (lines.length > 0) {
+                    const preview = lines.slice(-3).map(l => chalk.dim(`    ${l.slice(0, 100)}`)).join('\n');
+                    console.log(preview);
+                }
+            } else {
+                console.log(chalk.red(`  ✖ ${w.task}`) + chalk.dim(` (${w.agentId}, ${dur})`));
+                if (w.output) console.log(chalk.dim(`    ${w.output.trim().slice(0, 200)}`));
+            }
+        }
+
+        const running = this._fleet.filter(w => w.status === 'running').length;
+        const done = this._fleet.filter(w => w.status === 'done').length;
+        const failed = this._fleet.filter(w => w.status === 'failed').length;
+        console.log(chalk.dim(`\n  ${running} running · ${done} done · ${failed} failed`));
+        console.log(chalk.dim(`  /fleet peek <number> — view full output from a worker\n`));
+    }
+
+    /** View full output from a specific fleet worker */
+    peekFleetWorker(arg) {
+        if (!this._fleet || this._fleet.length === 0) {
+            console.log(chalk.dim('\n  No fleet workers. Use /fleet "prompt" or just type a complex task.\n'));
+            return;
+        }
+        const idx = parseInt(arg) - 1;
+        if (isNaN(idx) || idx < 0 || idx >= this._fleet.length) {
+            console.log(chalk.dim(`  Usage: /fleet peek <1-${this._fleet.length}>`));
+            return;
+        }
+        const w = this._fleet[idx];
+        const dur = w.duration ? `${(w.duration / 1000).toFixed(1)}s` : `${((Date.now() - w.startTime) / 1000).toFixed(0)}s…`;
+        const statusIcon = w.status === 'done' ? chalk.green('✔') : w.status === 'running' ? chalk.yellow('⏳') : chalk.red('✖');
+
+        console.log(chalk.hex('#A855F7').bold(`\n  🔍 Fleet Worker #${idx + 1} — ${w.task}`));
+        console.log(chalk.dim(`  Agent: ${w.agentId} · Status: ${w.status} · Duration: ${dur}\n`));
+        console.log(chalk.hex('#555')('  ┄'.repeat(25)));
+
+        if (w.output) {
+            // Show full output, line by line
+            const lines = w.output.split('\n');
+            for (const line of lines) {
+                console.log(`  ${line}`);
+            }
+        } else {
+            console.log(chalk.dim('  (no output yet)'));
+        }
+
+        console.log(chalk.hex('#555')('  ┄'.repeat(25)));
+        console.log();
+    }
+
+    /** Refresh available models across ALL tools (Copilot + Gemini + Ollama) — runs daily */
+    async refreshAllModels() {
+        const { execSync } = await import('child_process');
+
+        // 1. Copilot models
+        try {
+            const errStr = (() => {
+                try { return execSync('gh copilot -- -p "test" --model INVALID 2>&1', { timeout: 10000, encoding: 'utf8' }); }
+                catch (e) { return e.stderr?.toString() || e.stdout?.toString() || e.message || ''; }
+            })();
+            const match = errStr.match(/Allowed choices are (.+)/);
+            if (match) {
+                const models = match[1].split(', ').map(s => s.trim().replace(/\.$/, '')).filter(Boolean);
+                const currentIds = COPILOT_MODELS.map(m => m.id);
+                const newModels = models.filter(m => !currentIds.includes(m));
+                if (newModels.length > 0) {
+                    for (const nm of newModels) COPILOT_MODELS.push({ id: nm, desc: 'New', cost: 1 });
+                    console.log(chalk.hex('#FFD93D')(`  🆕 New Copilot models: ${newModels.join(', ')}`));
+                }
+            }
+        } catch {}
+
+        // 2. Gemini models
+        try {
+            const out = execSync('gemini --list-models 2>&1', { timeout: 10000, encoding: 'utf8' });
+            const geminiIds = out.split('\n').map(l => l.trim()).filter(l => l.startsWith('gemini-'));
+            const currentGemini = GEMINI_MODELS.map(m => m.id);
+            const newGemini = geminiIds.filter(m => !currentGemini.includes(m));
+            if (newGemini.length > 0) {
+                for (const nm of newGemini) GEMINI_MODELS.push({ id: nm, desc: 'New' });
+                console.log(chalk.hex('#FFD93D')(`  🆕 New Gemini models: ${newGemini.join(', ')}`));
+            }
+        } catch {}
+
+        // 3. Ollama models (if running)
+        try {
+            const resp = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(3000) });
+            if (resp.ok) {
+                const data = await resp.json();
+                const ollamaIds = (data.models || []).map(m => m.name);
+                const currentOllama = OLLAMA_MODELS.map(m => m.id);
+                const newOllama = ollamaIds.filter(m => !currentOllama.includes(m));
+                if (newOllama.length > 0) {
+                    for (const nm of newOllama) OLLAMA_MODELS.push({ id: nm, desc: 'Local' });
+                    console.log(chalk.hex('#FFD93D')(`  🆕 New Ollama models: ${newOllama.join(', ')}`));
+                }
+            }
+        } catch {}
     }
 
     // ── /clear — clear context window (like Claude Code's /clear) ─────────
@@ -993,6 +1529,168 @@ export class Session {
         console.log(chalk.green(`  🥫 Pantry capacity set to ${n} items`));
     }
 
+    /** Start Cloud Kitchen remote server (auto-starts, OTP auto-refreshes) */
+    async startCloudKitchen(showBanner = true) {
+        if (this._cloudKitchen) {
+            if (showBanner) {
+                const code = this._cloudKitchen.getCode();
+                const remaining = code?.expiresAt ? Math.max(0, Math.round((code.expiresAt - Date.now()) / 1000)) : '?';
+                console.log(chalk.hex('#e94560')(`\n  ☁️  Cloud Kitchen — Remote Stove`));
+                console.log(chalk.hex('#FFD93D')(`  🔑  Order Number: ${code?.code || 'generating...'}`));
+                console.log(chalk.dim(`      Expires in ${remaining}s — auto-refreshes every 5 minutes`));
+                console.log(chalk.dim(`      Port: ${this._cloudKitchen.port}`));
+                const ips = this._cloudKitchen.localIPs || [];
+                if (ips.length > 0) console.log(chalk.hex('#4ECDC4')(`      LAN IP: ${ips[0]}:${this._cloudKitchen.port}`));
+                // Show connected clients
+                const conns = this._cloudKitchen.getConnections?.() || [];
+                if (conns.length > 0) {
+                    const icons = { 'mobile-ide': '📱', 'browser-extension': '🔌' };
+                    const parts = conns.map(c => `${icons[c.clientType] || '○'} ${c.clientType}`);
+                    console.log(chalk.hex('#4ECDC4')(`      Connected: ${parts.join(', ')}`));
+                } else {
+                    console.log(chalk.dim(`      No clients connected`));
+                }
+                console.log(chalk.dim(`      📱 Enter code in mobile app | 🔌 Enter code in browser extension`));
+                if (this._tunnel) {
+                    console.log(chalk.hex('#4ECDC4')(`      🌍 Tunnel: ${this._tunnel.url}`));
+                } else {
+                    console.log(chalk.dim(`      🌍 /tunnel to access from any network`));
+                }
+                console.log();
+            }
+            return;
+        }
+
+        try {
+            const serverPath = new URL('../packages/remote-server/src/index.js', import.meta.url).href;
+            const { startRemoteServer } = await import(serverPath);
+            const result = await startRemoteServer(7533, { silent: true });
+            if (result) {
+                this._cloudKitchen = result;
+                if (showBanner) {
+                    const code = result.getCode();
+                    const ips = result.localIPs || [];
+                    console.log(chalk.hex('#e94560')(`\n  ☁️  Cloud Kitchen — Remote Stove`));
+                    console.log(chalk.hex('#FFD93D')(`  🔑  Order Number: ${code?.code || 'generating...'}`));
+                    console.log(chalk.dim(`      Auto-refreshes every 5 minutes`));
+                    console.log(chalk.dim(`      Port: ${result.port}`));
+                    if (ips.length > 0) console.log(chalk.hex('#4ECDC4')(`      LAN IP: ${ips[0]}:${result.port}`));
+                    if (this._tunnel) {
+                        console.log(chalk.hex('#4ECDC4')(`      🌍 Tunnel: ${this._tunnel.url}`));
+                    } else {
+                        console.log(chalk.dim(`      🌍 Tunnel auto-starting…`));
+                    }
+                    console.log(chalk.dim(`      📱 Enter IP + code in mobile app | 🔌 Enter code in browser extension\n`));
+                }
+            }
+        } catch (err) {
+            if (showBanner) {
+                console.log(chalk.red(`  ✖ Cloud Kitchen failed to start: ${err.message}`));
+                console.log(chalk.dim(`    Try: cd packages/remote-server && npm install`));
+            }
+        }
+    }
+
+    /** Expose Cloud Kitchen publicly via tunnel (silent=true for auto-start, no spam) */
+    async startTunnel(silent = false) {
+        if (!this._cloudKitchen) {
+            if (!silent) console.log(chalk.dim('\n  Starting Cloud Kitchen first…'));
+            await this.startCloudKitchen(false);
+        }
+        if (!this._cloudKitchen) {
+            if (!silent) console.log(chalk.red('  ✖ Cloud Kitchen must be running. Try /cloud-kitchen first.'));
+            return;
+        }
+        if (this._tunnel) {
+            if (!silent) {
+                console.log(chalk.hex('#e94560')(`\n  🌍 Tunnel Active`));
+                console.log(chalk.hex('#4ECDC4')(`      Public URL: ${this._tunnel.url}`));
+                console.log(chalk.dim(`      Local: localhost:${this._cloudKitchen.port}`));
+                console.log(chalk.dim(`      📱 Use this URL in the mobile app instead of LAN IP\n`));
+            }
+            return;
+        }
+        const port = this._cloudKitchen.port;
+        const { execSync, spawn } = await import('child_process');
+        const log = silent ? () => {} : (...a) => console.log(...a);
+
+        // Try cloudflared first (Cloudflare Tunnel — best option, free)
+        try {
+            execSync('which cloudflared', { stdio: 'ignore' });
+            log(chalk.dim('\n  🌍 Starting Cloudflare Tunnel…'));
+            const proc = spawn('cloudflared', ['tunnel', '--url', `http://localhost:${port}`], { stdio: ['ignore', 'pipe', 'pipe'] });
+            const extractUrl = (data) => {
+                const match = data.toString().match(/https?:\/\/[^\s]+\.trycloudflare\.com/);
+                if (match) {
+                    this._tunnel = { url: match[0], proc, type: 'cloudflared' };
+                    // Always show tunnel URL — this is important info even on auto-start
+                    console.log(chalk.hex('#4ECDC4')(`  🌍 Tunnel: ${match[0]}`));
+                    proc.stderr.removeListener('data', extractUrl);
+                    proc.stdout.removeListener('data', extractUrl);
+                }
+            };
+            proc.stdout.on('data', extractUrl);
+            proc.stderr.on('data', extractUrl);
+            proc.on('error', () => {});
+            await new Promise(r => setTimeout(r, 5000));
+            if (!this._tunnel && !silent) console.log(chalk.dim('  ⏳ Tunnel is starting… URL will appear shortly.\n'));
+            return;
+        } catch {}
+
+        // Try ngrok
+        try {
+            execSync('which ngrok', { stdio: 'ignore' });
+            log(chalk.dim('\n  🌍 Starting ngrok tunnel…'));
+            const proc = spawn('ngrok', ['http', String(port), '--log=stdout'], { stdio: ['ignore', 'pipe', 'pipe'] });
+            proc.stdout.on('data', (data) => {
+                const match = data.toString().match(/url=(https?:\/\/[^\s]+)/);
+                if (match && !this._tunnel) {
+                    this._tunnel = { url: match[1], proc, type: 'ngrok' };
+                    console.log(chalk.hex('#4ECDC4')(`  🌍 Tunnel: ${match[1]}`));
+                }
+            });
+            proc.on('error', () => {});
+            await new Promise(r => setTimeout(r, 5000));
+            if (!this._tunnel && !silent) console.log(chalk.dim('  ⏳ Tunnel is starting… URL will appear shortly.\n'));
+            return;
+        } catch {}
+
+        // Fallback: SSH tunnel via localhost.run (free, no install)
+        if (!silent) {
+            console.log(chalk.dim('\n  🌍 Starting SSH tunnel via localhost.run…'));
+            console.log(chalk.dim('      (No cloudflared or ngrok found — using free SSH tunnel)'));
+        }
+        try {
+            const proc = spawn('ssh', ['-R', `80:localhost:${port}`, '-o', 'StrictHostKeyChecking=no', 'nokey@localhost.run'], { stdio: ['ignore', 'pipe', 'pipe'] });
+            proc.stdout.on('data', (data) => {
+                const match = data.toString().match(/(https?:\/\/[^\s]+\.localhost\.run)/);
+                if (match && !this._tunnel) {
+                    this._tunnel = { url: match[1], proc, type: 'localhost.run' };
+                    console.log(chalk.hex('#4ECDC4')(`  🌍 Tunnel: ${match[1]}`));
+                }
+            });
+            proc.on('error', () => {
+                if (!silent) {
+                    console.log(chalk.yellow('\n  ⚠ No tunnel tools found. Install one:'));
+                    console.log(chalk.dim('      brew install cloudflared   (recommended, free)'));
+                    console.log(chalk.dim('      brew install ngrok\n'));
+                }
+            });
+            await new Promise(r => setTimeout(r, 6000));
+            if (!this._tunnel && !silent) {
+                console.log(chalk.yellow('\n  ⚠ SSH tunnel timed out. Install a dedicated tool:'));
+                console.log(chalk.dim('      brew install cloudflared   (recommended, free)'));
+                console.log(chalk.dim('      brew install ngrok\n'));
+            }
+        } catch {
+            if (!silent) {
+                console.log(chalk.yellow('\n  ⚠ No tunnel tools available. Install one:'));
+                console.log(chalk.dim('      brew install cloudflared   (recommended, free)'));
+                console.log(chalk.dim('      brew install ngrok\n'));
+            }
+        }
+    }
+
     /** Open the stall monitor dashboard in the browser */
     openDashboard() {
         if (!this.kitchenMonitor) {
@@ -1027,7 +1725,11 @@ export class Session {
                     return;
                 }
                 
-                const file = url === '/' || url === '/index.html' ? 'index.html' : url.slice(1);
+                // Map stall-state.json → current session's state file
+                const resolvedFile = (url === '/stall-state.json')
+                    ? `stall-${this.kitchenMonitor.sessionId}.json`
+                    : (url === '/' || url === '/index.html' ? 'index.html' : url.slice(1));
+                const file = resolvedFile;
                 const filePath = join(dashDir, file);
                 try {
                     const content = readFileSync(filePath);
@@ -1355,28 +2057,60 @@ export class Session {
 
     handleModel(input) {
         const arg = input.replace('/model', '').trim();
+        const allModels = [
+            ...GEMINI_MODELS.map(m => ({ ...m, tool: 'gemini', icon: '🔷' })),
+            ...COPILOT_MODELS.map(m => ({ ...m, tool: 'copilot', icon: '🐙' })),
+        ];
+
         if (!arg) {
-            console.log(chalk.bold('\n  🔪 Utensils (AI Models)'));
-            if (this.activeTool === 'gemini' || !this.activeTool) {
-                for (const m of GEMINI_MODELS) {
-                    const a = this.activeModel === m.id ? chalk.hex('#FFD93D')(' ← active utensil') : '';
-                    console.log(`    ${chalk.hex('#4ECDC4')(m.id.padEnd(24))} ${chalk.dim(m.desc)}${a}`);
-                }
-            } else console.log(chalk.dim(`  Coming soon for ${this.activeTool} kitchen.`));
-            console.log();
+            console.log(chalk.bold('\n  🔪 Utensils (AI Models)\n'));
+            console.log(chalk.bold('  🐙 Copilot Models:'));
+            for (const m of COPILOT_MODELS) {
+                const a = this.activeModel === m.id ? chalk.hex('#FFD93D')(' ← active') : '';
+                console.log(`    ${chalk.hex('#4ECDC4')(m.id.padEnd(40))} ${chalk.dim(m.desc)}${a}`);
+            }
+            console.log(chalk.bold('\n  🔷 Gemini Models:'));
+            for (const m of GEMINI_MODELS) {
+                const a = this.activeModel === m.id ? chalk.hex('#FFD93D')(' ← active') : '';
+                console.log(`    ${chalk.hex('#4ECDC4')(m.id.padEnd(40))} ${chalk.dim(m.desc)}${a}`);
+            }
+            console.log(chalk.dim(`\n  Usage: /utensil <model name>  (case-insensitive, partial match OK)`));
+            console.log(chalk.dim(`  Example: /utensil gpt-5 mini   or   /utensil sonnet\n`));
             return;
         }
-        const found = GEMINI_MODELS.find((m) => m.id === arg);
+
+        // Case-insensitive, fuzzy search across ALL models
+        const argLower = arg.toLowerCase().replace(/[\s-]+/g, '');
+        let found = allModels.find(m => m.id.toLowerCase() === arg.toLowerCase());
+        if (!found) found = allModels.find(m => m.id.toLowerCase().replace(/[\s-]+/g, '') === argLower);
+        if (!found) found = allModels.find(m => m.id.toLowerCase().includes(arg.toLowerCase()));
+        if (!found) found = allModels.find(m => m.id.toLowerCase().replace(/[\s-]+/g, '').includes(argLower));
+        if (!found) found = allModels.find(m => argLower.includes(m.id.toLowerCase().replace(/[\s-]+/g, '')));
+
         if (found) {
             this.activeModel = found.id;
-            // Persist model preference for current tool
             const toolKey = this.activeTool || 'auto';
             this.modelPrefs[toolKey] = found.id;
             this.saveModelPrefs();
-            const g = this.registry.get('gemini');
-            if (g) g.build_args = ['-p', '{prompt}', '--output-format', 'stream-json', '--model', found.id, ...(this.yolo ? ['--yolo'] : [])];
-            console.log(chalk.hex('#4ECDC4')(`  🔪 Utensil: ${found.id}`) + chalk.dim(` (saved for ${toolKey} kitchen)`));
-        } else console.log(chalk.red(`  Unknown utensil: ${arg}. Try /model<tab>`));
+
+            // Apply model to the appropriate agent
+            if (found.tool === 'gemini') {
+                const g = this.registry.get('gemini');
+                if (g) g.build_args = ['-p', '{prompt}', '--output-format', 'stream-json', '--model', found.id, ...(this.yolo ? ['--yolo'] : [])];
+            } else if (found.tool === 'copilot') {
+                const c = this.registry.get('copilot');
+                if (c) c.build_args = ['copilot', '-p', '{prompt}', '--model', found.id, ...(this.yolo ? ['--allow-all-tools'] : [])];
+            }
+            console.log(chalk.hex('#4ECDC4')(`  🔪 Utensil: ${found.id}`) + chalk.dim(` (${found.tool} kitchen, saved for ${toolKey})`));
+        } else {
+            console.log(chalk.red(`  Unknown utensil: ${arg}`));
+            // Show closest matches
+            const matches = allModels.filter(m => m.id.toLowerCase().includes(argLower.split(' ')[0].toLowerCase()));
+            if (matches.length > 0) {
+                console.log(chalk.dim(`  Did you mean:`));
+                for (const m of matches.slice(0, 5)) console.log(chalk.dim(`    ${m.icon} ${m.id}`));
+            }
+        }
     }
 
     async runPersona(personaId, prompt) {
@@ -1659,8 +2393,24 @@ export class Session {
 
     // ── Display ───────────────────────────────────────────────────────────────
     showHelp() {
-        console.log(chalk.bold('\n  ━━━ Commands ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
-        for (const c of COMMANDS) console.log(`  ${c.icon} ${chalk.hex('#06B6D4').bold(c.cmd.padEnd(14))} ${chalk.hex('#888')(c.desc)}`);
+        console.log(chalk.hex('#e94560').bold(`\n  🫕 Soupz Stall — ${COMMANDS.length} commands\n`));
+        const catNames = {
+            cooking: '🍳 Cooking',
+            tasks: '📋 Tasks & Tracking',
+            session: '💾 Session',
+            remote: '☁️ Remote & Monitoring',
+            storage: '🧠 Storage & Memory',
+            system: '🔧 System',
+        };
+        const cats = ['cooking', 'tasks', 'session', 'remote', 'storage', 'system'];
+        for (const cat of cats) {
+            const items = COMMANDS.filter(c => c.cat === cat);
+            if (items.length === 0) continue;
+            console.log(chalk.bold(`\n  ━━━ ${catNames[cat]} ${'━'.repeat(Math.max(1, 52 - catNames[cat].length))}`));
+            for (const c of items) {
+                console.log(`  ${c.icon} ${chalk.hex('#06B6D4').bold(c.cmd.padEnd(16))} ${chalk.hex('#888')(c.desc)}`);
+            }
+        }
         console.log(chalk.bold('\n  ━━━ Mentions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
         console.log(`  🎯 ${chalk.hex('#FFD93D').bold('@auto')}                ${chalk.hex('#888')('Auto-pick best persona + run')}`);
         console.log(`  🎭 ${chalk.hex('#FFD93D').bold('@<persona>')}           ${chalk.hex('#888')('Run a specific persona (Tab to browse)')}`);
@@ -1707,6 +2457,10 @@ export class Session {
 
     showTokens() {
         const elapsed = Math.round((Date.now() - this.sessionStart) / 1000);
+        const hrs = Math.floor(elapsed / 3600);
+        const mins = Math.floor((elapsed % 3600) / 60);
+        const secs = elapsed % 60;
+        const uptimeStr = hrs > 0 ? `${hrs}h ${mins}m ${secs}s` : `${mins}m ${secs}s`;
         let totalIn = 0, totalOut = 0, totalApi = 0;
         for (const t of Object.values(this.agentTokens)) { totalIn += t.in; totalOut += t.out; totalApi += t.apiTimeMs; }
         console.log(HR);
@@ -1715,7 +2469,7 @@ export class Session {
         console.log(`  ${chalk.dim('Total:')}       ${chalk.hex('#4ECDC4')((totalIn + totalOut).toLocaleString())} tokens`);
         console.log(`  ${chalk.dim('In / Out:')}    ${totalIn.toLocaleString()} / ${totalOut.toLocaleString()}`);
         console.log(`  ${chalk.dim('API time:')}    ${(totalApi / 1000).toFixed(1)}s`);
-        console.log(`  ${chalk.dim('Session:')}     ${Math.floor(elapsed / 60)}m ${elapsed % 60}s`);
+        console.log(`  ${chalk.dim('Session:')}     ${uptimeStr}  •  ${this.sessionName || 'unnamed'}  •  ${this.totalPromptsSent} prompts sent`);
         const ids = Object.keys(this.agentTokens).filter((id) => { const t = this.agentTokens[id]; return t.in > 0 || t.out > 0; });
         if (ids.length) {
             console.log(chalk.bold('\n  Per Agent'));
@@ -1743,6 +2497,7 @@ export class Session {
         }
         console.log();
     }
+
     showMemory() {
         const stats = this.memory.getStats();
         console.log(`\n  🧠 ${stats.totalTasks} tasks │ ${stats.routingPatterns} patterns`);
@@ -1769,6 +2524,8 @@ export class Session {
             { id: 'code-quality', name: 'Code Quality', chefs: 'architect→dev→tea→qa', desc: 'Architecture review, refactoring, test coverage' },
             { id: 'content-campaign', name: 'Content Campaign', chefs: 'researcher→contentwriter→storyteller→designer', desc: 'Research-backed content with visual assets' },
             { id: 'security-review', name: 'Security Review', chefs: 'security→tea→devops', desc: 'Security audit, test coverage, deployment hardening' },
+            { id: 'landing-page', name: 'Landing Page', chefs: 'researcher→ux-designer→designer→dev', desc: 'Research → wireframe → design → code a landing page' },
+            { id: 'api-design', name: 'API Design', chefs: 'architect→dev→tea→qa→devops', desc: 'Design, implement, test, and document an API' },
         ];
 
         console.log(chalk.bold('\n  📖 Recipes — Pre-built Chef Workflows\n'));
@@ -1791,6 +2548,8 @@ export class Session {
             'code-quality': 'architect→dev→tea→qa',
             'content-campaign': 'researcher→contentwriter→storyteller→designer',
             'security-review': 'security→tea→devops',
+            'landing-page': 'researcher→ux-designer→designer→dev',
+            'api-design': 'architect→dev→tea→qa→devops',
         };
 
         const match = input.match(/^([\w-]+)\s+"(.+)"$/s) || input.match(/^([\w-]+)\s+(.+)$/s);
@@ -1811,6 +2570,17 @@ export class Session {
         await this.handleChain(`${chain} "${prompt}"`);
     }
 
+    /** /version — show version info */
+    showVersion() {
+        const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+        console.log(chalk.bold(`\n  🏷️  Soupz Stall v${pkg.version}`));
+        console.log(chalk.dim(`  Node: ${process.version}  |  OS: ${process.platform} ${process.arch}`));
+        const chefCount = this.registry ? this.registry.size : '?';
+        console.log(chalk.dim(`  Chefs: ${chefCount}  |  Kitchens: copilot, gemini, ollama`));
+        console.log(chalk.dim(`  Session: ${this.sessionName || '—'}  |  PID: ${process.pid}`));
+        console.log();
+    }
+
     /** /health — system diagnostics */
     async showHealth() {
         console.log(chalk.bold('\n  🩺 System Health Check\n'));
@@ -1829,7 +2599,13 @@ export class Session {
         try {
             const { execFileSync } = await import('child_process');
             execFileSync('which', ['gemini'], { timeout: 3000 });
-            checks.push({ name: 'Gemini CLI', status: '✅', detail: 'Installed' });
+            // Check if Gemini is authenticated by running a quick test
+            try {
+                execFileSync('gemini', ['--version'], { timeout: 5000, stdio: 'pipe' });
+                checks.push({ name: 'Gemini CLI', status: '✅', detail: 'Installed and authenticated' });
+            } catch {
+                checks.push({ name: 'Gemini CLI', status: '⚠️', detail: 'Installed but not authenticated — run: gemini' });
+            }
         } catch {
             checks.push({ name: 'Gemini CLI', status: '⚠️', detail: 'Not found — optional but recommended' });
         }
@@ -1848,13 +2624,57 @@ export class Session {
             checks.push({ name: 'Ollama', status: '⚠️', detail: 'Not running — optional, rule-based fallback active' });
         }
 
-        // Memory usage
+        // Memory usage (with swap)
         const os = await import('os');
         const totalMem = os.totalmem();
         const freeMem = os.freemem();
-        const usedPercent = Math.round(((totalMem - freeMem) / totalMem) * 100);
+        const usedMem = totalMem - freeMem;
+        const usedPercent = Math.round((usedMem / totalMem) * 100);
         const memIcon = usedPercent > 90 ? '🔴' : usedPercent > 70 ? '🟡' : '🟢';
-        checks.push({ name: 'RAM Usage', status: memIcon, detail: `${usedPercent}% used (${Math.round(freeMem / 1024 / 1024)}MB free of ${Math.round(totalMem / 1024 / 1024)}MB)` });
+        const fmtB = (b) => b >= 1024**3 ? (b / 1024**3).toFixed(1) + ' GB' : Math.round(b / 1024**2) + ' MB';
+        const bar = (pct, len = 20) => {
+            const filled = Math.round(pct / 100 * len);
+            return chalk.green('█'.repeat(filled)) + chalk.dim('░'.repeat(len - filled));
+        };
+        checks.push({ name: 'RAM', status: memIcon, detail: `${bar(usedPercent)} ${usedPercent}%  ${fmtB(usedMem)} / ${fmtB(totalMem)}  (${fmtB(freeMem)} free)` });
+
+        // Swap memory
+        try {
+            const { execSync } = await import('child_process');
+            if (os.platform() === 'darwin') {
+                const swapOut = execSync('sysctl vm.swapusage 2>/dev/null', { timeout: 2000 }).toString();
+                const tM = swapOut.match(/total\s*=\s*([\d.]+)M/);
+                const uM = swapOut.match(/used\s*=\s*([\d.]+)M/);
+                if (tM && uM) {
+                    const swapTotal = parseFloat(tM[1]) * 1024 * 1024;
+                    const swapUsed = parseFloat(uM[1]) * 1024 * 1024;
+                    const swapPct = swapTotal > 0 ? Math.round((swapUsed / swapTotal) * 100) : 0;
+                    const swapIcon = swapPct > 70 ? '🔴' : swapUsed > 0 ? '🟡' : '🟢';
+                    checks.push({ name: 'Swap (SSD)', status: swapIcon, detail: `${bar(swapPct)} ${swapPct}%  ${fmtB(swapUsed)} / ${fmtB(swapTotal)}` });
+                    // Show combined total (what Mac actually has available)
+                    const combinedUsed = usedMem + swapUsed;
+                    const combinedTotal = totalMem + swapTotal;
+                    const combinedPct = Math.round((combinedUsed / combinedTotal) * 100);
+                    checks.push({ name: 'Total (RAM+Swap)', status: combinedPct > 85 ? '🔴' : '🟡', detail: `${bar(combinedPct)} ${combinedPct}%  ${fmtB(combinedUsed)} / ${fmtB(combinedTotal)} usable` });
+                }
+            }
+        } catch { /* swap info not available */ }
+
+        // Disk space (APFS-aware: use total - available, not "used" column)
+        try {
+            const { execSync } = await import('child_process');
+            const dfOut = execSync("df -k / 2>/dev/null | tail -1", { timeout: 2000 }).toString().trim();
+            const parts = dfOut.split(/\s+/);
+            if (parts.length >= 4) {
+                const diskTotal = parseInt(parts[1]) * 1024;
+                const diskAvail = parseInt(parts[3]) * 1024;
+                // On macOS APFS, "Used" only shows this volume; true used = total - available
+                const diskUsed = diskTotal - diskAvail;
+                const diskPct = diskTotal > 0 ? Math.round((diskUsed / diskTotal) * 100) : 0;
+                const diskIcon = diskPct > 90 ? '🔴' : diskPct > 70 ? '🟡' : '🟢';
+                checks.push({ name: 'Disk', status: diskIcon, detail: `${bar(diskPct)} ${diskPct}%  ${fmtB(diskUsed)} / ${fmtB(diskTotal)}  (${fmtB(diskAvail)} free)` });
+            }
+        } catch { /* disk not available */ }
 
         // CPU load
         const load = os.loadavg();
@@ -1885,8 +2705,27 @@ export class Session {
             checks.push({ name: 'Memory Pool', status: '🧠', detail: 'Empty — auto-populates after first task' });
         }
 
-        // Active session
-        checks.push({ name: 'Session', status: '📋', detail: `${this.context?.history?.length || 0} messages, station: ${this.activeStation || 'auto'}` });
+        // Active session + saved sessions storage
+        const sessionsDir = path.join(os.homedir(), '.soupz-agents', 'sessions');
+        let sessDetail = `${this.context?.history?.length || 0} messages, station: ${this.activeStation || 'auto'}`;
+        try {
+            const sessFiles = fs.readdirSync(sessionsDir);
+            const sessSize = sessFiles.reduce((sum, f) => { try { return sum + fs.statSync(path.join(sessionsDir, f)).size; } catch { return sum; } }, 0);
+            sessDetail += ` — ${sessFiles.length} saved (${fmtB(sessSize)})`;
+        } catch {}
+        checks.push({ name: 'Session', status: '📋', detail: sessDetail });
+
+        // Cloud Kitchen
+        if (this._cloudKitchen) {
+            const code = this._cloudKitchen.getCode();
+            const ips = this._cloudKitchen.localIPs || [];
+            let detail = `Port ${this._cloudKitchen.port} — OTP: ${code?.code || '...'}`;
+            if (ips.length > 0) detail += ` — LAN: ${ips[0]}:${this._cloudKitchen.port}`;
+            if (this._tunnel) detail += ` — 🌍 ${this._tunnel.url}`;
+            checks.push({ name: 'Cloud Kitchen', status: '☁️', detail });
+        } else {
+            checks.push({ name: 'Cloud Kitchen', status: '💤', detail: 'Not started — type /cloud-kitchen to start' });
+        }
 
         for (const c of checks) {
             console.log(`  ${c.status}  ${chalk.bold(c.name)}`);
@@ -2171,7 +3010,10 @@ Design brief: ${desc}`;
         const g = this.registry.get('gemini');
         if (g) g.build_args = ['-p', '{prompt}', '--output-format', 'stream-json', ...(this.activeModel ? ['--model', this.activeModel] : []), ...(this.yolo ? ['--yolo'] : [])];
         const c = this.registry.get('copilot');
-        if (c) c.build_args = this.yolo ? ['copilot', '-p', '{prompt}', '--allow-all-tools'] : ['copilot', '-p', '{prompt}'];
+        if (c) {
+            const modelFlag = this.modelPrefs?.copilot ? ['--model', this.modelPrefs.copilot] : [];
+            c.build_args = this.yolo ? ['copilot', '-p', '{prompt}', '--allow-all-tools', ...modelFlag] : ['copilot', '-p', '{prompt}', ...modelFlag];
+        }
     }
 
     async handleHackathon(input) {

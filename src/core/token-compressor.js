@@ -70,6 +70,12 @@ export class TokenCompressor {
         const originalTokens = this.estimateTokens(text);
         this.stats.originalInputTokens += originalTokens;
 
+        // Don't compress very short prompts — nothing to gain
+        if ((text || '').length < 30) {
+            this.stats.compressedInputTokens += originalTokens;
+            return text;
+        }
+
         let result = text;
 
         // light: filler removal + whitespace normalization
@@ -92,13 +98,15 @@ export class TokenCompressor {
 
     getOutputDirective(prompt) {
         const lower = (prompt || '').toLowerCase();
+        // Skip directive for very short / conversational prompts
+        if (lower.length < 20) return null;
         if (CODE_KEYWORDS.some((kw) => lower.includes(kw))) {
             return 'Return code only. No explanations unless critical.';
         }
         if (ANALYSIS_KEYWORDS.some((kw) => lower.includes(kw))) {
             return 'Use bullet points. Max 3 sentences per point.';
         }
-        return 'Be concise. No filler. Direct answers only.';
+        return null;
     }
 
     decompressResponse(text) {

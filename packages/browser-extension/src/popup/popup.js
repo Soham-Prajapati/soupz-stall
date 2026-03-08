@@ -1,147 +1,241 @@
-// Popup controller — Kitchen Bridge
-const statusDot = document.getElementById('statusDot');
-const statusText = document.getElementById('statusText');
-const pairForm = document.getElementById('pairForm');
-const actions = document.getElementById('actions');
-const pairBtn = document.getElementById('pairBtn');
-const disconnectBtn = document.getElementById('disconnectBtn');
-const otpInput = document.getElementById('otpInput');
-const hostInput = document.getElementById('hostInput');
-const portInput = document.getElementById('portInput');
-const errorMsg = document.getElementById('errorMsg');
-const hostnameText = document.getElementById('hostnameText');
-const inspectBtn = document.getElementById('inspectBtn');
-const receiptView = document.getElementById('receiptView');
-const closeReceipt = document.getElementById('closeReceipt');
-const receiptItems = document.getElementById('receiptItems');
-const receiptUrl = document.getElementById('receiptUrl');
-const receiptTime = document.getElementById('receiptTime');
+// Soupz Kitchen Bridge — Side Panel Controller
+(function () {
+    'use strict';
 
-let isInspecting = false;
+    const $ = (id) => document.getElementById(id);
+    const statusDot    = $('statusDot');
+    const statusText   = $('statusText');
+    const pairForm     = $('pairForm');
+    const connPanel    = $('connectedPanel');
+    const pairBtn      = $('pairBtn');
+    const disconnectBtn = $('disconnectBtn');
+    const otpInput     = $('otpInput');
+    const hostInput    = $('hostInput');
+    const portInput    = $('portInput');
+    const errorMsg     = $('errorMsg');
+    const hostnameText = $('hostnameText');
+    const captureBtn   = $('captureBtn');
+    const domBtn       = $('domBtn');
+    const summaryBtn   = $('summaryBtn');
+    const inspectBtn   = $('inspectBtn');
+    const receiptView  = $('receiptView');
+    const closeReceipt = $('closeReceipt');
+    const receiptItems = $('receiptItems');
+    const receiptUrl   = $('receiptUrl');
+    const receiptTime  = $('receiptTime');
+    const toast        = $('toast');
+    const themeToggle  = $('themeToggle');
 
-function updateUI(connected, hostname) {
-    statusDot.className = `dot ${connected ? 'on' : 'off'}`;
-    statusText.textContent = connected ? `Connected to ${hostname || 'Kitchen'}` : 'Not paired';
-    pairForm.style.display = connected ? 'none' : 'block';
-    actions.style.display = connected ? 'flex' : 'none';
-    if (hostname) hostnameText.textContent = `🖥️ ${hostname}`;
-}
-
-function showError(msg) {
-    errorMsg.textContent = msg;
-    errorMsg.style.display = 'block';
-    setTimeout(() => { errorMsg.style.display = 'none'; }, 5000);
-}
-
-// Check status on popup open
-chrome.runtime.sendMessage({ type: 'get_status' }, (response) => {
-    if (response) {
-        updateUI(response.connected, response.hostname);
-    }
-});
-
-// Listen for status changes
-chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type === 'status') updateUI(msg.connected, msg.hostname);
-    if (msg.type === 'element_selected') {
-        isInspecting = false;
-        inspectBtn.classList.remove('active');
-        // Show selected element in a receipt or just console
-        console.log('Selected:', msg.selector);
-    }
-});
-
-// Pair button
-pairBtn.addEventListener('click', async () => {
-    const code = otpInput.value.trim();
-    const host = hostInput.value.trim() || 'localhost';
-    const port = portInput.value.trim() || '7533';
-
-    if (!code || code.length < 6) {
-        showError('Enter the order number (6-8 digits)');
-        return;
+    // ── Theme Switcher ────────────────────────
+    if (themeToggle) {
+        themeToggle.addEventListener('click', () => {
+            document.body.classList.toggle('theme-kitchen');
+            document.body.classList.toggle('theme-brutal');
+            const isKitchen = document.body.classList.contains('theme-kitchen');
+            themeToggle.textContent = isKitchen ? 'Switch to Brutal' : 'Switch to Kitchen';
+            // Save preference
+            try { chrome.storage.local.set({ theme: isKitchen ? 'kitchen' : 'brutal' }); } catch {}
+        });
     }
 
-    pairBtn.disabled = true;
-    pairBtn.textContent = '🔄 Starting stove...';
-    errorMsg.style.display = 'none';
+    // Load saved theme
+    try {
+        chrome.storage.local.get(['theme'], (res) => {
+            if (res.theme === 'brutal') {
+                document.body.classList.remove('theme-kitchen');
+                document.body.classList.add('theme-brutal');
+                if (themeToggle) themeToggle.textContent = 'Switch to Kitchen';
+            }
+        });
+    } catch {}
 
-    chrome.runtime.sendMessage({ type: 'pair', host, port, code }, (response) => {
-        pairBtn.disabled = false;
-        pairBtn.textContent = '🔗 Connect to Kitchen';
+    let isInspecting = false;
 
-        if (response?.ok) {
-            updateUI(true, host);
-        } else {
-            showError(response?.error || 'Pairing failed. Check code.');
-        }
-    });
-});
+    // ── Toast helper ──────────────────────────
+    function showToast(msg, duration) {
+        if (!toast) return;
+        toast.textContent = msg;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), duration || 2000);
+    }
 
-disconnectBtn.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'disconnect' });
-    updateUI(false);
-    otpInput.value = '';
-    receiptView.style.display = 'none';
-});
+    // ── UI State ──────────────────────────────
+    function updateUI(connected, hostname) {
+        if (statusDot) statusDot.className = 'dot ' + (connected ? 'on' : 'off');
+        if (statusText) statusText.textContent = connected ? 'Connected' + (hostname ? ' · ' + hostname : '') : 'Not connected';
+        if (pairForm) pairForm.style.display = connected ? 'none' : 'flex';
+        if (connPanel) connPanel.style.display = connected ? 'flex' : 'none';
+        if (hostname && hostnameText) hostnameText.textContent = '🖥️ ' + hostname;
+    }
 
-document.getElementById('captureBtn').addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'manual_capture' });
-});
+    function showError(msg) {
+        if (!errorMsg) return;
+        errorMsg.textContent = msg;
+        errorMsg.style.display = 'block';
+        setTimeout(() => { if (errorMsg) errorMsg.style.display = 'none'; }, 5000);
+    }
 
-document.getElementById('domBtn').addEventListener('click', async () => {
-    // Send DOM to server
-    chrome.runtime.sendMessage({ type: 'manual_dom' });
-});
+    // ── Init: check connection status ─────────
+    try {
+        chrome.runtime.sendMessage({ type: 'get_status' }, (response) => {
+            if (chrome.runtime.lastError) { updateUI(false); return; }
+            if (response) updateUI(response.connected, response.hostname);
+            else updateUI(false);
+        });
+    } catch { updateUI(false); }
 
-document.getElementById('summaryBtn').addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab) {
-        chrome.tabs.sendMessage(tab.id, { type: 'get_page_summary' }, (summary) => {
-            if (summary) {
-                showReceipt(summary);
+    // ── Listen for live status updates ────────
+    try {
+        chrome.runtime.onMessage.addListener((msg) => {
+            if (msg.type === 'status') updateUI(msg.connected, msg.hostname);
+            if (msg.type === 'element_selected') {
+                isInspecting = false;
+                if (inspectBtn) inspectBtn.classList.remove('active');
+                showToast('Element: ' + (msg.selector || msg.tag));
+            }
+        });
+    } catch {}
+
+    // ── Pair button ───────────────────────────
+    if (pairBtn) {
+        pairBtn.addEventListener('click', () => {
+            const code = (otpInput?.value || '').trim();
+            const host = (hostInput?.value || '').trim() || 'localhost';
+            const port = (portInput?.value || '').trim() || '7533';
+
+            if (!code || code.length < 6) {
+                showError('Enter the 6-8 digit pairing code');
+                return;
+            }
+
+            pairBtn.disabled = true;
+            pairBtn.textContent = '⏳ Connecting...';
+            if (errorMsg) errorMsg.style.display = 'none';
+
+            try {
+                chrome.runtime.sendMessage({ type: 'pair', host, port, code }, (response) => {
+                    pairBtn.disabled = false;
+                    pairBtn.textContent = '🔗 Connect';
+
+                    if (chrome.runtime.lastError) {
+                        showError('Extension error — reload and try again');
+                        return;
+                    }
+                    if (response?.ok) {
+                        updateUI(true, host);
+                        showToast('🟢 Connected!');
+                    } else {
+                        showError(response?.error || 'Invalid or expired code');
+                    }
+                });
+            } catch {
+                pairBtn.disabled = false;
+                pairBtn.textContent = '🔗 Connect';
+                showError('Extension error — reload extension');
             }
         });
     }
-});
 
-inspectBtn.addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab) return;
+    // ── Disconnect ────────────────────────────
+    if (disconnectBtn) {
+        disconnectBtn.addEventListener('click', () => {
+            try { chrome.runtime.sendMessage({ type: 'disconnect' }); } catch {}
+            updateUI(false);
+            if (otpInput) otpInput.value = '';
+            if (receiptView) receiptView.style.display = 'none';
+            showToast('Disconnected');
+        });
+    }
 
-    isInspecting = !isInspecting;
-    inspectBtn.classList.toggle('active', isInspecting);
+    // ── Action: Screenshot ────────────────────
+    if (captureBtn) {
+        captureBtn.addEventListener('click', () => {
+            try {
+                chrome.runtime.sendMessage({ type: 'manual_capture' });
+                showToast('📸 Snapshot sent');
+            } catch { showError('Capture failed'); }
+        });
+    }
 
-    chrome.tabs.sendMessage(tab.id, { 
-        type: isInspecting ? 'start_inspect' : 'stop_inspect' 
-    });
-});
+    // ── Action: DOM ───────────────────────────
+    if (domBtn) {
+        domBtn.addEventListener('click', () => {
+            try {
+                chrome.runtime.sendMessage({ type: 'manual_dom' });
+                showToast('🔍 DOM sent');
+            } catch { showError('DOM extraction failed'); }
+        });
+    }
 
-function showReceipt(summary) {
-    receiptUrl.textContent = summary.url;
-    receiptTime.textContent = new Date().toLocaleString();
-    
-    const items = [
-        { label: 'LINKS', value: summary.stats.links },
-        { label: 'IMAGES', value: summary.stats.images },
-        { label: 'BUTTONS', value: summary.stats.buttons },
-        { label: 'INPUTS', value: summary.stats.inputs },
-        { label: 'HEADINGS', value: summary.stats.headings },
-        { label: '---', value: '---' },
-        { label: 'IMG NO ALT', value: summary.accessibility.imagesWithoutAlt },
-        { label: 'INP NO LBL', value: summary.accessibility.inputsWithoutLabel },
-    ];
+    // ── Action: Page Receipt ──────────────────
+    if (summaryBtn) {
+        summaryBtn.addEventListener('click', async () => {
+            try {
+                const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                if (!tab) { showToast('No active tab'); return; }
+                chrome.tabs.sendMessage(tab.id, { type: 'get_page_summary' }, (summary) => {
+                    if (chrome.runtime.lastError || !summary) {
+                        showToast('Could not read page');
+                        return;
+                    }
+                    showReceipt(summary);
+                });
+            } catch { showToast('Could not read page'); }
+        });
+    }
 
-    receiptItems.innerHTML = items.map(item => `
-        <div class="receipt-row">
-            <span>${item.label}</span>
-            <span>${item.value}</span>
-        </div>
-    `).join('');
+    // ── Action: Inspect ───────────────────────
+    if (inspectBtn) {
+        inspectBtn.addEventListener('click', async () => {
+            try {
+                const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                if (!tab) return;
+                isInspecting = !isInspecting;
+                inspectBtn.classList.toggle('active', isInspecting);
+                chrome.tabs.sendMessage(tab.id, { type: isInspecting ? 'start_inspect' : 'stop_inspect' });
+                showToast(isInspecting ? '🎯 Click an element' : 'Inspect off');
+            } catch { showToast('Cannot inspect this page'); }
+        });
+    }
 
-    receiptView.style.display = 'block';
-}
+    // ── Receipt renderer ──────────────────────
+    function showReceipt(summary) {
+        if (!receiptView || !receiptItems) return;
+        if (receiptUrl) receiptUrl.textContent = summary.url || '';
+        if (receiptTime) receiptTime.textContent = new Date().toLocaleString();
 
-closeReceipt.addEventListener('click', () => {
-    receiptView.style.display = 'none';
-});
+        const rows = [
+            ['LINKS', summary.stats?.links ?? '?'],
+            ['IMAGES', summary.stats?.images ?? '?'],
+            ['BUTTONS', summary.stats?.buttons ?? '?'],
+            ['INPUTS', summary.stats?.inputs ?? '?'],
+            ['HEADINGS', summary.stats?.headings ?? '?'],
+            ['---'],
+            ['IMG NO ALT', summary.accessibility?.imagesWithoutAlt ?? '?'],
+            ['INP NO LABEL', summary.accessibility?.inputsWithoutLabel ?? '?'],
+        ];
+
+        receiptItems.innerHTML = rows.map(r => {
+            if (r[0] === '---') return '<div class="receipt-divider"></div>';
+            return '<div class="receipt-row"><span>' + r[0] + '</span><span class="val">' + r[1] + '</span></div>';
+        }).join('');
+
+        receiptView.style.display = 'block';
+    }
+
+    if (closeReceipt) {
+        closeReceipt.addEventListener('click', () => {
+            if (receiptView) receiptView.style.display = 'none';
+        });
+    }
+
+    // ── OTP auto-format ───────────────────────
+    if (otpInput) {
+        otpInput.addEventListener('input', () => {
+            otpInput.value = otpInput.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        });
+        otpInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && pairBtn) pairBtn.click();
+        });
+    }
+})();

@@ -106,7 +106,7 @@ async function handleServerMessage(msg) {
             if (tab) {
                 const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png', quality: 80 });
                 ws.send(JSON.stringify({
-                    type: 'screenshot',
+                    type: 'screenshot_captured',
                     requestId: msg.requestId,
                     url: tab.url,
                     title: tab.title,
@@ -193,6 +193,13 @@ async function handleServerMessage(msg) {
         }
     }
 }
+
+// Open side panel on icon click (Chrome 114+, graceful fallback to popup)
+try {
+    if (chrome.sidePanel) {
+        chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+    }
+} catch {}
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

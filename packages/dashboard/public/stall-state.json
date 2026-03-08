@@ -1,0 +1,1031 @@
+{
+  "sessionId": "c1670666",
+  "timestamp": 1772976200646,
+  "stall": {
+    "name": "Stall c167",
+    "status": "idle",
+    "uptime": 524845,
+    "health": {
+      "cpu": 89,
+      "ram": 98
+    }
+  },
+  "chefs": [
+    {
+      "id": "agent-builder",
+      "name": "Agent Builder (Bond)",
+      "icon": "🔧",
+      "color": "#E67E22",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "agent-creation",
+        "prompt-engineering",
+        "agent-architecture",
+        "agent-testing"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "analyst",
+      "name": "Business Analyst",
+      "icon": "📊",
+      "color": "#E91E63",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "requirements-analysis",
+        "user-stories",
+        "market-sizing",
+        "competitive-analysis",
+        "swot-analysis"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "architect",
+      "name": "Tech Architect",
+      "icon": "🏗️",
+      "color": "#6C63FF",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "system-architecture",
+        "distributed-systems",
+        "cloud-infrastructure",
+        "api-design",
+        "scalability"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "brainstorm",
+      "name": "Brainstorming Coach",
+      "icon": "💡",
+      "color": "#FFC107",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "brainstorming-coach",
+      "name": "Brainstorming Coach (Carson)",
+      "icon": "🧠",
+      "color": "#FF6B35",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "ideation",
+        "brainstorming",
+        "creative-thinking",
+        "mind-mapping"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "brand-chef",
+      "name": "Brand Chef",
+      "icon": "🧑‍🍳",
+      "color": "#AB47BC",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "brand-identity",
+        "naming",
+        "messaging-architecture",
+        "tagline-creation",
+        "voice-tone"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "contentwriter",
+      "name": "Content Writer",
+      "icon": "✍️",
+      "color": "#E040FB",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "creative-problem-solver",
+      "name": "Creative Problem Solver (Dr. Quinn)",
+      "icon": "🔮",
+      "color": "#8E44AD",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "problem-solving",
+        "root-cause",
+        "triz",
+        "first-principles",
+        "lateral-thinking"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "datascientist",
+      "name": "Data Scientist",
+      "icon": "📈",
+      "color": "#1565C0",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "design-thinking-coach",
+      "name": "Design Thinking Coach (Maya)",
+      "icon": "💡",
+      "color": "#00BCD4",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "design-thinking",
+        "empathy-mapping",
+        "prototyping",
+        "user-centered-design"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "designer",
+      "name": "Design Agency",
+      "icon": "🎨",
+      "color": "#FF2D55",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "design",
+        "ux-design",
+        "ui-design",
+        "brand-identity",
+        "design-system"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "dev",
+      "name": "Developer (Amelia)",
+      "icon": "💻",
+      "color": "#2ECC71",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "code",
+        "implementation",
+        "tdd",
+        "debugging",
+        "refactoring"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "devops",
+      "name": "DevOps Engineer",
+      "icon": "⚙️",
+      "color": "#00897B",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "domain-scout",
+      "name": "Domain Scout",
+      "icon": "🗺️",
+      "color": "#00BCD4",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "domain-classification",
+        "competitive-mapping",
+        "market-landscape",
+        "adjacent-brands",
+        "whitespace-analysis"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "evaluator",
+      "name": "PS Evaluator",
+      "icon": "⚖️",
+      "color": "#3F51B5",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "forager",
+      "name": "Forager (Ingredient Scout)",
+      "icon": "🧺",
+      "color": "#8B4513",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "image-sourcing",
+        "asset-curation",
+        "visual-research",
+        "stock-media",
+        "design"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "innovation-strategist-bmad",
+      "name": "Innovation Strategist (Victor)",
+      "icon": "🚀",
+      "color": "#FF5722",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "disruption",
+        "business-model-innovation",
+        "blue-ocean",
+        "market-creation"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "innovator",
+      "name": "Innovation Strategist",
+      "icon": "🚀",
+      "color": "#00BCD4",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "master",
+      "name": "Team Lead",
+      "icon": "👑",
+      "color": "#FFD700",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "module-builder",
+      "name": "Module Builder (Morgan)",
+      "icon": "📦",
+      "color": "#3498DB",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "module-creation",
+        "system-design",
+        "full-stack-architecture"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "orchestrator",
+      "name": "Orchestrator",
+      "icon": "🎯",
+      "color": "#A855F7",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "orchestration",
+        "planning",
+        "delegation",
+        "coordination",
+        "analysis"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "planner",
+      "name": "Project Planner",
+      "icon": "📋",
+      "color": "#9370DB",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "project-planning",
+        "task-breakdown",
+        "parallel-work",
+        "team-coordination"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "pm",
+      "name": "Product Manager",
+      "icon": "🎯",
+      "color": "#FF5722",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "presentation-master",
+      "name": "Presentation Master (Caravaggio)",
+      "icon": "🎭",
+      "color": "#FF4081",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "presentation",
+        "visual-communication",
+        "slide-design",
+        "storytelling-visual"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "presenter",
+      "name": "Presentation Coach",
+      "icon": "🎤",
+      "color": "#FF8C00",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "presentation",
+        "pitch-deck",
+        "demo-script",
+        "public-speaking",
+        "hackathon-coaching"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "problemsolver",
+      "name": "Problem Solver",
+      "icon": "🧩",
+      "color": "#9C27B0",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "qa",
+      "name": "QA Engineer",
+      "icon": "🧪",
+      "color": "#4CAF50",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "quick-flow",
+      "name": "Quick Flow Solo Dev (Barry)",
+      "icon": "⚡",
+      "color": "#F39C12",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "rapid-prototype",
+        "lean-development",
+        "solo-dev",
+        "mvp"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "researcher",
+      "name": "Researcher",
+      "icon": "🔬",
+      "color": "#00CED1",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "research",
+        "tool-comparison",
+        "api-discovery",
+        "sdk-evaluation",
+        "market-research"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "review-miner",
+      "name": "Review Miner",
+      "icon": "⛏️",
+      "color": "#FF7043",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "review-scraping",
+        "sentiment-analysis",
+        "pain-point-extraction",
+        "feature-gap-analysis",
+        "reddit-research"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "scrum",
+      "name": "Scrum Master",
+      "icon": "🏃",
+      "color": "#2196F3",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "security",
+      "name": "Security Auditor",
+      "icon": "🔒",
+      "color": "#D32F2F",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "sm",
+      "name": "Scrum Master (Bob)",
+      "icon": "🏃",
+      "color": "#1ABC9C",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "sprint-planning",
+        "agile",
+        "ceremonies",
+        "backlog",
+        "velocity"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "storyteller",
+      "name": "Storyteller",
+      "icon": "📖",
+      "color": "#FF7043",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "strategist",
+      "name": "Strategist",
+      "icon": "💼",
+      "color": "#FFD700",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "business-strategy",
+        "market-analysis",
+        "competitive-analysis",
+        "investor-pitch",
+        "business-model"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "svgart",
+      "name": "SVG Artist",
+      "icon": "🖼️",
+      "color": "#FF6B35",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "svg-creation",
+        "design",
+        "illustration",
+        "icon-design",
+        "css-art"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "tea",
+      "name": "Test Architect (Murat)",
+      "icon": "🧪",
+      "color": "#795548",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "test-architecture",
+        "atdd",
+        "risk-based-testing",
+        "test-strategy",
+        "ci-testing"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "teacher",
+      "name": "Teaching Assistant",
+      "icon": "📚",
+      "color": "#32CD32",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "techwriter",
+      "name": "Tech Writer",
+      "icon": "📝",
+      "color": "#795548",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "tester",
+      "name": "Test Architect",
+      "icon": "🔍",
+      "color": "#607D8B",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "ui-builder",
+      "name": "UI Builder",
+      "icon": "🏗️",
+      "color": "#26A69A",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "html-prototype",
+        "css-design",
+        "gsap-animation",
+        "scroll-animation",
+        "design-system"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "ux-designer",
+      "name": "UX Designer (Sally)",
+      "icon": "🎯",
+      "color": "#E91E63",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "user-research",
+        "interaction-design",
+        "wireframes",
+        "user-flows",
+        "usability"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "workflow-builder",
+      "name": "Workflow Builder (Wendy)",
+      "icon": "🔄",
+      "color": "#9B59B6",
+      "grade": 50,
+      "usageCount": 0,
+      "capabilities": [
+        "workflow-creation",
+        "process-design",
+        "automation-pipeline"
+      ],
+      "state": "idle",
+      "calls": 0
+    }
+  ],
+  "kitchens": [
+    {
+      "id": "copilot",
+      "name": "GitHub Copilot",
+      "icon": "🐙",
+      "color": "#6E40C9",
+      "grade": 50,
+      "available": true,
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini",
+      "icon": "🔮",
+      "color": "#4285F4",
+      "grade": 50,
+      "available": true,
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "kiro",
+      "name": "Kiro",
+      "icon": "🎯",
+      "color": "#FF6B6B",
+      "grade": 47,
+      "available": true,
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "icon": "🤖",
+      "color": "#888888",
+      "grade": 50,
+      "available": true,
+      "state": "idle",
+      "calls": 0
+    }
+  ],
+  "orders": [
+    {
+      "id": 1772975745966,
+      "prompt": "huh",
+      "agent": "copilot",
+      "persona": null,
+      "status": "served",
+      "startTime": 1772975745966,
+      "duration": 28440,
+      "endTime": 1772975774406
+    },
+    {
+      "id": 1772975712470,
+      "prompt": "hello",
+      "agent": "copilot",
+      "persona": null,
+      "status": "served",
+      "startTime": 1772975712470,
+      "duration": 27859,
+      "endTime": 1772975740329
+    }
+  ],
+  "activeOrders": [],
+  "stats": {
+    "totalOrders": 2,
+    "completedOrders": 2,
+    "failedOrders": 0,
+    "avgCookTime": 28150,
+    "personaCalls": {},
+    "toolCalls": {},
+    "routingHistory": []
+  },
+  "recommendations": [
+    {
+      "type": "insight",
+      "text": "Stove is pre-heating. Ready for heavy throughput."
+    },
+    {
+      "type": "tip",
+      "text": "Try using @designer for UI tasks to see the latest glassmorphism patterns."
+    }
+  ],
+  "grades": {
+    "agent-builder": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Agent Builder (Bond)",
+      "icon": "🔧"
+    },
+    "analyst": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Business Analyst",
+      "icon": "📊"
+    },
+    "antigravity": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Antigravity",
+      "icon": "🚀"
+    },
+    "architect": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Tech Architect",
+      "icon": "🏗️"
+    },
+    "brainstorm": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Brainstorming Coach",
+      "icon": "💡"
+    },
+    "brainstorming-coach": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Brainstorming Coach (Carson)",
+      "icon": "🧠"
+    },
+    "brand-chef": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Brand Chef",
+      "icon": "🧑‍🍳"
+    },
+    "contentwriter": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Content Writer",
+      "icon": "✍️"
+    },
+    "copilot": {
+      "grade": 50,
+      "usage": 5,
+      "name": "GitHub Copilot",
+      "icon": "🐙"
+    },
+    "creative-problem-solver": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Creative Problem Solver (Dr. Quinn)",
+      "icon": "🔮"
+    },
+    "datascientist": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Data Scientist",
+      "icon": "📈"
+    },
+    "design-thinking-coach": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Design Thinking Coach (Maya)",
+      "icon": "💡"
+    },
+    "designer": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Design Agency",
+      "icon": "🎨"
+    },
+    "dev": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Developer (Amelia)",
+      "icon": "💻"
+    },
+    "devops": {
+      "grade": 50,
+      "usage": 0,
+      "name": "DevOps Engineer",
+      "icon": "⚙️"
+    },
+    "domain-scout": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Domain Scout",
+      "icon": "🗺️"
+    },
+    "evaluator": {
+      "grade": 50,
+      "usage": 0,
+      "name": "PS Evaluator",
+      "icon": "⚖️"
+    },
+    "forager": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Forager (Ingredient Scout)",
+      "icon": "🧺"
+    },
+    "gemini": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Gemini",
+      "icon": "🔮"
+    },
+    "innovation-strategist-bmad": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Innovation Strategist (Victor)",
+      "icon": "🚀"
+    },
+    "innovator": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Innovation Strategist",
+      "icon": "🚀"
+    },
+    "kiro": {
+      "grade": 47,
+      "usage": 0,
+      "name": "Kiro",
+      "icon": "🎯"
+    },
+    "master": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Team Lead",
+      "icon": "👑"
+    },
+    "module-builder": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Module Builder (Morgan)",
+      "icon": "📦"
+    },
+    "ollama": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Ollama",
+      "icon": "🤖"
+    },
+    "orchestrator": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Orchestrator",
+      "icon": "🎯"
+    },
+    "planner": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Project Planner",
+      "icon": "📋"
+    },
+    "pm": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Product Manager",
+      "icon": "🎯"
+    },
+    "presentation-master": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Presentation Master (Caravaggio)",
+      "icon": "🎭"
+    },
+    "presenter": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Presentation Coach",
+      "icon": "🎤"
+    },
+    "problemsolver": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Problem Solver",
+      "icon": "🧩"
+    },
+    "qa": {
+      "grade": 50,
+      "usage": 0,
+      "name": "QA Engineer",
+      "icon": "🧪"
+    },
+    "quick-flow": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Quick Flow Solo Dev (Barry)",
+      "icon": "⚡"
+    },
+    "researcher": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Researcher",
+      "icon": "🔬"
+    },
+    "review-miner": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Review Miner",
+      "icon": "⛏️"
+    },
+    "scrum": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Scrum Master",
+      "icon": "🏃"
+    },
+    "security": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Security Auditor",
+      "icon": "🔒"
+    },
+    "sm": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Scrum Master (Bob)",
+      "icon": "🏃"
+    },
+    "storyteller": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Storyteller",
+      "icon": "📖"
+    },
+    "strategist": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Strategist",
+      "icon": "💼"
+    },
+    "svgart": {
+      "grade": 50,
+      "usage": 0,
+      "name": "SVG Artist",
+      "icon": "🖼️"
+    },
+    "tea": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Test Architect (Murat)",
+      "icon": "🧪"
+    },
+    "teacher": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Teaching Assistant",
+      "icon": "📚"
+    },
+    "techwriter": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Tech Writer",
+      "icon": "📝"
+    },
+    "tester": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Test Architect",
+      "icon": "🔍"
+    },
+    "ui-builder": {
+      "grade": 50,
+      "usage": 0,
+      "name": "UI Builder",
+      "icon": "🏗️"
+    },
+    "ux-designer": {
+      "grade": 50,
+      "usage": 0,
+      "name": "UX Designer (Sally)",
+      "icon": "🎯"
+    },
+    "workflow-builder": {
+      "grade": 50,
+      "usage": 0,
+      "name": "Workflow Builder (Wendy)",
+      "icon": "🔄"
+    }
+  },
+  "tokens": {
+    "total": 0,
+    "cost": 0,
+    "byEngine": {
+      "gemini": {
+        "calls": 0,
+        "tokens": 0,
+        "cost": 0
+      },
+      "copilot": {
+        "calls": 0,
+        "tokens": 0,
+        "cost": 0,
+        "byModel": {}
+      }
+    },
+    "byModel": {}
+  }
+}
