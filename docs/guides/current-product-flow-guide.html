@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Soupz Current Product Flow Guide</title>
+  <style>
+    :root {
+      --bg: #f2ebde;
+      --card: #fffdf8;
+      --ink: #1f2430;
+      --muted: #596279;
+      --line: #191919;
+      --teal: #2fa7a0;
+      --orange: #e86a33;
+      --green: #4caf50;
+      --red: #d64545;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 5% 0%, #f9f4ea 0%, transparent 30%),
+        radial-gradient(circle at 95% 0%, #ebe4d7 0%, transparent 28%),
+        var(--bg);
+      line-height: 1.5;
+    }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 24px; }
+    .card {
+      background: var(--card);
+      border: 2px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 6px 6px 0 #0000001a;
+      margin-bottom: 14px;
+    }
+    h1, h2, h3 { margin: 0 0 10px; }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.25rem; }
+    h3 { font-size: 1rem; }
+    p { margin: 0 0 10px; color: var(--muted); }
+    .pill {
+      display: inline-block;
+      border: 2px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: #e8f8f7;
+      font-size: 0.78rem;
+      font-weight: 700;
+      margin-right: 8px;
+    }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .triple { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    ul { margin: 8px 0 0 18px; color: var(--muted); }
+    li { margin-bottom: 6px; }
+    pre {
+      margin: 8px 0 0;
+      border: 2px solid var(--line);
+      border-radius: 10px;
+      background: #151b27;
+      color: #d8fde9;
+      padding: 10px;
+      font-size: 0.84rem;
+      overflow: auto;
+    }
+    .ok { color: var(--green); font-weight: 700; }
+    .warn { color: var(--orange); font-weight: 700; }
+    .bad { color: var(--red); font-weight: 700; }
+    .flow {
+      border: 2px dashed #35405a;
+      border-radius: 10px;
+      padding: 10px;
+      background: #f4f7fc;
+      color: #2a3349;
+      font-size: 0.9rem;
+    }
+    @media (max-width: 900px) {
+      .grid, .triple { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1>Soupz Current Product Flow Guide</h1>
+      <p>Complete runtime map of the current product. Built for human readability first.</p>
+      <span class="pill">Date: 2026-03-15</span>
+      <span class="pill">Mode: Local-first + optional remote</span>
+      <span class="pill">Design metaphor: Kitchen control room</span>
+    </section>
+
+    <section class="card">
+      <h2>1) What You Run Now (Single Command)</h2>
+      <p class="ok">Recommended startup:</p>
+      <pre>pnpm run dev:web:pnpm</pre>
+      <p>Fallback:</p>
+      <pre>npm run dev:web</pre>
+      <div class="grid">
+        <div>
+          <h3>What happens automatically</h3>
+          <ul>
+            <li>Remote server starts</li>
+            <li>Pairing code is generated</li>
+            <li>Pairing code is validated into token</li>
+            <li>Dashboard starts</li>
+            <li>Browser opens with token + remote URL prefilled</li>
+          </ul>
+        </div>
+        <div>
+          <h3>What you should not do manually anymore</h3>
+          <ul>
+            <li>No manual 4-terminal setup</li>
+            <li>No manual OTP copy dance each run</li>
+            <li>No manual token paste unless you want custom setup</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2) End-to-End Product Flow (Current)</h2>
+      <div class="flow">
+        User prompt in dashboard → POST /api/orders on remote server → server launches CLI ask path (single-agent safe mode by default for web auto) → stdout/stderr captured as order output/events → dashboard polls orders + order detail → timeline/queue/output update in UI.
+      </div>
+      <div class="triple" style="margin-top:10px;">
+        <div class="card" style="margin:0;">
+          <h3>Frontend (Dashboard)</h3>
+          <ul>
+            <li>Prompt composer</li>
+            <li>Queue list</li>
+            <li>Timeline events</li>
+            <li>Output panel</li>
+            <li>File diff drawer</li>
+          </ul>
+        </div>
+        <div class="card" style="margin:0;">
+          <h3>Remote Server</h3>
+          <ul>
+            <li>OTP + token auth</li>
+            <li>Order APIs</li>
+            <li>Change/diff APIs</li>
+            <li>WebSocket terminal bridge</li>
+          </ul>
+        </div>
+        <div class="card" style="margin:0;">
+          <h3>Core Runtime</h3>
+          <ul>
+            <li>CLI orchestration</li>
+            <li>Agent spawner</li>
+            <li>Router and model policy</li>
+            <li>Memory and grading</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3) Agent Types You Asked About</h2>
+      <div class="grid">
+        <div>
+          <h3>soupz-orchestrator</h3>
+          <p>Task-level conductor. Best when you want one request decomposed into clear specialist subtasks.</p>
+          <ul>
+            <li>Focused delegation logic</li>
+            <li>Good for planning + synthesis</li>
+            <li>Lower ceremony</li>
+          </ul>
+        </div>
+        <div>
+          <h3>soupz-workflow</h3>
+          <p>Workflow-mode wrapper. Best when you want structured pipelines such as party mode or quick-dev sequences.</p>
+          <ul>
+            <li>Broader orchestration framework</li>
+            <li>Higher automation breadth</li>
+            <li>Useful for larger multi-step workflows</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>4) Key Paths (Source of Truth)</h2>
+      <ul>
+        <li>Remote server: packages/remote-server/src/index.js</li>
+        <li>Dashboard UI: packages/dashboard/src/App.jsx</li>
+        <li>Dashboard styles: packages/dashboard/src/index.css</li>
+        <li>Web stack launcher: scripts/dev-web-stack.js</li>
+        <li>Core orchestrator: src/orchestrator/router.js</li>
+        <li>Agent execution: src/agents/spawner.js</li>
+        <li>Session/CLI: src/session.js</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>5) Kitchen Prompt Pack Location</h2>
+      <p class="ok">Your full Kitchen UI Component Prompt Pack is still present here:</p>
+      <pre>_bmad-output/planning-artifacts/kitchen-ui-component-prompt-pack.md</pre>
+      <p>This file is the place to use Gemini for style exploration and asset generation.</p>
+    </section>
+
+    <section class="card">
+      <h2>6) Kitchen UI Gemini Prompt (Room Layout Based On Your Mockup)</h2>
+      <pre>Create a responsive kitchen control room dashboard UI using a top-down room metaphor.
+
+Reference composition:
+- Window centered at top wall.
+- Door on left side.
+- Two top countertops (left/right).
+- Center operator zone with an "agent specific prompt" panel.
+- Long bottom "general prompt" command bar.
+- Right side timeline stack.
+- Left/middle queue and station cards.
+
+Behavioral UI requirements:
+- General prompt sends one safe default agent by default.
+- Agent-specific prompt targets selected specialist.
+- Show lifecycle events: order.created, route.selected, chef.started, chef.output.delta, order.completed/failed.
+- Include file-change drawer with diff preview.
+
+Visual direction:
+- Kitchen operations style, high contrast, clean outlines, no visual clutter.
+- Palette: steel #5B6770, cream #F3E9D2, charcoal #222222, orange #E86A33, green #4CAF50, red #D64545, teal #2FA7A0.
+- Bold, readable typography and intentional spacing.
+- Mobile responsive under 768px with stacked layout.
+
+Deliver:
+1) desktop and mobile layout spec,
+2) component state map,
+3) color/type token table,
+4) interaction copy for status chips/buttons,
+5) implementation notes for React + CSS.</pre>
+    </section>
+
+    <section class="card">
+      <h2>7) Known Current Limits</h2>
+      <ul>
+        <li>Orders are currently tracked in remote server memory, not persisted DB.</li>
+        <li>Dashboard uses polling for updates (WebSocket event streaming for order timeline can be added next).</li>
+        <li>Kitchen visual assets are prompt-ready, but full sprite-integrated UI is a pending polish phase.</li>
+      </ul>
+      <p class="warn">Next best upgrade: switch order timeline from polling to WebSocket push and integrate sprite assets from prompt pack.</p>
+    </section>
+  </main>
+</body>
+</html>

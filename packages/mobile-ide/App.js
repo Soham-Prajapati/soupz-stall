@@ -19,17 +19,23 @@ const buzz = () => { try { Vibration.vibrate(10); } catch {} };
 // Strip ANSI escape sequences and clean terminal output for mobile display
 const stripAnsi = (str) => {
     let s = str;
-    // ESC [ ... letter  (CSI sequences — colors, cursor, etc.)
-    s = s.replace(/\x1b\[[0-9;:]*[A-Za-z]/g, '');
-    // Orphaned CSI params (when ESC was already stripped but [nn;nn;nnm remains)
-    s = s.replace(/\[(?:\d+;)*\d*m/g, '');
+    // CSI sequences including DEC private mode (ESC[?..., ESC[>..., ESC[!...)
+    s = s.replace(/\x1b\[[?!>]?[\d;:]*[A-Za-z~]/g, '');
     // OSC sequences  ESC ] ... BEL/ST
     s = s.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
-    // Other ESC sequences
+    // Character set designation: ESC ( B, ESC # 8, etc.
     s = s.replace(/\x1b[()#][A-Za-z0-9]/g, '');
-    s = s.replace(/\x1b[A-Za-z]/g, '');
-    // Remaining control chars (except newline/tab)
+    // ESC + single char (=, >, M, c, 7, 8, etc.)
+    s = s.replace(/\x1b[^\[\]]/g, '');
+    // Orphaned CSI (ESC stripped in transit): [params letter
+    s = s.replace(/\[[\d;:?!>]*[A-Za-z~]/g, '');
+    // Orphaned CSI color codes ending in m (broader catch)
+    s = s.replace(/\[(?:\d+;)*\d*m/g, '');
+    // Remaining control chars (keep \n, \r, \t)
     s = s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+    // Full-block / shade characters → compact
+    s = s.replace(/[██]+/g, (m) => '█'.repeat(Math.min(m.length, 8)));
+    s = s.replace(/[░▒▓]/g, '·');
     // Box-drawing → simple ASCII
     s = s.replace(/[┌┐└┘╔╗╚╝┏┓┗┛╭╮╰╯]/g, '+');
     s = s.replace(/[─━═╌╍┄┅┈┉]/g, '-');
@@ -38,13 +44,38 @@ const stripAnsi = (str) => {
     s = s.replace(/[┬┴┳┻╦╩]/g, '-');
     s = s.replace(/[┼╋╬]/g, '+');
     // Collapse excessive dashes/borders into cleaner separators
-    s = s.replace(/[+\-|]{20,}/g, (m) => '-'.repeat(Math.min(m.length, 40)));
-    // Clean line endings
-    s = s.replace(/\r\n/g, '\n');
-    s = s.replace(/\r/g, '');
+    s = s.replace(/[+\-|]{20,}/g, (m) => '-'.repeat(Math.min(m.length, 30)));
     // Collapse multiple blank lines
     s = s.replace(/\n{4,}/g, '\n\n');
     return s;
+};
+
+// Process carriage returns — \r without \n means "overwrite from line start"
+const processCarriageReturn = (text) => {
+    // First: normalize \r\n → \n
+    let s = text.replace(/\r\n/g, '\n');
+    // If no standalone \r remains, nothing to do
+    if (!s.includes('\r')) return s;
+    // Process each line
+    const lines = s.split('\n');
+    const processed = lines.map(line => {
+        if (!line.includes('\r')) return line;
+        // Each \r resets cursor to column 0; following text overwrites
+        const segments = line.split('\r');
+        let result = '';
+        for (const seg of segments) {
+            if (seg === '') continue;
+            // Overwrite result from position 0
+            const resultChars = [...result];
+            const newChars = [...seg];
+            for (let i = 0; i < newChars.length; i++) {
+                resultChars[i] = newChars[i];
+            }
+            result = resultChars.join('');
+        }
+        return result;
+    });
+    return processed.join('\n');
 };
 
 export default function App() {
@@ -67,12 +98,40 @@ export default function App() {
     const wsRef = useRef(null);
     const scrollRef = useRef(null);
     const pingRef = useRef(null);
+    const lastInputRef = useRef('');
 
-    const toggleTheme = () => { buzz(); setTheme(prev => prev === 'kitchen' ? 'brutal' : 'kitchen'); };
+    const toggleTheme = () => { 
+        buzz(); 
+        const modes = ['kitchen', 'brutal', 'skeuo', 'neo', 'glass'];
+        const next = modes[(modes.indexOf(theme) + 1) % modes.length];
+        setTheme(next); 
+        Storage.setItem('soupz_theme', next).catch(() => {});
+    };
+
+    const isKitchen = theme === 'kitchen';
+    const isSkeuo = theme === 'skeuo';
+    const isNeo = theme === 'neo';
+    const isGlass = theme === 'glass';
+    const isSoft = isSkeuo || isNeo || isGlass; // non-brutal themes
+    const themeLabels = { kitchen: 'KITCHEN', brutal: 'BRUTAL', skeuo: 'CLASSIC', neo: 'SOFT UI', glass: 'GLASS' };
+    const activeStyles = {
+        card: isGlass ? styles.cardGlass : isNeo ? styles.cardNeo : isSkeuo ? styles.cardSkeuo : (isKitchen ? styles.cardKitchen : styles.cardBrutal),
+        btnPrimary: isGlass ? styles.btnPrimaryGlass : isNeo ? styles.btnPrimaryNeo : isSkeuo ? styles.btnPrimarySkeuo : (isKitchen ? styles.btnPrimaryKitchen : styles.btnPrimaryBrutal),
+        header: isGlass ? styles.headerGlass : isNeo ? styles.headerNeo : isSkeuo ? styles.headerSkeuo : (isKitchen ? styles.headerKitchen : styles.headerBrutal),
+        actionBtn: isGlass ? styles.actionBtnGlass : isNeo ? styles.actionBtnNeo : isSkeuo ? styles.actionBtnSkeuo : (isKitchen ? styles.actionBtnKitchen : styles.actionBtnBrutal),
+        terminalWrap: isGlass ? styles.terminalWrapGlass : isNeo ? styles.terminalWrapNeo : isSkeuo ? styles.terminalWrapSkeuo : (isKitchen ? styles.terminalWrapKitchen : styles.terminalWrapBrutal),
+        pillBtn: isGlass ? styles.pillBtnGlass : isNeo ? styles.pillBtnNeo : isSkeuo ? styles.pillBtnSkeuo : (isKitchen ? styles.pillBtnKitchen : styles.pillBtnBrutal),
+        inputArea: isGlass ? styles.inputAreaGlass : isNeo ? styles.inputAreaNeo : isSkeuo ? styles.inputAreaSkeuo : (isKitchen ? styles.inputAreaKitchen : styles.inputAreaBrutal),
+        sendBtn: isGlass ? styles.sendBtnGlass : isNeo ? styles.sendBtnNeo : isSkeuo ? styles.sendBtnSkeuo : (isKitchen ? styles.sendBtnKitchen : styles.sendBtnBrutal),
+        themeBadge: styles.themeBadge,
+    };
 
     useEffect(() => {
         const restore = async () => {
             try {
+                const savedTheme = await Storage.getItem('soupz_theme');
+                if (savedTheme) setTheme(savedTheme);
+
                 const saved = await Storage.getItem('soupz_session');
                 if (saved) {
                     const { host: h, port: p, token } = JSON.parse(saved);
@@ -172,7 +231,9 @@ export default function App() {
                     case 'output':
                     case 'history':
                         setOutputs(prev => {
-                            let combined = (prev[msg.terminalId] || '') + stripAnsi(msg.data);
+                            const stripped = stripAnsi(msg.data);
+                            let combined = (prev[msg.terminalId] || '') + stripped;
+                            combined = processCarriageReturn(combined);
                             if (combined.length > 50000) combined = combined.slice(-40000);
                             return { ...prev, [msg.terminalId]: combined };
                         });
@@ -209,7 +270,7 @@ export default function App() {
         const text = cmd || input;
         if (!text.trim() || !activeTerminal) return;
         wsRef.current?.send(JSON.stringify({ type: 'input', terminalId: activeTerminal, data: text + '\n' }));
-        if (!cmd) setInput('');
+        if (!cmd) { setInput(''); lastInputRef.current = ''; }
     };
 
     const sendRaw = (char) => {
@@ -217,10 +278,38 @@ export default function App() {
         wsRef.current?.send(JSON.stringify({ type: 'input', terminalId: activeTerminal, data: char }));
     };
 
+    // Raw mode: send each character as typed (like a real terminal)
+    const handleRawInput = (newText) => {
+        if (!activeTerminal) { setInput(newText); return; }
+        const prev = lastInputRef.current;
+        if (newText.length > prev.length) {
+            // New character(s) typed — send immediately
+            const added = newText.slice(prev.length);
+            sendRaw(added);
+        } else if (newText.length < prev.length) {
+            // Backspace — send DEL for each deleted char
+            const count = prev.length - newText.length;
+            for (let i = 0; i < count; i++) sendRaw('\x7f');
+        }
+        lastInputRef.current = newText;
+        setInput(newText);
+    };
+
+    const handleRawSubmit = () => {
+        buzz();
+        sendRaw('\n');
+        setInput('');
+        lastInputRef.current = '';
+    };
+
     const specialKeys = [
+        { label: '⇥ Tab', char: '\t' },
+        { label: '←', char: '\x1b[D' }, { label: '→', char: '\x1b[C' },
+        { label: '↑', char: '\x1b[A' }, { label: '↓', char: '\x1b[B' },
+        { label: 'Esc', char: '\x1b' },
         { label: 'Ctrl+C', char: '\x03' }, { label: 'Ctrl+D', char: '\x04' },
-        { label: 'Tab', char: '\t' }, { label: '↑', char: '\x1b[A' },
-        { label: '↓', char: '\x1b[B' }, { label: 'Ctrl+L', char: '\x0c' },
+        { label: 'Ctrl+L', char: '\x0c' }, { label: 'Ctrl+Z', char: '\x1a' },
+        { label: 'Ctrl+A', char: '\x01' }, { label: 'Ctrl+E', char: '\x05' },
     ];
 
     const clearTerminal = () => {
@@ -239,39 +328,44 @@ export default function App() {
     ];
 
     if (screen === 'pair') {
-        const themeBg = theme === 'kitchen' ? '#ffffff' : '#f8f9fa';
-        const cardBg = theme === 'kitchen' ? '#fffdf5' : '#ffffff';
-        const accent = theme === 'kitchen' ? '#34c759' : '#007aff';
+        const themeBg = isGlass ? '#4a3a6a' : isNeo ? '#e0e5ec' : isSkeuo ? '#e0e0e0' : isKitchen ? '#ffffff' : '#f8f9fa';
+        const cardBg = isGlass ? 'rgba(255,255,255,0.12)' : isNeo ? '#e0e5ec' : isSkeuo ? '#f5f5f5' : isKitchen ? '#fffdf5' : '#ffffff';
+        const accent = isGlass ? '#a78bfa' : isNeo ? '#6366f1' : isSkeuo ? '#007aff' : isKitchen ? '#34c759' : '#007aff';
+        const textColor = isGlass ? '#fff' : '#000';
+        const borderStyle = (isKitchen || isSkeuo) ? { borderWidth: 1, borderColor: isKitchen ? '#cbd5e1' : '#ccc' }
+            : isNeo ? { borderWidth: 0 }
+            : isGlass ? { borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' }
+            : { borderWidth: 2, borderColor: '#000' };
 
         return (
             <SafeAreaProvider>
             <SafeAreaView style={[styles.safeArea, { backgroundColor: themeBg }]}>
-                <StatusBar barStyle="dark-content" backgroundColor={themeBg} />
+                <StatusBar barStyle={isGlass ? 'light-content' : 'dark-content'} backgroundColor={themeBg} />
                 <View style={[styles.pairScreen, { backgroundColor: themeBg }]}>
-                    <TouchableOpacity style={styles.themeBadge} onPress={toggleTheme}>
-                        <Text style={styles.themeBadgeText}>{theme === 'kitchen' ? 'KITCHEN MODE' : 'BRUTAL MODE'}</Text>
+                    <TouchableOpacity style={[styles.themeBadge, activeStyles.themeBadge]} onPress={toggleTheme}>
+                        <Text style={[styles.themeBadgeText, isGlass && { color: '#fff' }]}>{themeLabels[theme] || 'MODE'}</Text>
                     </TouchableOpacity>
-                    <View style={[styles.card, { backgroundColor: cardBg }]}>
+                    <View style={[styles.card, activeStyles.card, { backgroundColor: cardBg }]}>
                         <Text style={styles.logo}>🫕</Text>
-                        <Text style={styles.title}>KITCHEN BRIDGE</Text>
-                        <Text style={styles.subtitle}>Cloud Station Link</Text>
+                        <Text style={[styles.title, { color: textColor }]}>KITCHEN BRIDGE</Text>
+                        <Text style={[styles.subtitle, { color: isGlass ? 'rgba(255,255,255,0.6)' : '#666' }]}>Cloud Station Link</Text>
                         
-                        <View style={styles.divider} />
+                        <View style={[styles.divider, (isKitchen || isSkeuo) && { backgroundColor: '#e2e8f0', height: 1 }, isNeo && { backgroundColor: '#d1d5db', height: 1 }, isGlass && { backgroundColor: 'rgba(255,255,255,0.2)', height: 1 }]} />
 
-                        <Text style={styles.stepLabel}>1. START THE STOVE</Text>
-                        <View style={[styles.codeBlock, { backgroundColor: theme === 'kitchen' ? '#34c759' : '#ffd60a' }]}><Text style={styles.codeText}>soupz-stall → /cloud-kitchen</Text></View>
+                        <Text style={[styles.stepLabel, { color: textColor }]}>1. START THE STOVE</Text>
+                        <View style={[styles.codeBlock, { backgroundColor: isGlass ? 'rgba(255,255,255,0.1)' : isNeo ? '#e0e5ec' : isSkeuo ? '#f0f0f0' : isKitchen ? '#f1f5f9' : '#ffd60a', ...borderStyle }]}><Text style={[styles.codeText, { color: textColor }]}>soupz-stall → /cloud-kitchen</Text></View>
 
-                        <Text style={styles.stepLabel}>2. ENTER KITCHEN IP</Text>
+                        <Text style={[styles.stepLabel, { color: textColor }]}>2. ENTER KITCHEN IP</Text>
                         <View style={styles.hostRow}>
-                            <TextInput style={[styles.inputField, { flex: 2 }]} value={host} onChangeText={setHost} placeholder="192.168.x.x" placeholderTextColor="#aaa" autoCapitalize="none" />
-                            <Text style={styles.colon}>:</Text>
-                            <TextInput style={[styles.inputField, { flex: 1 }]} value={port} onChangeText={setPort} placeholder="7533" placeholderTextColor="#aaa" keyboardType="number-pad" />
+                            <TextInput style={[styles.inputField, { flex: 2, color: textColor, ...borderStyle }]} value={host} onChangeText={setHost} placeholder="192.168.x.x" placeholderTextColor={isGlass ? 'rgba(255,255,255,0.4)' : '#aaa'} autoCapitalize="none" />
+                            <Text style={[styles.colon, { color: textColor }]}>:</Text>
+                            <TextInput style={[styles.inputField, { flex: 1, color: textColor, ...borderStyle }]} value={port} onChangeText={setPort} placeholder="7533" placeholderTextColor={isGlass ? 'rgba(255,255,255,0.4)' : '#aaa'} keyboardType="number-pad" />
                         </View>
 
-                        <Text style={[styles.stepLabel, { marginTop: 16 }]}>3. ENTER ORDER TICKET</Text>
-                        <TextInput style={styles.otpInput} value={pairingCode} onChangeText={setPairingCode} placeholder="••••••••" placeholderTextColor="#ccc" keyboardType="number-pad" maxLength={8} />
+                        <Text style={[styles.stepLabel, { marginTop: 16, color: textColor }]}>3. ENTER ORDER TICKET</Text>
+                        <TextInput style={[styles.otpInput, { color: textColor, ...borderStyle }, isSoft && { shadowOpacity: isNeo ? 0 : 0.1, shadowOffset: {width: 0, height: 4}, shadowRadius: isNeo ? 0 : 6 }, isNeo && { backgroundColor: '#e0e5ec', shadowColor: '#b8bec7' }]} value={pairingCode} onChangeText={setPairingCode} placeholder="••••••••" placeholderTextColor={isGlass ? 'rgba(255,255,255,0.3)' : '#ccc'} keyboardType="number-pad" maxLength={8} />
 
-                        <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: accent }]} onPress={() => { buzz(); pair(); }} disabled={pairing}>
+                        <TouchableOpacity style={[styles.primaryBtn, activeStyles.btnPrimary, { backgroundColor: accent }]} onPress={() => { buzz(); pair(); }} disabled={pairing}>
                             <Text style={styles.primaryBtnText}>{pairing ? 'CONNECTING...' : 'LINK STATION'}</Text>
                         </TouchableOpacity>
                     </View>
@@ -281,33 +375,36 @@ export default function App() {
         );
     }
 
-    const headerBg = theme === 'kitchen' ? '#ffffff' : '#ffd60a';
-    const bodyBg = theme === 'kitchen' ? '#fcfcfc' : '#f8f9fa';
+    const headerBg = isGlass ? '#4a3a6a' : isNeo ? '#e0e5ec' : isSkeuo ? '#eeeeee' : isKitchen ? '#ffffff' : '#ffd60a';
+    const bodyBg = isGlass ? '#3a2a5a' : isNeo ? '#e0e5ec' : isSkeuo ? '#e0e0e0' : isKitchen ? '#fcfcfc' : '#f8f9fa';
+    const textColor = isGlass ? '#fff' : '#000';
+    const borderColor = isGlass ? 'rgba(255,255,255,0.2)' : isNeo ? 'transparent' : isSkeuo ? '#ccc' : isKitchen ? '#cbd5e1' : '#000';
+    const softBorder = isSoft ? { borderWidth: isNeo ? 0 : 1, borderColor } : {};
 
     return (
         <SafeAreaProvider>
         <SafeAreaView style={[styles.safeArea, { backgroundColor: bodyBg }]}>
-            <StatusBar barStyle="dark-content" backgroundColor={headerBg} />
+            <StatusBar barStyle={isGlass ? 'light-content' : 'dark-content'} backgroundColor={headerBg} />
             <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
                 <View style={[styles.container, { backgroundColor: bodyBg }]}>
                     
                     {/* Header */}
-                    <View style={[styles.header, { backgroundColor: headerBg }]}>
+                    <View style={[styles.header, activeStyles.header, { backgroundColor: headerBg }]}>
                         <View>
-                            <TouchableOpacity onPress={toggleTheme}><Text style={styles.headerTitle}>🫕 {theme === 'kitchen' ? 'KITCHEN' : 'STATION'}</Text></TouchableOpacity>
-                            <View style={styles.statusBadge}>
-                                <View style={[styles.statusDot, connected ? styles.statusOn : styles.statusOff]} />
-                                <Text style={styles.headerStatus}>{connected ? 'LINK ACTIVE' : 'OFFLINE'}</Text>
+                            <TouchableOpacity onPress={toggleTheme}><Text style={[styles.headerTitle, { color: textColor }, isKitchen && { letterSpacing: 0, fontWeight: '800' }]}>🫕 {themeLabels[theme] || 'STATION'}</Text></TouchableOpacity>
+                            <View style={[styles.statusBadge, isSoft && { borderWidth: 1, borderColor, backgroundColor: isGlass ? 'rgba(255,255,255,0.1)' : isNeo ? '#e0e5ec' : '#f8fafc' }]}>
+                                <View style={[styles.statusDot, isSoft && { borderWidth: 0 }, connected ? styles.statusOn : styles.statusOff]} />
+                                <Text style={[styles.headerStatus, { color: textColor }]}>{connected ? 'LINK ACTIVE' : 'OFFLINE'}</Text>
                             </View>
                         </View>
                         <View style={styles.headerActions}>
-                            <TouchableOpacity onPress={() => { buzz(); setShowHealth(!showHealth); }} style={styles.actionBtn}>
-                                <Text style={styles.actionIcon}>📊</Text>
+                            <TouchableOpacity onPress={() => { buzz(); setShowHealth(!showHealth); }} style={[styles.actionBtn, activeStyles.actionBtn]}>
+                                <Text style={[styles.actionIcon, { color: textColor }]}>📊</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => { buzz(); createTerminal(); }} style={styles.actionBtn}>
-                                <Text style={styles.actionIcon}>➕</Text>
+                            <TouchableOpacity onPress={() => { buzz(); createTerminal(); }} style={[styles.actionBtn, activeStyles.actionBtn]}>
+                                <Text style={[styles.actionIcon, { color: textColor }]}>➕</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => { buzz(); disconnect(); }} style={[styles.actionBtn, { backgroundColor: '#ff3b30' }]}>
+                            <TouchableOpacity onPress={() => { buzz(); disconnect(); }} style={[styles.actionBtn, activeStyles.actionBtn, { backgroundColor: '#ff3b30' }]}>
                                 <Text style={[styles.actionIcon, { color: '#fff' }]}>⏻</Text>
                             </TouchableOpacity>
                         </View>
@@ -315,27 +412,27 @@ export default function App() {
 
                     {/* Health Panel */}
                     {showHealth && health && (
-                        <View style={styles.healthPanel}>
-                            <Text style={styles.healthTitle}>SYSTEM HEALTH</Text>
+                        <View style={[styles.healthPanel, isSoft && { borderBottomWidth: 1, borderBottomColor: borderColor, backgroundColor: isGlass ? 'rgba(255,255,255,0.08)' : isNeo ? '#e0e5ec' : '#fff' }]}>
+                            <Text style={[styles.healthTitle, { color: textColor }]}>SYSTEM HEALTH</Text>
                             <View style={styles.healthRow}>
-                                <Text style={styles.healthLabel}>CPU</Text>
-                                <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${health.cpu.loadAvg['1m'] * 10}%`, backgroundColor: '#007aff' }]} /></View>
-                                <Text style={styles.healthValue}>{health.cpu.loadAvg['1m'].toFixed(1)}</Text>
+                                <Text style={[styles.healthLabel, { color: isGlass ? 'rgba(255,255,255,0.7)' : '#666' }]}>CPU</Text>
+                                <View style={[styles.progressTrack, isSoft && { borderWidth: 0, backgroundColor: isGlass ? 'rgba(255,255,255,0.1)' : '#f1f5f9' }]}><View style={[styles.progressFill, { width: `${health.cpu.loadAvg['1m'] * 10}%`, backgroundColor: '#007aff' }]} /></View>
+                                <Text style={[styles.healthValue, { color: textColor }]}>{health.cpu.loadAvg['1m'].toFixed(1)}</Text>
                             </View>
                             <View style={styles.healthRow}>
-                                <Text style={styles.healthLabel}>RAM</Text>
-                                <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${health.memory.usagePercent}%`, backgroundColor: '#ff3b30' }]} /></View>
-                                <Text style={styles.healthValue}>{health.memory.usagePercent}%</Text>
+                                <Text style={[styles.healthLabel, { color: isGlass ? 'rgba(255,255,255,0.7)' : '#666' }]}>RAM</Text>
+                                <View style={[styles.progressTrack, isSoft && { borderWidth: 0, backgroundColor: isGlass ? 'rgba(255,255,255,0.1)' : '#f1f5f9' }]}><View style={[styles.progressFill, { width: `${health.memory.usagePercent}%`, backgroundColor: '#ff3b30' }]} /></View>
+                                <Text style={[styles.healthValue, { color: textColor }]}>{health.memory.usagePercent}%</Text>
                             </View>
                         </View>
                     )}
 
                     {/* Tabs */}
-                    <View style={styles.tabContainer}>
+                    <View style={[styles.tabContainer, isSoft && { borderBottomWidth: 1, borderBottomColor: borderColor, backgroundColor: isGlass ? 'rgba(255,255,255,0.08)' : isNeo ? '#e0e5ec' : '#f8fafc' }]}>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                             {terminals.map(t => (
-                                <TouchableOpacity key={t.id} style={[styles.tab, activeTerminal === t.id && styles.activeTab]} onPress={() => { buzz(); setActiveTerminal(t.id); }} onLongPress={() => killTerminal(t.id)}>
-                                    <Text style={[styles.tabText, activeTerminal === t.id && styles.activeTabText]}>STOVE {t.id}</Text>
+                                <TouchableOpacity key={t.id} style={[styles.tab, isSoft && { borderRightWidth: 1, borderRightColor: borderColor }, activeTerminal === t.id && (isSoft ? { backgroundColor: isGlass ? 'rgba(52,199,89,0.4)' : '#34c759' } : styles.activeTab)]} onPress={() => { buzz(); setActiveTerminal(t.id); }} onLongPress={() => killTerminal(t.id)}>
+                                    <Text style={[styles.tabText, { color: isGlass ? 'rgba(255,255,255,0.7)' : '#666' }, activeTerminal === t.id && (isSoft ? { color: '#fff' } : styles.activeTabText)]}>STOVE {t.id}</Text>
                                 </TouchableOpacity>
                             ))}
                         </ScrollView>
@@ -343,42 +440,42 @@ export default function App() {
 
                     {/* Terminal */}
                     {activeTerminal ? (
-                        <View style={styles.terminalWrapper}>
+                        <View style={[styles.terminalWrapper, activeStyles.terminalWrap]}>
                             <ScrollView ref={scrollRef} style={styles.terminal} onContentSizeChange={() => scrollRef.current?.scrollToEnd()}>
-                                <Text style={styles.terminalText} selectable>{outputs[activeTerminal] || 'Awaiting orders...'}</Text>
+                                <Text style={[styles.terminalText, isKitchen && { color: '#334155' }]} selectable>{outputs[activeTerminal] || 'Awaiting orders...'}</Text>
                             </ScrollView>
                         </View>
                     ) : (
                         <View style={styles.emptyState}>
                             <Text style={styles.emptyIcon}>🍳</Text>
-                            <Text style={styles.emptyText}>STATION IS IDLE</Text>
-                            <TouchableOpacity onPress={() => { buzz(); createTerminal(); }} style={styles.createBtn}>
-                                <Text style={styles.createText}>NEW TICKET</Text>
+                            <Text style={[styles.emptyText, isGlass && { color: 'rgba(255,255,255,0.5)' }]}>STATION IS IDLE</Text>
+                            <TouchableOpacity onPress={() => { buzz(); createTerminal(); }} style={[styles.createBtn, activeStyles.btnPrimary, { backgroundColor: isGlass ? '#a78bfa' : isNeo ? '#6366f1' : isKitchen ? '#34c759' : '#ffd60a' }]}>
+                                <Text style={[styles.createText, (isKitchen || isGlass || isNeo) && { color: '#fff' }]}>NEW TICKET</Text>
                             </TouchableOpacity>
                         </View>
                     )}
 
                     {/* Bars */}
                     {activeTerminal && (
-                        <View style={styles.controlsArea}>
+                        <View style={[styles.controlsArea, isSoft && { borderTopWidth: 1, borderTopColor: borderColor, backgroundColor: isGlass ? 'rgba(255,255,255,0.08)' : isNeo ? '#e0e5ec' : '#f8fafc' }]}>
                             <ScrollView horizontal style={styles.scrollBar} showsHorizontalScrollIndicator={false}>
                                 {recipes.map((r, i) => (
-                                    <TouchableOpacity key={i} style={styles.pillBtn} onPress={() => { buzz(); r.action ? r.action() : sendInput(r.cmd); }}>
-                                        <Text style={styles.pillText}>{r.label}</Text>
+                                    <TouchableOpacity key={i} style={[styles.pillBtn, activeStyles.pillBtn]} onPress={() => { buzz(); r.action ? r.action() : sendInput(r.cmd); }}>
+                                        <Text style={[styles.pillText, isGlass && { color: '#fff' }]}>{r.label}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </ScrollView>
                             <ScrollView horizontal style={styles.scrollBar} showsHorizontalScrollIndicator={false}>
                                 {specialKeys.map((k, i) => (
-                                    <TouchableOpacity key={i} style={styles.pillBtnAlt} onPress={() => { buzz(); sendRaw(k.char); }}>
-                                        <Text style={styles.pillTextAlt}>{k.label}</Text>
+                                    <TouchableOpacity key={i} style={[styles.pillBtnAlt, isSoft && { borderWidth: 1, borderColor, backgroundColor: isGlass ? 'rgba(255,255,255,0.1)' : '#fff' }]} onPress={() => { buzz(); sendRaw(k.char); }}>
+                                        <Text style={[styles.pillTextAlt, isGlass && { color: 'rgba(255,255,255,0.8)' }]}>{k.label}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </ScrollView>
                             <View style={styles.inputArea}>
-                                <Text style={styles.promptSign}>$</Text>
-                                <TextInput style={styles.mainInput} value={input} onChangeText={setInput} onSubmitEditing={() => { buzz(); sendInput(); }} placeholder="Type command..." placeholderTextColor="#888" autoCapitalize="none" autoCorrect={false} returnKeyType="send" />
-                                <TouchableOpacity onPress={() => { buzz(); sendInput(); }} style={styles.sendBtn}>
+                                <Text style={[styles.promptSign, isGlass && { color: '#a78bfa' }]}>$</Text>
+                                <TextInput style={[styles.mainInput, activeStyles.inputArea, isGlass && { color: '#fff' }]} value={input} onChangeText={handleRawInput} onSubmitEditing={handleRawSubmit} placeholder="Type here..." placeholderTextColor={isGlass ? 'rgba(255,255,255,0.4)' : '#888'} autoCapitalize="none" autoCorrect={false} autoComplete="off" spellCheck={false} returnKeyType="send" blurOnSubmit={false} />
+                                <TouchableOpacity onPress={handleRawSubmit} style={[styles.sendBtn, activeStyles.sendBtn]}>
                                     <Text style={styles.sendIcon}>⏎</Text>
                                 </TouchableOpacity>
                             </View>
@@ -395,12 +492,64 @@ const styles = StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: '#f8f9fa' },
     container: { flex: 1, backgroundColor: '#f8f9fa' },
 
-    themeBadge: { position: 'absolute', top: 20, right: 20, zIndex: 100, backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5, shadowColor: '#000', shadowOffset: { width: 2, height: 2 }, shadowOpacity: 1, shadowRadius: 0 },
+    // DYNAMIC STYLES - BRUTAL
+    cardBrutal: { borderWidth: 3, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 1, shadowRadius: 0, elevation: 8 },
+    btnPrimaryBrutal: { borderWidth: 3, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 1, shadowRadius: 0 },
+    headerBrutal: { borderBottomWidth: 3, borderBottomColor: '#000' },
+    actionBtnBrutal: { borderWidth: 2, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 2, height: 2 }, shadowOpacity: 1, shadowRadius: 0 },
+    terminalWrapBrutal: { borderWidth: 3, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 1, shadowRadius: 0 },
+    pillBtnBrutal: { borderWidth: 2, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 2, height: 2 }, shadowOpacity: 1, shadowRadius: 0 },
+    inputAreaBrutal: { borderWidth: 2, borderColor: '#000' },
+    sendBtnBrutal: { borderWidth: 2, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 3, height: 3 }, shadowOpacity: 1, shadowRadius: 0 },
+    themeBadgeBrutal: { borderWidth: 2, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 2, height: 2 }, shadowOpacity: 1, shadowRadius: 0 },
+
+    // DYNAMIC STYLES - KITCHEN
+    cardKitchen: { borderWidth: 1, borderColor: '#cbd5e1', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 15, elevation: 5, borderRadius: 24 },
+    btnPrimaryKitchen: { borderWidth: 0, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, borderRadius: 16 },
+    headerKitchen: { borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
+    actionBtnKitchen: { borderWidth: 1, borderColor: '#cbd5e1', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4 },
+    terminalWrapKitchen: { borderWidth: 1, borderColor: '#cbd5e1', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8, borderRadius: 16 },
+    pillBtnKitchen: { borderWidth: 1, borderColor: '#cbd5e1', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 2 },
+    inputAreaKitchen: { borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#fff' },
+    sendBtnKitchen: { borderWidth: 0, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 4 },
+    themeBadgeKitchen: { borderWidth: 1, borderColor: '#cbd5e1', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4 },
+
+    // DYNAMIC STYLES - SKEUO
+    cardSkeuo: { backgroundColor: '#fdfdfd', borderWidth: 1, borderColor: '#fff', shadowColor: '#bebebe', shadowOffset: { width: 10, height: 10 }, shadowOpacity: 1, shadowRadius: 20, elevation: 10 },
+    btnPrimarySkeuo: { backgroundColor: '#f0f0f0', shadowColor: '#bebebe', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 1, shadowRadius: 8, elevation: 5 },
+    headerSkeuo: { borderBottomWidth: 1, borderBottomColor: '#ddd', backgroundColor: '#f8fafc' },
+    actionBtnSkeuo: { backgroundColor: '#f0f0f0', shadowColor: '#bebebe', shadowOffset: { width: 2, height: 2 }, shadowOpacity: 1, shadowRadius: 4 },
+    terminalWrapSkeuo: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#eee', shadowColor: '#bebebe', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.5, shadowRadius: 10 },
+    pillBtnSkeuo: { backgroundColor: '#fdfdfd', shadowColor: '#bebebe', shadowOffset: { width: 2, height: 2 }, shadowOpacity: 1, shadowRadius: 4 },
+    inputAreaSkeuo: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd' },
+    sendBtnSkeuo: { backgroundColor: '#f0f0f0', shadowColor: '#bebebe', shadowOffset: { width: 2, height: 2 }, shadowOpacity: 1, shadowRadius: 4 },
+
+    // DYNAMIC STYLES - NEO (Neomorphic)
+    cardNeo: { backgroundColor: '#e0e5ec', borderWidth: 0, shadowColor: '#b8bec7', shadowOffset: { width: 8, height: 8 }, shadowOpacity: 1, shadowRadius: 16, elevation: 8, borderRadius: 24 },
+    btnPrimaryNeo: { backgroundColor: '#6366f1', borderWidth: 0, shadowColor: '#b8bec7', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 1, shadowRadius: 8, borderRadius: 14 },
+    headerNeo: { borderBottomWidth: 0, backgroundColor: '#e0e5ec' },
+    actionBtnNeo: { backgroundColor: '#e0e5ec', borderWidth: 0, shadowColor: '#b8bec7', shadowOffset: { width: 3, height: 3 }, shadowOpacity: 1, shadowRadius: 6 },
+    terminalWrapNeo: { backgroundColor: '#1a1a2e', borderWidth: 0, shadowColor: '#b8bec7', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 1, shadowRadius: 12, borderRadius: 20 },
+    pillBtnNeo: { backgroundColor: '#e0e5ec', borderWidth: 0, shadowColor: '#b8bec7', shadowOffset: { width: 2, height: 2 }, shadowOpacity: 1, shadowRadius: 4, borderRadius: 10 },
+    inputAreaNeo: { backgroundColor: '#e0e5ec', borderWidth: 0 },
+    sendBtnNeo: { backgroundColor: '#6366f1', borderWidth: 0, shadowColor: '#b8bec7', shadowOffset: { width: 3, height: 3 }, shadowOpacity: 1, shadowRadius: 6, borderRadius: 14 },
+
+    // DYNAMIC STYLES - GLASS (Glassmorphic)
+    cardGlass: { backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 10, borderRadius: 24 },
+    btnPrimaryGlass: { backgroundColor: 'rgba(167,139,250,0.7)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, borderRadius: 14 },
+    headerGlass: { borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.15)', backgroundColor: 'rgba(255,255,255,0.08)' },
+    actionBtnGlass: { backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+    terminalWrapGlass: { backgroundColor: 'rgba(0,0,0,0.3)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 12, borderRadius: 20 },
+    pillBtnGlass: { backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, borderRadius: 10 },
+    inputAreaGlass: { backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+    sendBtnGlass: { backgroundColor: 'rgba(167,139,250,0.6)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.15, shadowRadius: 6, borderRadius: 14 },
+
+    themeBadge: { position: 'absolute', top: 20, right: 20, zIndex: 100, backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5 },
     themeBadgeText: { fontSize: 9, fontWeight: '900', color: '#000' },
 
-    // Pairing (Neo-Brutalist)
-    pairScreen: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: '#f8f9fa' },
-    card: { backgroundColor: '#fff', borderWidth: 3, borderColor: '#000', borderRadius: 16, padding: 24, shadowColor: '#000', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 1, shadowRadius: 0, elevation: 8 },
+    // Pairing
+    pairScreen: { flex: 1, justifyContent: 'center', padding: 24 },
+    card: { backgroundColor: '#fff', borderRadius: 16, padding: 24 },
     logo: { fontSize: 64, textAlign: 'center', marginBottom: 8 },
     title: { fontSize: 24, fontWeight: '900', color: '#000', textAlign: 'center', marginBottom: 4, letterSpacing: -0.5 },
     subtitle: { fontSize: 12, fontWeight: '700', color: '#666', textAlign: 'center', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 20 },
@@ -462,8 +611,8 @@ const styles = StyleSheet.create({
     scrollBar: { flexGrow: 0 },
     pillBtn: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, marginRight: 8, shadowColor: '#000', shadowOffset: { width: 2, height: 2 }, shadowOpacity: 1, shadowRadius: 0 },
     pillText: { fontSize: 11, fontWeight: '900', color: '#000', textTransform: 'uppercase' },
-    pillBtnAlt: { backgroundColor: '#f0f0f0', borderWidth: 1, borderColor: '#000', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6 },
-    pillTextAlt: { fontSize: 10, fontWeight: '800', color: '#666', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+    pillBtnAlt: { backgroundColor: '#f0f0f0', borderWidth: 1, borderColor: '#000', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, marginRight: 8, minWidth: 44 },
+    pillTextAlt: { fontSize: 12, fontWeight: '800', color: '#333', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', textAlign: 'center' },
     
     inputArea: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     promptSign: { fontSize: 20, fontWeight: '900', color: '#ff3b30' },

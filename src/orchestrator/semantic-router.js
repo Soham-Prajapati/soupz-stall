@@ -92,7 +92,7 @@ Task: ${prompt.slice(0, 400)}
 Answer:`;
 
         return new Promise((resolve) => {
-            const proc = execFile('gh', ['copilot', '--model', 'gpt-5-mini', '-p', routingPrompt, '--allow-all-tools'], {
+            const proc = execFile('gh', ['copilot', '--model', 'claude-sonnet', '-p', routingPrompt, '--allow-all-tools'], {
                 timeout: 30000,
                 maxBuffer: 1024 * 64,
             }, (err, stdout) => {
@@ -193,17 +193,17 @@ Answer:`;
     }
 
     /** Determine engine preference: Gemini for UI/design, Copilot for dev/building.
-     *  Uses 3-layer AI: Copilot GPT-5-mini → Ollama → rules (last resort) */
+     *  Uses 3-layer AI: Copilot Claude Sonnet → Ollama → rules (last resort) */
     async _getEnginePreference(prompt) {
         const enginePrompt = `Classify this task as either "gemini" (UI, design, CSS, visual, styling, layout, frontend aesthetics) or "copilot" (coding, building, debugging, API, backend, testing, deployment, config). Reply with ONLY one word: gemini or copilot.
 
 Task: ${prompt.slice(0, 300)}
 Answer:`;
 
-        // Layer 1: Copilot GPT-5-mini
+        // Layer 1: Copilot Claude Sonnet
         try {
             const result = await new Promise((resolve, reject) => {
-                execFile('gh', ['copilot', '--model', 'gpt-5-mini', '-p', enginePrompt, '--allow-all-tools'], {
+                execFile('gh', ['copilot', '--model', 'claude-sonnet', '-p', enginePrompt, '--allow-all-tools'], {
                     timeout: 10000, maxBuffer: 1024 * 4,
                 }, (err, stdout) => {
                     if (err) { reject(err); return; }

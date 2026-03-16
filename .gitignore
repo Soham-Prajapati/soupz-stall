@@ -36,7 +36,11 @@ report/
 
 # Misc
 *.tgz
+.expo/
+**/.expo/
+packages/mobile-ide/.expo/
 
 _bmad
 _bmad-output
 .github
+.vercel

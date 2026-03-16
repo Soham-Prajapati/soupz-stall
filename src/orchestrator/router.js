@@ -68,9 +68,12 @@ export class Orchestrator extends EventEmitter {
         this.taskLog.push(entry);
         this.emit('task-start', entry);
 
-        // Inject persona system prompt if a chef was matched
+        // Inject persona system prompt only for non-headless agents.
+        // Headless agents (like Copilot CLI) have their own system prompts and tool context —
+        // prepending an extra persona prompt wastes tokens without benefit.
         let processed = prompt;
-        if (persona?.systemPrompt) {
+        const targetAgent = this.registry.get(routing.agent);
+        if (persona?.systemPrompt && !targetAgent?.headless) {
             processed = `${persona.systemPrompt}\n\nUser: ${processed}`;
         }
 

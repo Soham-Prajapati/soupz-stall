@@ -78,6 +78,7 @@ const COMMANDS = [
     { cmd: '/logout',     desc: 'Lock a kitchen', icon: '🚪', cat: 'system' },
     { cmd: '/user',       desc: 'User account (signup/login/logout/status)', icon: '👤', cat: 'system' },
     { cmd: '/mcp',        desc: 'MCP servers (list/register/connect/tools)', icon: '🔌', cat: 'system' },
+    { cmd: '/setup-multiline', desc: 'Setup Shift+Enter for multiline input', icon: '⌨️', cat: 'system' },
     { cmd: '/version',    desc: 'Show version, Node, OS info', icon: '🏷️', cat: 'system' },
     { cmd: '/quit',       desc: 'Close the stall', icon: '👋', cat: 'system' },
 ];
@@ -372,17 +373,21 @@ export class Session {
                     if (!text) return true;
                     if (text.match(/Total usage est:|API time spent:|Total session time:|Total code changes:|Breakdown by AI model:/i)) return false;
                     if (text.match(/^[ \t│\|└L_]+(gpt-|claude-|o3-|gemini-|llama|deepseek|qwen)/i)) return false;
+                    // Filter emoji-prefixed model usage lines (e.g. "🐙  claude-opus-4.6  307.6k in, 4.5k out...")
+                    if (text.match(/\d+\.?\d*k?\s+(in|out),?\s+\d+\.?\d*k?\s+(in|out|cached)/i)) return false;
+                    if (text.match(/Est\.\s+\d+\s+Premium\s+requests/i)) return false;
                     return true;
                 });
 
                 let firstLinePrinted = false;
                 for (let i = 0; i < filteredLines.length; i++) {
                     const line = filteredLines[i];
+                    const rendered = this._renderInlineMarkdown(line);
                     if (!firstLinePrinted && line.trim()) {
-                        process.stdout.write('\n' + chalk.hex(a?.color || '#888')(`  ${a?.icon || '○'} `) + line + '\n');
+                        process.stdout.write('\n' + chalk.hex(a?.color || '#888')(`  ${a?.icon || '○'} `) + rendered + '\n');
                         firstLinePrinted = true;
                     } else if (line.trim()) {
-                        process.stdout.write(chalk.hex('#555')('  ⎿ ') + line + '\n');
+                        process.stdout.write(chalk.hex('#555')('  ⎿ ') + rendered + '\n');
                     } else {
                         process.stdout.write('\n');
                     }
@@ -415,6 +420,22 @@ export class Session {
         // Raw mode
         if (process.stdin.isTTY) process.stdin.setRawMode(true);
         process.stdin.resume();
+
+        // Intercept raw stdin data to detect special sequences before readline processes them:
+        // - \x1b\r (ESC+CR): Copilot CLI configures VS Code to send this for Shift+Enter
+        // - \x1b[13;2u (CSI u): Shift+Enter in terminals with kitty keyboard protocol
+        this._shiftEnterHandled = false;
+        process.stdin.on('data', (data) => {
+            const str = data.toString();
+            if (str === '\x1b\r' || str.includes('\x1b[13;2u')) {
+                if (!this.busy) {
+                    this._shiftEnterHandled = true;
+                    this.inputBuffer += '\n';
+                    process.stdout.write('\n' + chalk.dim('  … '));
+                }
+            }
+        });
+
         emitKeypressEvents(process.stdin);
         this.renderPrompt();
         process.stdin.on('keypress', (ch, key) => {
@@ -509,6 +530,32 @@ export class Session {
     }
 
     resetPromptState() { this._prompted = false; }
+
+    // Inline markdown → terminal ANSI rendering
+    _renderInlineMarkdown(line) {
+        if (!line || !line.trim()) return line;
+        let s = line;
+        // Headings: ### → bold colored
+        const headingMatch = s.match(/^(\s*)(#{1,4})\s+(.*)/);
+        if (headingMatch) {
+            const depth = headingMatch[2].length;
+            const text = headingMatch[3];
+            const colors = ['#FF6B6B', '#FFD93D', '#4ECDC4', '#A855F7'];
+            return headingMatch[1] + chalk.hex(colors[depth - 1] || '#4ECDC4').bold(text);
+        }
+        // Code block fences (``` language) — render as dim separator
+        if (s.trim().match(/^```\s*\w*$/)) {
+            return chalk.dim(s.replace(/```\s*\w*/, '───'));
+        }
+        // Bold: **text** → chalk.bold
+        s = s.replace(/\*\*([^*]+)\*\*/g, (_, t) => chalk.bold(t));
+        // Italic: *text* or _text_ (but not inside words with underscores)
+        s = s.replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, (_, t) => chalk.italic(t));
+        s = s.replace(/(?<!\w)_([^_]+)_(?!\w)/g, (_, t) => chalk.italic(t));
+        // Inline code: `text` → cyan
+        s = s.replace(/`([^`]+)`/g, (_, t) => chalk.cyan(t));
+        return s;
+    }
 
     startSpinner(agentId) {
         this.busyAgentId = agentId;
@@ -750,16 +797,28 @@ export class Session {
         }
 
         // Shift+Enter → multiline (add newline to buffer)
-        // macOS terminals may send Shift+Enter as just 'return', so also support Ctrl+J and Option+Enter
-        if (key.name === 'return' && (key.shift || key.meta)) {
-            this.inputBuffer += '\n';
-            process.stdout.write('\n' + chalk.dim('  … '));
+        // Copilot CLI configures VS Code to send \x1b\r for Shift+Enter, which readline
+        // parses as meta+return. Also support CSI u encoding and native shift detection.
+        if (key?.sequence === '\x1b[13;2u' || (key.name === 'return' && (key.shift || key.meta))) {
+            // Prevent double-handling if raw data listener already caught it
+            if (!this._shiftEnterHandled) {
+                this.inputBuffer += '\n';
+                process.stdout.write('\n' + chalk.dim('  … '));
+            }
+            this._shiftEnterHandled = false;
             return;
         }
         // Ctrl+J as alternative for multiline (Shift+Enter fallback)
         if (key.ctrl && key.name === 'j') {
             this.inputBuffer += '\n';
             process.stdout.write('\n' + chalk.dim('  … '));
+            return;
+        }
+
+        // If raw data handler caught a shift+enter but readline emitted a plain 'return',
+        // consume it silently instead of submitting.
+        if (this._shiftEnterHandled && key.name === 'return') {
+            this._shiftEnterHandled = false;
             return;
         }
 
@@ -1036,6 +1095,7 @@ export class Session {
         // /user — user auth commands
         if (input === '/user' || input.startsWith('/user ')) { await this.handleUserAuth(input); return; }
         if (input === '/mcp' || input.startsWith('/mcp ')) { await this.handleMcp(input); return; }
+        if (input === '/setup-multiline') { await this.setupMultilineKeybinding(); return; }
         // /recipe — pre-built chef workflows
         if (input === '/recipe' || input === '/recipe list') { this.showRecipes(); return; }
         if (input.startsWith('/recipe ')) { await this.runRecipe(input.slice(8).trim()); return; }
@@ -1110,8 +1170,10 @@ export class Session {
 
         if (toolId) {
             // Multi-agent orchestration: detect complexity and auto-dispatch
+            // IMPORTANT: check complexity on the original user input, NOT on `resolved` which
+            // includes recalled pantry context that inflates the word count.
             const availableAgents = this.registry.headless().filter(a => a.available);
-            const complexity = this.getTaskComplexity(resolved);
+            const complexity = this.getTaskComplexity(input);
 
             if (complexity >= 2 && availableAgents.length >= 2) {
                 // Highly complex → auto-deploy fleet (hidden parallel workers)
@@ -2426,7 +2488,7 @@ export class Session {
         console.log(`  ${chalk.hex('#888')('Unknown @agents are auto-created dynamically')}`);
         console.log(chalk.bold('\n  ━━━ Keys ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
         console.log(`  ${chalk.hex('#4ECDC4')('↑↓')} Navigate   ${chalk.hex('#4ECDC4')('Tab')} Fill   ${chalk.hex('#4ECDC4')('Enter')} Submit`);
-        console.log(`  ${chalk.hex('#4ECDC4')('Shift+Enter')} / ${chalk.hex('#4ECDC4')('Opt+Enter')} / ${chalk.hex('#4ECDC4')('Ctrl+J')} Newline`);
+        console.log(`  ${chalk.hex('#4ECDC4')('Ctrl+J')} ${chalk.hex('#888')('(recommended)')} / ${chalk.hex('#4ECDC4')('Opt+Enter')} / ${chalk.hex('#4ECDC4')('Shift+Enter')} Newline`);
         console.log(`  ${chalk.hex('#4ECDC4')('Opt+⌫')} Delete word   ${chalk.hex('#4ECDC4')('Ctrl+U')} Clear line`);
         console.log(`  ${chalk.hex('#4ECDC4')('Esc')} Close / Cancel   ${chalk.hex('#4ECDC4')('Ctrl+C')} Quit   ${chalk.hex('#4ECDC4')('Ctrl+L')} Clear screen`);
         console.log();
@@ -2831,6 +2893,47 @@ export class Session {
             console.log();
         }
         console.log(chalk.dim('  Use @<skill-name> to invoke any skill\n'));
+    }
+
+    async setupMultilineKeybinding() {
+        const keybindingsPath = join(homedir(), 'Library', 'Application Support', 'Code', 'User', 'keybindings.json');
+        const binding = {
+            key: 'shift+enter',
+            command: 'workbench.action.terminal.sendSequence',
+            when: 'terminalFocus',
+            args: { text: '\u001b\r' }
+        };
+
+        try {
+            let bindings = [];
+            if (existsSync(keybindingsPath)) {
+                const raw = readFileSync(keybindingsPath, 'utf8');
+                // Strip comments (JSONC → JSON)
+                const cleaned = raw.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+                try { bindings = JSON.parse(cleaned); } catch { bindings = []; }
+
+                // Check if already configured
+                const exists = bindings.some(b =>
+                    b.key === 'shift+enter' &&
+                    b.command === 'workbench.action.terminal.sendSequence' &&
+                    b.args?.text === '\u001b\r'
+                );
+                if (exists) {
+                    console.log(chalk.green('  ✅ Shift+Enter is already set up for multiline input.'));
+                    return;
+                }
+            }
+
+            bindings.unshift(binding);
+            writeFileSync(keybindingsPath, JSON.stringify(bindings, null, 4) + '\n');
+            console.log(chalk.green('  ✅ Added Shift+Enter → multiline keybinding to VS Code.'));
+            console.log(chalk.dim(`  Path: ${keybindingsPath}`));
+            console.log(chalk.dim('  Restart VS Code terminal for it to take effect.'));
+        } catch (err) {
+            console.log(chalk.red(`  ✖ Failed to setup: ${err.message}`));
+            console.log(chalk.dim('  You can manually add to VS Code keybindings.json:'));
+            console.log(chalk.cyan(`  ${JSON.stringify(binding, null, 2)}`));
+        }
     }
 
     switchTool(id) {

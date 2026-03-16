@@ -2,10 +2,13 @@ import express from 'express';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { createClient } from '@supabase/supabase-js';
 const require = createRequire(import.meta.url);
 const pty = require('node-pty');
 import os from 'os';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import crypto from 'crypto';
 
 const DEFAULT_PORT = 7533;
@@ -135,6 +138,89 @@ function requireAuth(req, res, next) {
 // Track active terminals
 const terminals = new Map();
 let terminalCounter = 0;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const REPO_ROOT = join(__dirname, '../../../');
+const CLI_ENTRY = join(REPO_ROOT, 'bin/soupz.js');
+
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const SUPABASE_TABLE = process.env.SOUPZ_SUPABASE_ORDERS_TABLE || 'soupz_orders';
+const supabase = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
+    : null;
+
+// User-facing agent aliases.
+const WEB_AGENT_ALIASES = new Map([
+    ['soupz-workflow', 'soupz-bmad'],
+]);
+
+// In-memory order tracking for web dashboard workflow
+const orders = new Map();
+let orderCounter = 0;
+
+function nowIso() {
+    return new Date().toISOString();
+}
+
+function toOrderSummary(order) {
+    return {
+        id: order.id,
+        prompt: order.prompt,
+        agent: order.agent,
+        runAgent: order.runAgent,
+        modelPolicy: order.modelPolicy,
+        status: order.status,
+        createdAt: order.createdAt,
+        startedAt: order.startedAt,
+        finishedAt: order.finishedAt,
+        durationMs: order.startedAt && order.finishedAt ? (new Date(order.finishedAt).getTime() - new Date(order.startedAt).getTime()) : null,
+        eventCount: order.events.length,
+    };
+}
+
+function pushOrderEvent(order, type, data = {}) {
+    order.events.push({
+        type,
+        at: nowIso(),
+        ...data,
+    });
+    if (order.events.length > 500) order.events = order.events.slice(-500);
+}
+
+function toOrderRecord(order) {
+    return {
+        id: order.id,
+        prompt: order.prompt,
+        agent: order.agent,
+        run_agent: order.runAgent,
+        model_policy: order.modelPolicy,
+        status: order.status,
+        created_at: order.createdAt,
+        started_at: order.startedAt,
+        finished_at: order.finishedAt,
+        duration_ms: order.startedAt && order.finishedAt
+            ? (new Date(order.finishedAt).getTime() - new Date(order.startedAt).getTime())
+            : null,
+        exit_code: order.exitCode,
+        stdout: order.stdout,
+        stderr: order.stderr,
+        events: order.events,
+    };
+}
+
+async function persistOrder(order) {
+    if (!supabase) return;
+    try {
+        await supabase
+            .from(SUPABASE_TABLE)
+            .upsert(toOrderRecord(order), { onConflict: 'id' });
+    } catch (err) {
+        // Non-blocking persistence path; runtime should continue even if DB write fails.
+        console.error(`[supabase] order persist failed (${order.id}): ${err.message}`);
+    }
+}
 
 // System health monitoring
 function getSystemHealth() {
@@ -311,6 +397,196 @@ app.get('/terminals', requireAuth, (req, res) => {
         list.push({ id, pid: t.proc?.pid, alive: true, lines: t.buffer.length });
     }
     res.json(list);
+});
+
+// AUTHENTICATED: Create a new orchestrated order from web dashboard
+app.post('/api/orders', requireAuth, (req, res) => {
+    const prompt = (req.body?.prompt || '').toString().trim();
+    const requestedAgent = (req.body?.agent || 'auto').toString().trim() || 'auto';
+    const agent = WEB_AGENT_ALIASES.get(requestedAgent) || requestedAgent;
+    const modelPolicy = (req.body?.modelPolicy || 'balanced').toString().trim() || 'balanced';
+    const fallbackWebAgent = (process.env.SOUPZ_WEB_AGENT || 'copilot').trim();
+    const runAgent = agent === 'auto' ? fallbackWebAgent : agent;
+
+    if (!prompt) {
+        return res.status(400).json({ error: 'Missing prompt' });
+    }
+
+    const id = `ord_${++orderCounter}`;
+    const createdAt = nowIso();
+
+    const order = {
+        id,
+        prompt,
+        agent,
+        runAgent,
+        modelPolicy,
+        status: 'queued',
+        createdAt,
+        startedAt: null,
+        finishedAt: null,
+        stdout: '',
+        stderr: '',
+        events: [],
+        exitCode: null,
+        pid: null,
+    };
+
+    pushOrderEvent(order, 'order.created', { prompt, agent, modelPolicy });
+    pushOrderEvent(order, 'route.selected', { agent: runAgent, requested: requestedAgent, resolved: agent });
+    orders.set(id, order);
+    void persistOrder(order);
+
+    const args = [CLI_ENTRY];
+    // Web dashboard path is intentionally single-agent to avoid accidental fan-out.
+    args.push('ask', runAgent, prompt);
+
+    const child = spawn(process.execPath, args, {
+        cwd: REPO_ROOT,
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    order.pid = child.pid;
+    order.status = 'running';
+    order.startedAt = nowIso();
+    pushOrderEvent(order, 'chef.started', { pid: child.pid, mode: 'ask', agent: runAgent });
+    void persistOrder(order);
+
+    child.stdout.on('data', (chunk) => {
+        const text = chunk.toString();
+        order.stdout += text;
+        if (order.stdout.length > 200000) order.stdout = order.stdout.slice(-200000);
+        pushOrderEvent(order, 'chef.output.delta', { stream: 'stdout', chars: text.length });
+    });
+
+    child.stderr.on('data', (chunk) => {
+        const text = chunk.toString();
+        order.stderr += text;
+        if (order.stderr.length > 120000) order.stderr = order.stderr.slice(-120000);
+        pushOrderEvent(order, 'chef.output.delta', { stream: 'stderr', chars: text.length });
+    });
+
+    child.on('error', (err) => {
+        order.status = 'failed';
+        order.finishedAt = nowIso();
+        pushOrderEvent(order, 'order.failed', { message: err.message });
+        void persistOrder(order);
+    });
+
+    child.on('close', (code) => {
+        order.exitCode = code;
+        order.finishedAt = nowIso();
+        if (code === 0) {
+            order.status = 'completed';
+            pushOrderEvent(order, 'order.completed', { exitCode: code });
+        } else {
+            order.status = 'failed';
+            pushOrderEvent(order, 'order.failed', { exitCode: code });
+        }
+        void persistOrder(order);
+    });
+
+    return res.status(202).json({ order: toOrderSummary(order) });
+});
+
+// AUTHENTICATED: List latest orders for queue/history (DB-first, memory fallback)
+app.get('/api/orders', requireAuth, async (req, res) => {
+    if (supabase) {
+        try {
+            const { data, error } = await supabase
+                .from(SUPABASE_TABLE)
+                .select('id,prompt,agent,run_agent,model_policy,status,created_at,started_at,finished_at,duration_ms,exit_code')
+                .order('created_at', { ascending: false })
+                .limit(100);
+            if (!error && data) {
+                const list = data.map(r => ({
+                    id: r.id, prompt: r.prompt, agent: r.agent, runAgent: r.run_agent,
+                    modelPolicy: r.model_policy, status: r.status, createdAt: r.created_at,
+                    startedAt: r.started_at, finishedAt: r.finished_at, durationMs: r.duration_ms,
+                    exitCode: r.exit_code, eventCount: 0,
+                }));
+                return res.json({ orders: list, source: 'db' });
+            }
+        } catch { /* fall through to memory */ }
+    }
+    const list = [...orders.values()]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 100)
+        .map(toOrderSummary);
+    res.json({ orders: list, source: 'memory' });
+});
+
+// AUTHENTICATED: Order detail with timeline and output (DB-first, memory fallback)
+app.get('/api/orders/:id', requireAuth, async (req, res) => {
+    const memOrder = orders.get(req.params.id);
+    // Memory is canonical for live/recent orders (has events, stdout, stderr)
+    if (memOrder) {
+        return res.json({
+            order: {
+                ...toOrderSummary(memOrder),
+                pid: memOrder.pid, exitCode: memOrder.exitCode,
+                events: memOrder.events, stdout: memOrder.stdout, stderr: memOrder.stderr,
+            },
+        });
+    }
+    // Fall back to DB for historical orders not in current memory
+    if (supabase) {
+        try {
+            const { data, error } = await supabase
+                .from(SUPABASE_TABLE)
+                .select('*')
+                .eq('id', req.params.id)
+                .single();
+            if (!error && data) {
+                return res.json({
+                    order: {
+                        id: data.id, prompt: data.prompt, agent: data.agent, runAgent: data.run_agent,
+                        modelPolicy: data.model_policy, status: data.status, createdAt: data.created_at,
+                        startedAt: data.started_at, finishedAt: data.finished_at, durationMs: data.duration_ms,
+                        exitCode: data.exit_code, events: data.events || [], stdout: data.stdout || '',
+                        stderr: data.stderr || '', eventCount: (data.events || []).length,
+                    },
+                });
+            }
+        } catch { /* fall through */ }
+    }
+    return res.status(404).json({ error: 'Order not found' });
+});
+
+// AUTHENTICATED: Changed files for dashboard drawer
+app.get('/api/changes', requireAuth, (req, res) => {
+    try {
+        const out = execSync('git -C "$PWD" status --porcelain', { cwd: REPO_ROOT, timeout: 4000 }).toString();
+        const lines = out.split('\n').map((l) => l.trimEnd()).filter(Boolean);
+        const changes = lines.map((line) => {
+            const statusCode = line.slice(0, 2).trim() || '??';
+            const path = line.slice(3).trim();
+            let status = 'modified';
+            if (statusCode === 'M') status = 'modified';
+            else if (statusCode === 'A') status = 'added';
+            else if (statusCode === 'D') status = 'deleted';
+            else if (statusCode.includes('R')) status = 'renamed';
+            else if (statusCode.includes('?')) status = 'untracked';
+            return { file: path, status };
+        });
+        res.json({ changes });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// AUTHENTICATED: Unified diff for one file
+app.get('/api/changes/diff', requireAuth, (req, res) => {
+    const file = (req.query.file || '').toString().trim();
+    if (!file) return res.status(400).json({ error: 'Missing file query param' });
+    try {
+        const escaped = file.replace(/"/g, '\\"');
+        const diff = execSync(`git -C "$PWD" --no-pager diff -- "${escaped}"`, { cwd: REPO_ROOT, timeout: 4000 }).toString();
+        res.json({ file, diff: diff || 'No unstaged diff available.' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Get connected clients

@@ -1,0 +1,44 @@
+{
+  "version": "1.0.0",
+  "updatedAt": "2026-03-16",
+  "schema": {
+    "assetRecord": {
+      "path": "relative path from images/",
+      "theme": "top-down-production | isometric-experimental",
+      "family": "stalls | workspaces | props | tiles | characters | ui | reference",
+      "status": "planned | generated | approved | deprecated",
+      "sourceModel": "gemini | manual | other",
+      "promptRef": "optional prompt identifier",
+      "createdAt": "YYYY-MM-DD",
+      "notes": "optional"
+    }
+  },
+  "mode": {
+    "production": "top-down",
+    "background": "chroma-green-00FF00",
+    "isometric": "experimental-only"
+  },
+  "assets": {
+    "stalls": {
+      "td-stall-burger-shell-day-v1.0.png": {
+        "path": "stalls/td-stall-burger-shell-day-v1.0.png",
+        "theme": "top-down-production",
+        "family": "stalls",
+        "status": "planned",
+        "sourceModel": "gemini",
+        "promptRef": "stall-pack-baseline",
+        "createdAt": "2026-03-16",
+        "notes": "placeholder record for first generated stall image"
+      }
+    },
+    "workspaces": {},
+    "props": {},
+    "tiles": {},
+    "characters": {},
+    "ui": {},
+    "reference": {},
+    "experimental": {
+      "isometric": {}
+    }
+  }
+}

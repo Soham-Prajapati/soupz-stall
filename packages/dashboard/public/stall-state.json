@@ -1,12 +1,12 @@
 {
-  "sessionId": "c1670666",
-  "timestamp": 1772976200646,
+  "sessionId": "57d472d4",
+  "timestamp": 1773589237877,
   "stall": {
-    "name": "Stall c167",
-    "status": "idle",
-    "uptime": 524845,
+    "name": "Stall 57d4",
+    "status": "cooking",
+    "uptime": 128185,
     "health": {
-      "cpu": 89,
+      "cpu": 26,
       "ram": 98
     }
   },
@@ -644,8 +644,8 @@
       "color": "#6E40C9",
       "grade": 50,
       "available": true,
-      "state": "idle",
-      "calls": 0
+      "state": "cooking",
+      "calls": 1
     },
     {
       "id": "gemini",
@@ -680,35 +680,52 @@
   ],
   "orders": [
     {
-      "id": 1772975745966,
-      "prompt": "huh",
-      "agent": "copilot",
-      "persona": null,
-      "status": "served",
-      "startTime": 1772975745966,
-      "duration": 28440,
-      "endTime": 1772975774406
-    },
-    {
-      "id": 1772975712470,
+      "id": 1773589179821,
       "prompt": "hello",
       "agent": "copilot",
       "persona": null,
-      "status": "served",
-      "startTime": 1772975712470,
-      "duration": 27859,
-      "endTime": 1772975740329
+      "status": "cooking",
+      "startTime": 1773589179821
     }
   ],
-  "activeOrders": [],
+  "activeOrders": [
+    {
+      "id": 1773589179821,
+      "prompt": "hello",
+      "agent": "copilot",
+      "persona": null,
+      "status": "cooking",
+      "startTime": 1773589179821
+    }
+  ],
   "stats": {
-    "totalOrders": 2,
-    "completedOrders": 2,
+    "totalOrders": 1,
+    "completedOrders": 0,
     "failedOrders": 0,
-    "avgCookTime": 28150,
+    "avgCookTime": 0,
     "personaCalls": {},
-    "toolCalls": {},
-    "routingHistory": []
+    "toolCalls": {
+      "copilot": 1
+    },
+    "routingHistory": [
+      {
+        "timestamp": 1773589179820,
+        "agent": "copilot",
+        "persona": null,
+        "reason": "Best match: GitHub Copilot (score: 54.5)",
+        "confidence": 0.09,
+        "alternatives": [
+          {
+            "agent": "gemini",
+            "score": 50
+          },
+          {
+            "agent": "kiro",
+            "score": 47
+          }
+        ]
+      }
+    ]
   },
   "recommendations": [
     {
@@ -771,7 +788,7 @@
     },
     "copilot": {
       "grade": 50,
-      "usage": 5,
+      "usage": 9,
       "name": "GitHub Copilot",
       "icon": "🐙"
     },

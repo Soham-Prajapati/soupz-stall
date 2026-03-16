@@ -257,6 +257,8 @@ export class StallMonitor {
             const json = JSON.stringify(this.state, null, 2);
             writeFileSync(this.stateFile, json);
             writeFileSync(this.localStateFile, json);
+            // Also write a generic one in the dashboard dir as a fallback
+            writeFileSync(join(DASHBOARD_DIR, 'stall-state.json'), json);
         } catch { /* ignore write errors */ }
     }
 

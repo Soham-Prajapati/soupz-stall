@@ -29,22 +29,31 @@
     // ── Theme Switcher ────────────────────────
     if (themeToggle) {
         themeToggle.addEventListener('click', () => {
-            document.body.classList.toggle('theme-kitchen');
-            document.body.classList.toggle('theme-brutal');
-            const isKitchen = document.body.classList.contains('theme-kitchen');
-            themeToggle.textContent = isKitchen ? 'Switch to Brutal' : 'Switch to Kitchen';
+            const themes = ['theme-kitchen', 'theme-brutal', 'theme-skeuo', 'theme-neo', 'theme-glass'];
+            const labels = { 'theme-kitchen': 'KITCHEN', 'theme-brutal': 'BRUTAL', 'theme-skeuo': 'CLASSIC', 'theme-neo': 'SOFT UI', 'theme-glass': 'GLASS' };
+            let currentIdx = themes.findIndex(t => document.body.classList.contains(t));
+            if (currentIdx === -1) currentIdx = 0;
+            
+            document.body.classList.remove(...themes);
+            const nextIdx = (currentIdx + 1) % themes.length;
+            const nextTheme = themes[nextIdx];
+            document.body.classList.add(nextTheme);
+            
+            themeToggle.textContent = 'MODE: ' + (labels[nextTheme] || nextTheme.replace('theme-', '').toUpperCase());
+            
             // Save preference
-            try { chrome.storage.local.set({ theme: isKitchen ? 'kitchen' : 'brutal' }); } catch {}
+            try { chrome.storage.local.set({ theme: nextTheme.replace('theme-', '') }); } catch {}
         });
     }
 
     // Load saved theme
     try {
         chrome.storage.local.get(['theme'], (res) => {
-            if (res.theme === 'brutal') {
-                document.body.classList.remove('theme-kitchen');
-                document.body.classList.add('theme-brutal');
-                if (themeToggle) themeToggle.textContent = 'Switch to Kitchen';
+            if (res.theme) {
+                document.body.classList.remove('theme-kitchen', 'theme-brutal', 'theme-skeuo', 'theme-neo', 'theme-glass');
+                document.body.classList.add('theme-' + res.theme);
+                const labels = { kitchen: 'KITCHEN', brutal: 'BRUTAL', skeuo: 'CLASSIC', neo: 'SOFT UI', glass: 'GLASS' };
+                if (themeToggle) themeToggle.textContent = 'MODE: ' + (labels[res.theme] || res.theme.toUpperCase());
             }
         });
     } catch {}

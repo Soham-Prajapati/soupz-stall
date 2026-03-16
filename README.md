@@ -41,7 +41,13 @@ Soupz Stall is a **multi-agent CLI** that orchestrates multiple AI tools (GitHub
 # Install
 git clone https://github.com/Soham-Prajapati/soupz-stall.git
 cd soupz-stall
-npm install
+
+# Bootstrap everything (installs root + package deps and creates .env from .env.example)
+pnpm run setup
+
+# Alternative if you use npm
+npm run setup
+
 npm link    # makes `soupz` available globally
 
 # Launch
@@ -84,6 +90,14 @@ soupz-stall auth logout copilot
 Auth state is stored at `~/.soupz-agents/auth/state.json` — each tool engine has independent auth.
 
 See [Installation Guide →](docs/guides/INSTALL.md) for detailed setup.
+
+### Context Handoff (For External Agents)
+
+- Full project handoff context: `docs/guides/PROJECT_AGENT_CONTEXT_FULL.md`
+- Asset tracker checklist: `dashpad.md`
+- Asset manifest (machine-readable): `images/manifest.json`
+- Prompt pack (stall-first, top-down default): `_bmad-output/planning-artifacts/kitchen-ui-component-prompt-pack.md`
+- Supabase CLI setup: `docs/guides/supabase-orders-setup.md`
 
 ---
 

@@ -7,8 +7,12 @@
         "soupz-stall": "./bin/soupz.js"
     },
     "scripts": {
+        "setup": "node scripts/setup.js",
         "start": "node bin/soupz.js",
         "dev": "node bin/soupz.js",
+        "dev:web": "node scripts/dev-web-stack.js",
+        "dev:web:pnpm": "SOUPZ_PM=pnpm node scripts/dev-web-stack.js",
+        "dev:web:npm": "SOUPZ_PM=npm node scripts/dev-web-stack.js",
         "postinstall": "node src/auto-import.js"
     },
     "dependencies": {

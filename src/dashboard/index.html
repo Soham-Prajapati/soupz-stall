@@ -3,42 +3,104 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🫕 Soupz Cloud Kitchen | Well-Lit Station</title>
+    <title>🫕 Soupz Cloud Kitchen | Station</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;800&family=JetBrains+Mono:wght@500;700&display=swap');
 
         :root {
-            --bg: #ffffff;
+            /* Executive Brutalism Defaults (Pivoted from weird yellow) */
+            --bg-color: #fafaf9;
+            --text-color: #000000;
+            --text-dim: #666666;
             --card-bg: #ffffff;
-            --tile-color: #f0f0f0;
-            --black: #000000;
-            --accent: #ff3b30; /* Tomato Red */
+            --border-width: 3px;
+            --border-color: #000000;
+            --card-shadow: 8px 8px 0px #000000;
+            --card-shadow-hover: 12px 12px 0px #000000;
+            --card-radius: 24px;
+            --accent: #ff3b30; 
             --mustard: #ffd60a;
             --cobalt: #007aff;
             --mint: #34c759;
-            --text: #000000;
-            --text-dim: #666666;
             --font-mono: 'JetBrains Mono', monospace;
             --font-sans: 'Space Grotesk', sans-serif;
-            --brutal-shadow: 6px 6px 0px #000000;
-            --brutal-shadow-sm: 3px 3px 0px #000000;
+            --bg-image: linear-gradient(rgba(0,0,0,0.03) 2px, transparent 2px), linear-gradient(90deg, rgba(0,0,0,0.03) 2px, transparent 2px);
+            --bg-size: 80px 80px;
+            --bg-opacity: 1;
+            --backdrop-blur: none;
+            --card-padding: 32px;
+            --card-hover-translate: -4px;
+            --btn-shadow: 4px 4px 0px #000000;
+            --btn-shadow-hover: 8px 8px 0px #000000;
+            --btn-translate: -2px;
+            --header-filter: drop-shadow(6px 6px 0px rgba(0,0,0,0.1));
+            --img-url: none;
+        }
+
+        body.theme-kitchen {
+            --bg-color: transparent;
+            --text-color: #1e293b;
+            --text-dim: #64748b;
+            --card-bg: rgba(255, 255, 255, 0.6);
+            --border-width: 1px;
+            --border-color: rgba(255, 255, 255, 0.5);
+            --card-shadow: 0 20px 50px rgba(0, 0, 0, 0.1);
+            --card-shadow-hover: 0 30px 60px rgba(0, 0, 0, 0.15);
+            --bg-image: none;
+            --backdrop-blur: blur(30px);
+            --btn-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+            --btn-shadow-hover: 0 20px 25px rgba(0, 0, 0, 0.1);
+            --btn-translate: -4px;
+            --header-filter: drop-shadow(0 20px 30px rgba(0,0,0,0.2));
+            --img-url: url('https://images.unsplash.com/photo-1556910103-1c02745a872e?auto=format&fit=crop&q=80&w=2560');
+        }
+
+        body.theme-skeuo {
+            --bg-color: #e5e7eb;
+            --text-color: #374151;
+            --card-bg: #f9fafb;
+            --border-width: 1px;
+            --border-color: #fff;
+            --card-shadow: 12px 12px 24px #bebebe, -12px -12px 24px #ffffff;
+            --bg-image: none;
+            --img-url: url('https://images.unsplash.com/photo-1539433393180-0ea44888d1ca?auto=format&fit=crop&q=80&w=2560');
+            --bg-opacity: 0.3;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body { 
-            background: var(--bg); 
-            color: var(--text); 
+            background-color: var(--bg-color);
+            color: var(--text-color); 
             font-family: var(--font-sans);
             overflow-x: hidden;
-            /* Well-Lit Kitchen Tiles */
-            background-image: 
-                linear-gradient(var(--tile-color) 2px, transparent 2px),
-                linear-gradient(90deg, var(--tile-color) 2px, transparent 2px);
-            background-size: 50px 50px;
             min-height: 100vh;
             padding: 40px;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .bg-layer {
+            position: fixed; inset: 0; z-index: -2;
+            background-image: var(--img-url);
+            background-size: cover; background-position: center;
+            transition: opacity 1s ease;
+            opacity: 0;
+        }
+        body.theme-kitchen .bg-layer, body.theme-skeuo .bg-layer { opacity: 1; }
+
+        .overlay-layer {
+            position: fixed; inset: 0; z-index: -1;
+            background-image: var(--bg-image);
+            background-size: var(--bg-size);
+            opacity: var(--bg-opacity);
+            transition: all 0.5s ease;
+        }
+        body.theme-kitchen .overlay-layer {
+            background-color: rgba(255, 255, 255, 0.4);
+            backdrop-filter: var(--backdrop-blur);
+            -webkit-backdrop-filter: var(--backdrop-blur);
+            opacity: 1;
         }
 
         header {
@@ -47,208 +109,123 @@
             display: flex;
             justify-content: space-between;
             align-items: flex-end;
+            position: relative; z-index: 10;
         }
 
         .logo-area { display: flex; align-items: center; gap: 20px; }
-        .logo-icon { 
-            font-size: 64px; 
-            filter: drop-shadow(4px 4px 0px var(--black));
-            transition: transform 0.3s;
-        }
-        .logo-icon:hover { transform: scale(1.1) rotate(5deg); }
-        
-        .logo-text h1 { 
-            font-size: 48px; font-weight: 900; letter-spacing: -2px; 
-            text-transform: uppercase; line-height: 0.9;
-        }
-        .logo-text p { 
-            font-size: 12px; font-weight: 800; color: var(--text-dim); 
-            text-transform: uppercase; letter-spacing: 4px; margin-top: 8px;
-        }
+        .logo-icon { font-size: 80px; filter: var(--header-filter); transition: 0.3s; }
+        .logo-text h1 { font-size: 64px; font-weight: 900; letter-spacing: -3px; text-transform: uppercase; line-height: 0.85; }
 
-        .live-status {
-            display: flex; align-items: center; gap: 12px;
-            padding: 12px 24px; background: var(--mustard);
-            border: 3px solid var(--black); border-radius: 16px;
-            box-shadow: var(--brutal-shadow);
-            font-weight: 900; text-transform: uppercase; font-size: 14px;
+        .theme-btn {
+            padding: 16px 32px; border: var(--border-width) solid var(--border-color);
+            border-radius: 20px; background: var(--card-bg); font-weight: 900;
+            cursor: pointer; box-shadow: var(--btn-shadow); text-transform: uppercase;
+            font-size: 14px; transition: all 0.2s; font-family: var(--font-sans);
+            color: var(--text-color); backdrop-filter: var(--backdrop-blur);
         }
-
-        .pulse-dot {
-            width: 12px; height: 12px; background: var(--mint);
-            border: 2px solid var(--black); border-radius: 50%;
-            animation: pulse 1.5s infinite;
-        }
+        .theme-btn:hover { transform: translateY(var(--btn-translate)); box-shadow: var(--btn-shadow-hover); }
 
         .container {
             max-width: 1400px;
             margin: 0 auto;
             display: grid;
             grid-template-columns: repeat(12, 1fr);
-            gap: 24px;
+            gap: 32px; position: relative; z-index: 10;
         }
 
         .card {
             background: var(--card-bg);
-            border: 3px solid var(--black);
-            border-radius: 24px;
-            padding: 32px;
-            box-shadow: var(--brutal-shadow);
-            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--card-radius);
+            padding: var(--card-padding);
+            box-shadow: var(--card-shadow);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             position: relative;
+            backdrop-filter: var(--backdrop-blur);
+            -webkit-backdrop-filter: var(--backdrop-blur);
         }
 
         .card:hover {
-            transform: translate(-4px, -4px);
-            box-shadow: 10px 10px 0px var(--black);
+            transform: translateY(-8px);
+            box-shadow: var(--card-shadow-hover);
         }
 
         .card-label {
-            font-size: 12px; font-weight: 900; text-transform: uppercase;
-            letter-spacing: 2px; color: var(--text-dim); margin-bottom: 24px;
-            display: block; border-bottom: 2px solid var(--black);
-            padding-bottom: 8px; width: fit-content;
+            font-size: 10px; font-weight: 900; text-transform: uppercase;
+            letter-spacing: 4px; color: var(--text-dim); margin-bottom: 24px;
+            display: block; opacity: 0.6;
         }
 
         .stat-card { grid-column: span 3; }
-        .stat-val { font-size: 48px; font-weight: 900; font-family: var(--font-mono); letter-spacing: -2px; color: var(--black); }
-        .stat-desc { font-size: 12px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; margin-top: 4px; }
+        .stat-val { font-size: 56px; font-weight: 900; font-family: var(--font-mono); letter-spacing: -3px; }
 
         .floor-card {
             grid-column: span 12;
-            height: 280px;
-            display: flex;
-            align-items: center;
-            background: #fafafa;
-            background-image: radial-gradient(var(--tile-color) 20%, transparent 20%);
-            background-position: 0 0, 25px 25px;
-            background-size: 50px 50px;
+            min-height: 320px;
+            display: flex; flex-direction: column;
         }
 
-        .kitchen-door {
-            width: 120px; height: 180px;
-            border: 4px solid var(--black);
-            border-radius: 60px 60px 0 0;
-            background: #fff;
-            position: relative; margin-right: 60px;
-            perspective: 1000px; flex-shrink: 0;
+        .chef-assembly { 
+            display: flex; gap: 60px; align-items: center; justify-content: center;
+            flex-wrap: wrap; padding: 40px 0;
         }
-
-        .door-leaf {
-            width: 100%; height: 100%; background: var(--accent);
-            border-radius: 56px 56px 0 0;
-            border-right: 4px solid var(--black);
-            transform-origin: left; transition: transform 0.8s;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 12px; font-weight: 900; color: #fff; writing-mode: vertical-rl;
-            text-transform: uppercase; letter-spacing: 4px;
-        }
-        .door-leaf.open { transform: rotateY(-110deg); }
-
-        .chef-assembly { display: flex; gap: 40px; align-items: flex-end; flex: 1; overflow-x: auto; padding-bottom: 20px; }
-        .chef-unit { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-        .chef-avatar { font-size: 64px; filter: drop-shadow(4px 4px 0px rgba(0,0,0,0.1)); transition: 0.3s; }
+        .chef-unit { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+        .chef-avatar { font-size: 100px; filter: drop-shadow(0 20px 30px rgba(0,0,0,0.15)); transition: 0.5s; }
         .chef-tag { 
-            font-size: 11px; font-weight: 900; color: var(--black); 
-            background: #fff; border: 2px solid var(--black);
-            padding: 4px 12px; border-radius: 99px; box-shadow: var(--brutal-shadow-sm);
-            text-transform: uppercase;
+            font-size: 12px; font-weight: 900; color: var(--text-color); 
+            background: var(--card-bg); border: var(--border-width) solid var(--border-color);
+            padding: 8px 20px; border-radius: 99px; box-shadow: var(--btn-shadow);
+            text-transform: uppercase; tracking-widest;
         }
 
         .receipts-card { grid-column: span 8; }
-        .receipt-list { display: flex; flex-direction: column; gap: 12px; }
+        .receipt-list { display: flex; flex-direction: column; gap: 16px; }
         .receipt-item {
-            display: grid; grid-template-columns: 16px 1fr 100px; align-items: center; gap: 20px;
-            padding: 16px 24px; background: #fff; border: 2px solid var(--black);
-            border-radius: 16px; box-shadow: var(--brutal-shadow-sm);
+            display: grid; grid-template-columns: 16px 1fr 100px; align-items: center; gap: 24px;
+            padding: 20px 32px; background: rgba(255,255,255,0.4); border: var(--border-width) solid var(--border-color);
+            border-radius: 20px; box-shadow: var(--btn-shadow); transition: 0.2s;
         }
-        .receipt-status { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--black); }
-        .receipt-prompt { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--black); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .receipt-time { font-size: 12px; font-weight: 900; color: var(--text-dim); text-align: right; }
+        .receipt-time { font-size: 12px; font-weight: 900; opacity: 0.5; text-align: right; }
 
-        .top-chefs-card { grid-column: span 4; background: var(--mustard); }
-        .leader-item { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; background: #fff; padding: 12px; border: 2px solid var(--black); border-radius: 12px; box-shadow: var(--brutal-shadow-sm); }
-        .leader-info { flex: 1; }
-        .leader-name { font-size: 14px; font-weight: 900; text-transform: uppercase; margin-bottom: 4px; }
-        .leader-bar-bg { width: 100%; height: 8px; background: #eee; border: 2px solid var(--black); border-radius: 4px; overflow: hidden; }
-        .leader-bar-fill { height: 100%; background: var(--cobalt); }
-
-        @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.7; transform: scale(1.2); } }
-        @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-10px); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.7; transform: scale(1.1); } }
+        @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-20px); } }
 
         .offline-overlay {
             position: fixed; inset: 0; background: #fff; z-index: 1000;
             display: none; flex-direction: column; align-items: center; justify-content: center;
-            text-align: center;
         }
         .offline-overlay.active { display: flex; }
     </style>
 </head>
-<body>
+<body class="theme-kitchen">
+
+    <div class="bg-layer"></div>
+    <div class="overlay-layer"></div>
 
     <div id="offline-screen" class="offline-overlay">
         <div style="font-size: 120px; margin-bottom: 20px;">🧊</div>
         <h2 style="font-size: 48px; font-weight: 900; text-transform: uppercase;">Stove is Cold</h2>
-        <p style="font-size: 14px; font-weight: 700; color: #666; margin-top: 10px; text-transform: uppercase; letter-spacing: 2px;">Waiting for soupz-stall session...</p>
     </div>
-<header>
-    <div class="logo-area">
-        <div class="logo-icon">🫕</div>
-        <div class="logo-text">
-            <h1>Soupz Kitchen</h1>
-            <p id="uptime">Order Station · Offline</p>
-        </div>
-    </div>
-    <div style="display: flex; gap: 20px; align-items: center;">
-        <button onclick="toggleTheme()" id="theme-btn" style="padding: 10px 20px; border: 3px solid black; border-radius: 12px; background: white; font-weight: 900; cursor: pointer; box-shadow: var(--brutal-shadow-sm); text-transform: uppercase; font-size: 12px;">Switch to Brutal</button>
-        <div class="live-status">
-            <div class="pulse-dot" id="status-dot"></div>
-            <span id="status-text">Stove Ready</span>
-        </div>
-    </div>
-</header>
 
-<script>
-    let currentTheme = 'kitchen';
-    function toggleTheme() {
-        currentTheme = currentTheme === 'kitchen' ? 'brutal' : 'kitchen';
-        const btn = document.getElementById('theme-btn');
-        if (currentTheme === 'brutal') {
-            document.documentElement.style.setProperty('--bg', '#ffd60a');
-            document.documentElement.style.setProperty('--tile-color', 'rgba(0,0,0,0.05)');
-            btn.textContent = 'Switch to Kitchen';
-        } else {
-            document.documentElement.style.setProperty('--bg', '#ffffff');
-            document.documentElement.style.setProperty('--tile-color', '#f0f0f0');
-            btn.textContent = 'Switch to Brutal';
-        }
-    }
+    <header>
+        <div class="logo-area">
+            <div class="logo-icon">🫕</div>
+            <div class="logo-text">
+                <h1>Soupz Kitchen</h1>
+                <p id="uptime" style="font-weight: 900; opacity: 0.4; text-transform: uppercase; letter-spacing: 4px; margin-top: 10px;">Order Station</p>
+            </div>
+        </div>
+        <button onclick="toggleTheme()" id="theme-btn" class="theme-btn">KITCHEN MODE</button>
+    </header>
 
     <div class="container">
-        <div class="card stat-card">
-            <span class="card-label">Orders</span>
-            <div class="stat-val" id="total-orders">0</div>
-            <div class="stat-desc">Throughput</div>
-        </div>
-        <div class="card stat-card" style="background: var(--mint);">
-            <span class="card-label">Success</span>
-            <div class="stat-val" id="success-rate">0%</div>
-            <div class="stat-desc" id="success-detail">0 served</div>
-        </div>
-        <div class="card stat-card" style="background: var(--cobalt); color: #fff;">
-            <span class="card-label" style="color: #fff; border-color: #fff;">Speed</span>
-            <div class="stat-val" id="avg-time" style="color: #fff;">0s</div>
-            <div class="stat-desc" style="color: #fff;">Avg Latency</div>
-        </div>
-        <div class="card stat-card">
-            <span class="card-label">Pantry Bill</span>
-            <div class="stat-val" id="total-cost">$0.00</div>
-            <div class="stat-desc" id="token-count">0 tokens</div>
-        </div>
+        <div class="card stat-card" id="card-orders"><span class="card-label">Orders</span><div class="stat-val" id="total-orders">0</div></div>
+        <div class="card stat-card" id="card-success"><span class="card-label">Success</span><div class="stat-val" id="success-rate">0%</div></div>
+        <div class="card stat-card" id="card-speed"><span class="card-label">Speed</span><div class="stat-val" id="avg-time">0s</div></div>
+        <div class="card stat-card" id="card-cost"><span class="card-label">Bill</span><div class="stat-val" id="total-cost">$0.00</div></div>
 
         <div class="card floor-card">
-            <span class="card-label" style="position: absolute; top: 32px; left: 32px;">Live Kitchen Floor</span>
-            <div class="kitchen-door"><div id="door-leaf" class="door-leaf">KITCHEN</div></div>
+            <span class="card-label">Executive Kitchen Floor</span>
             <div id="chef-assembly" class="chef-assembly"></div>
         </div>
 
@@ -257,89 +234,65 @@
             <div id="receipt-list" class="receipt-list"></div>
         </div>
 
-        <div class="card top-chefs-card">
+        <div class="card top-chefs-card" style="grid-column: span 4;">
             <span class="card-label">Elite Chefs</span>
             <div id="leaderboard"></div>
         </div>
     </div>
 
     <script>
-        let lastTimestamp = 0;
-        let knownChefIds = new Set();
-        const offlineScreen = document.getElementById('offline-screen');
+        let currentTheme = localStorage.getItem('soupz-theme') || 'kitchen';
+        document.body.className = 'theme-' + currentTheme;
+        document.getElementById('theme-btn').textContent = currentTheme.toUpperCase() + ' MODE';
 
+        function toggleTheme() {
+            const modes = ['kitchen', 'brutal', 'skeuo'];
+            currentTheme = modes[(modes.indexOf(currentTheme) + 1) % modes.length];
+            document.body.className = 'theme-' + currentTheme;
+            document.getElementById('theme-btn').textContent = currentTheme.toUpperCase() + ' MODE';
+            localStorage.setItem('soupz-theme', currentTheme);
+            updateColors();
+        }
+
+        function updateColors() {
+            const isBrutal = document.body.classList.contains('theme-brutal');
+            document.getElementById('card-orders').style.backgroundColor = isBrutal ? '#ffd60a' : '';
+            document.getElementById('card-success').style.backgroundColor = isBrutal ? '#34c759' : '';
+            document.getElementById('card-speed').style.backgroundColor = isBrutal ? '#007aff' : '';
+            document.getElementById('card-cost').style.backgroundColor = isBrutal ? '#ff3b30' : '';
+        }
+        updateColors();
+
+        let lastTimestamp = 0;
         async function update() {
             try {
                 const res = await fetch('stall-state.json?t=' + Date.now());
-                if (!res.ok) throw new Error('Offline');
                 const data = await res.json();
+                document.getElementById('offline-screen').classList.remove('active');
                 
-                offlineScreen.classList.remove('active');
-                if (data.timestamp === lastTimestamp) return;
-                lastTimestamp = data.timestamp;
-
-                document.getElementById('status-text').textContent = data.stall.status === 'cooking' ? 'CHEF IS COOKING' : 'STOVE READY';
-                document.getElementById('status-dot').style.background = data.stall.status === 'cooking' ? 'var(--mustard)' : 'var(--mint)';
-
-                document.getElementById('uptime').textContent = 'Uptime: ' + Math.floor(data.stall.uptime / 60000) + 'm · ' + data.stall.name;
                 document.getElementById('total-orders').textContent = data.stats.totalOrders;
-                
-                const rate = data.stats.totalOrders > 0 ? Math.round((data.stats.completedOrders / data.stats.totalOrders) * 100) : 0;
-                document.getElementById('success-rate').textContent = rate + '%';
-                document.getElementById('success-detail').textContent = data.stats.completedOrders + ' served · ' + data.stats.failedOrders + ' burnt';
+                document.getElementById('success-rate').textContent = (data.stats.totalOrders > 0 ? Math.round((data.stats.completedOrders / data.stats.totalOrders) * 100) : 0) + '%';
                 document.getElementById('avg-time').textContent = data.stats.avgCookTime ? (data.stats.avgCookTime / 1000).toFixed(1) + 's' : '0s';
                 document.getElementById('total-cost').textContent = '$' + (data.tokens?.cost || 0).toFixed(3);
-                document.getElementById('token-count').textContent = (data.tokens?.total || 0).toLocaleString() + ' tokens';
 
-                // Chef Floor
-                const assembly = document.getElementById('chef-assembly');
                 const activeIds = new Set(data.activeOrders.map(o => o.persona || o.agent));
-                const onFloor = data.chefs.filter(c => c.calls > 0 || activeIds.has(c.id));
-                
-                let entered = false;
-                onFloor.forEach(c => { if (!knownChefIds.has(c.id)) { knownChefIds.add(c.id); entered = true; } });
-                if (entered) { 
-                    document.getElementById('door-leaf').classList.add('open');
-                    setTimeout(() => document.getElementById('door-leaf').classList.remove('open'), 1500);
-                }
-
-                assembly.innerHTML = onFloor.slice(0, 10).map(c => `
+                document.getElementById('chef-assembly').innerHTML = data.chefs.slice(0, 15).map(c => `
                     <div class="chef-unit">
-                        <div class="chef-avatar" style="${activeIds.has(c.id) ? 'animation: bounce 0.5s infinite alternate' : ''}">${c.icon}</div>
-                        <div class="chef-tag">${c.name.split(' ')[0]}</div>
+                        <div class="chef-avatar" style="${activeIds.has(c.id) ? 'animation: bounce 0.6s infinite alternate; filter: drop-shadow(0 30px 50px rgba(0,0,0,0.3));' : 'opacity: 0.3; grayscale(1);'}">${c.icon}</div>
+                        <div class="chef-tag" style="${activeIds.has(c.id) ? 'background: var(--mustard);' : ''}">@${c.id}</div>
                     </div>
                 `).join('');
 
-                // Receipts
-                document.getElementById('receipt-list').innerHTML = (data.orders || []).slice(0, 6).map(o => `
+                document.getElementById('receipt-list').innerHTML = (data.orders || []).slice(0, 8).map(o => `
                     <div class="receipt-item">
-                        <div class="receipt-status" style="background: ${o.status === 'served' ? 'var(--mint)' : 'var(--accent)'}"></div>
-                        <div class="receipt-prompt">${o.prompt}</div>
-                        <div class="receipt-time">${o.duration ? (o.duration / 1000).toFixed(1) + 's' : '...'}</div>
-                    </div>
-                `).join('') || '<div style="text-align:center; padding:40px; font-weight:900; color:#ccc;">NO ORDERS YET</div>';
-
-                // Leaderboard
-                const top = Object.entries(data.grades).filter(([,v]) => v.usage > 0).sort((a,b) => b[1].grade - a[1].grade).slice(0, 4);
-                document.getElementById('leaderboard').innerHTML = top.map(([id, v]) => `
-                    <div class="leader-item">
-                        <div class="leader-info">
-                            <div class="leader-name">${v.icon} ${v.name}</div>
-                            <div class="leader-bar-bg"><div class="leader-bar-fill" style="width: ${v.grade}%; background: ${v.grade > 80 ? 'var(--mint)' : 'var(--cobalt)'}"></div></div>
-                        </div>
-                        <div style="font-size:18px; font-weight:900;">${Math.round(v.grade)}</div>
+                        <div style="width:12px; height:12px; border-radius:50%; background:${o.status === 'served' ? 'var(--mint)' : 'var(--accent)'}"></div>
+                        <div style="font-family:var(--font-mono); font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${o.prompt}</div>
+                        <div class="receipt-time">${o.duration ? (o.duration/1000).toFixed(1)+'s' : '...'}</div>
                     </div>
                 `).join('');
-
-            } catch (e) { 
-                offlineScreen.classList.add('active');
-            }
+            } catch (e) { document.getElementById('offline-screen').classList.add('active'); }
         }
-
-        setInterval(update, 2000);
-        update();
-        gsap.from("header", { y: -20, opacity: 0, duration: 1 });
-        gsap.from(".card", { opacity: 0, scale: 0.9, stagger: 0.1, duration: 0.8, ease: "back.out(1.7)" });
+        setInterval(update, 2000); update();
     </script>
 </body>
 </html>

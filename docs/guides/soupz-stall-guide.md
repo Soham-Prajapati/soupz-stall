@@ -1,6 +1,6 @@
 # Soupz-Stall v0.1-alpha — Guide
 
-> Your personal Jarvis CLI — orchestrates multiple AI agents with 22 expert personas, smart task management, context sharding, and developer-first UX. Now called **Soupz-Stall** 🫡
+> Your personal Jarvis CLI — orchestrates multiple AI agents with 38 expert personas, smart task management, context sharding, and developer-first UX. Now called **Soupz-Stall** 🫡
 
 ---
 
@@ -163,8 +163,8 @@ Each pantry bank stores ~4000 tokens. When all 7 are full, the oldest pantry ban
 | `/pantry bank store <text>` | Manually store important context |
 | `/pantry bank recall <query>` | Search pantry by keyword |
 
-### Future: ChatGPT 4.1 Pantry
-In the next version, pantry will be backed by live **GPT-5-mini** instances via Copilot CLI. Each pantry bank will be a separate conversation with a ChatGPT instance that can answer queries about its stored context. This effectively multiplies your context window by 7x.
+### Future: GPT-5-mini Pantry
+In the next version, pantry will be backed by live **GPT-5-mini** instances via Copilot CLI. Each pantry bank will be a separate conversation that can answer queries about its stored context. This effectively multiplies your context window by 7x.
 
 ---
 
@@ -183,7 +183,7 @@ Grades: `A+ (90+)` → `A (80-89)` → `B (70-79)` → `C (60-69)` → `D (50-59
 
 ---
 
-## 🎭 All 22 Personas (Detailed)
+## 🎭 All 38 Personas (Highlights)
 
 ### 💼 Business & Strategy
 
@@ -321,7 +321,7 @@ Common `build_args`:
 ## 🔮 Future Features (Planned)
 
 ### v2.6 — Live Pantry via GPT-5-mini
-Replace file-based pantry with live ChatGPT 4.1 instances via Copilot CLI. Each pantry bank becomes a persistent conversation that can be queried.
+Replace file-based pantry with live GPT-5-mini instances via Copilot CLI. Each pantry bank becomes a persistent conversation that can be queried.
 
 ### v2.7 — Agent Chaining
 Chain agents: `@architect → @planner → @devops`. Output of one feeds into the next. Auto-chains based on task type.
@@ -384,9 +384,7 @@ add a /ux command that generates wireframes
 
 ## 💰 Model Selection
 
-Models are available via `/utensil` — switch at any time. Cost multipliers are shown in the picker. Copilot and Ollama are subscription/free. Gemini charges per token.
-
-Pick based on your task and budget — there are no rigid rules. Run `/utensil` to see the full list with pricing.
+Models are available via `/utensil` — switch at any time. Cost multipliers are shown in the picker. Copilot, Gemini, and Ollama are subscription/free. Pick based on your task — there are no rigid rules. Run `/utensil` to see the full list with pricing.
 
 ---
 
