@@ -186,13 +186,13 @@ You don't need all phases for every project. Pick what you need.
 
 ---
 
-## 🏗️ BMAD Module Builders (Advanced)
+## 🏗️ SOUPZ Module Builders (Advanced)
 
 These chefs are for building the Soupz Stall system itself or similar agent architectures:
 
 | Chef | Summon | When to Use |
 |------|--------|-------------|
-| 🔧 Agent Builder | `@agent-builder` | Creating new chef personas with proper BMAD structure |
+| 🔧 Agent Builder | `@agent-builder` | Creating new chef personas with proper SOUPZ structure |
 | 📦 Module Builder | `@module-builder` | Building cohesive Soupz modules (agents + workflows) |
 | 🔄 Workflow Builder | `@workflow-builder` | Designing multi-step workflows for agent coordination |
 | 🎯 Orchestrator | `@orchestrator` | Complex multi-agent task coordination |

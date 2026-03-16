@@ -13,6 +13,6 @@ This folder is the canonical storage for generated visual assets.
 - `experimental/isometric/` — optional isometric branch, never mix with production top-down set
 
 ## Rules
-- Use naming convention from `_bmad-output/planning-artifacts/kitchen-ui-component-prompt-pack.md`.
+- Use naming convention from `_soupz-output/planning-artifacts/kitchen-ui-component-prompt-pack.md`.
 - Update `images/manifest.json` whenever new images are added.
 - Update `dashpad.md` checklist for completion status.

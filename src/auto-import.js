@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Auto-import Soupz personas to BMAD on first run
+ * Auto-import Soupz personas to SOUPZ on first run
  * Also registers agents as globally discoverable skills
  */
 
@@ -14,8 +14,8 @@ import { registerGlobalSkills } from './skills.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const BMAD_DIR = join(homedir(), '.bmad', 'custom');
-const EXPORT_DIR = join(__dirname, '..', 'bmad-export');
+const SOUPZ_DIR = join(homedir(), '.soupz', 'custom');
+const EXPORT_DIR = join(__dirname, '..', 'soupz-export');
 
 function autoImport() {
     let imported = 0;
@@ -25,19 +25,19 @@ function autoImport() {
         registerGlobalSkills();
     } catch { /* non-fatal */ }
     
-    // Import to BMAD
+    // Import to SOUPZ
     if (existsSync(EXPORT_DIR)) {
-        mkdirSync(BMAD_DIR, { recursive: true });
+        mkdirSync(SOUPZ_DIR, { recursive: true });
         
         const files = readdirSync(EXPORT_DIR).filter(f => f.endsWith('.md'));
         
         for (const file of files) {
             const src = join(EXPORT_DIR, file);
-            const bmadDest = join(BMAD_DIR, file);
+            const soupzDest = join(SOUPZ_DIR, file);
             
-            // Copy to BMAD
-            if (!existsSync(bmadDest)) {
-                copyFileSync(src, bmadDest);
+            // Copy to SOUPZ
+            if (!existsSync(soupzDest)) {
+                copyFileSync(src, soupzDest);
                 imported++;
             }
         }

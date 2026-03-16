@@ -153,12 +153,22 @@ const supabase = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
 
 // User-facing agent aliases.
 const WEB_AGENT_ALIASES = new Map([
-    ['soupz-workflow', 'soupz-bmad'],
+    ['soupz-workflow', 'soupz-soupz'],
 ]);
 
 // In-memory order tracking for web dashboard workflow
 const orders = new Map();
 let orderCounter = 0;
+
+// Broadcast order update to all authenticated clients
+function broadcastOrderUpdate(order) {
+    const message = JSON.stringify({ type: 'order_update', data: toOrderSummary(order) });
+    for (const client of wss.clients) {
+        if (client.readyState === 1 && authenticatedClients.has(client)) {
+            client.send(message);
+        }
+    }
+}
 
 function nowIso() {
     return new Date().toISOString();
@@ -436,6 +446,7 @@ app.post('/api/orders', requireAuth, (req, res) => {
     pushOrderEvent(order, 'route.selected', { agent: runAgent, requested: requestedAgent, resolved: agent });
     orders.set(id, order);
     void persistOrder(order);
+    broadcastOrderUpdate(order);
 
     const args = [CLI_ENTRY];
     // Web dashboard path is intentionally single-agent to avoid accidental fan-out.
@@ -452,6 +463,7 @@ app.post('/api/orders', requireAuth, (req, res) => {
     order.startedAt = nowIso();
     pushOrderEvent(order, 'chef.started', { pid: child.pid, mode: 'ask', agent: runAgent });
     void persistOrder(order);
+    broadcastOrderUpdate(order);
 
     child.stdout.on('data', (chunk) => {
         const text = chunk.toString();
@@ -472,6 +484,7 @@ app.post('/api/orders', requireAuth, (req, res) => {
         order.finishedAt = nowIso();
         pushOrderEvent(order, 'order.failed', { message: err.message });
         void persistOrder(order);
+        broadcastOrderUpdate(order);
     });
 
     child.on('close', (code) => {
@@ -485,6 +498,7 @@ app.post('/api/orders', requireAuth, (req, res) => {
             pushOrderEvent(order, 'order.failed', { exitCode: code });
         }
         void persistOrder(order);
+        broadcastOrderUpdate(order);
     });
 
     return res.status(202).json({ order: toOrderSummary(order) });

@@ -113,7 +113,7 @@ cd soupz-agents && npm install && npm link
 - [ ] All dependencies listed in `dependencies` (not devDependencies)
 - [ ] README.md has install instructions
 - [ ] `npm pack --dry-run` shows correct file list
-- [ ] `.npmignore` or `files` field excludes: `_bmad-output/`, `_bmad/`, `node_modules/`, `.env`
+- [ ] `.npmignore` or `files` field excludes: `_soupz-output/`, `_soupz/`, `node_modules/`, `.env`
 - [ ] Version in `bin/soupz.js` matches `package.json`
 - [ ] License file exists
 

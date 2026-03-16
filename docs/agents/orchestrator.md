@@ -1,6 +1,6 @@
 # 🎯 Orchestrator
 
-> Master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates multi-agent workflows like BMAD
+> Master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates multi-agent workflows like SOUPZ
 
 | | |
 |--|--|

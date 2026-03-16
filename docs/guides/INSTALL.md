@@ -50,7 +50,7 @@ npm install -g github:yourusername/soupz-agents
 
 On first run, Soupz-Stall automatically:
 1. ✅ Creates config directories
-2. ✅ Imports personas to Kiro/BMAD
+2. ✅ Imports personas to Kiro/SOUPZ
 3. ✅ Sets up memory banks
 4. ✅ Initializes cost tracking
 
@@ -69,7 +69,7 @@ soupz-stall
 /personas
 
 # Check Kiro integration
-/bmad-agent-soupz-designer
+/soupz-agent-soupz-designer
 ```
 
 ---
@@ -95,7 +95,7 @@ npm link
 ### Personas not imported
 ```bash
 # Manual import
-cp bmad-export/*.md ~/.bmad/custom/
+cp soupz-export/*.md ~/.soupz/custom/
 ```
 
 ---

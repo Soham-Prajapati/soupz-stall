@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 
 const lanes = [
   { id: 'waiter', label: 'Waiter Intake' },
@@ -43,6 +43,11 @@ export default function App() {
   const [changes, setChanges] = useState([]);
   const [selectedFile, setSelectedFile] = useState('');
   const [selectedDiff, setSelectedDiff] = useState('');
+
+  const [wsStatus, setWsStatus] = useState('disconnected');
+  const [health, setHealth] = useState(null);
+  const ws = useRef(null);
+  const reconnectCount = useRef(0);
 
   useEffect(() => {
     localStorage.setItem('soupz_remote_url', normalizeRemoteUrl(remoteUrl));
@@ -94,18 +99,84 @@ export default function App() {
     }
   }
 
+  // WebSocket Connection Logic
   useEffect(() => {
-    loadOrders();
-    if (!token) return undefined;
-    const interval = setInterval(loadOrders, 2500);
-    return () => clearInterval(interval);
-  }, [token, remoteUrl]);
+    function connect() {
+      if (!token || !remoteUrl) return;
+      if (reconnectCount.current >= 5) return;
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = remoteUrl.replace(/^https?:/, protocol);
+      
+      const socket = new WebSocket(wsUrl);
+      ws.current = socket;
+
+      socket.onopen = () => {
+        setWsStatus('connecting');
+        socket.send(JSON.stringify({ type: 'auth', token, clientType: 'dashboard' }));
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          switch (msg.type) {
+            case 'auth_success':
+              setWsStatus('connected');
+              reconnectCount.current = 0;
+              loadOrders(); // One-time fetch on connect
+              break;
+            case 'auth_failed':
+              setWsStatus('error');
+              setToken('');
+              setApiError('Authentication failed. Check your token.');
+              break;
+            case 'health':
+              setHealth(msg.data);
+              break;
+            case 'order_update':
+              const updatedOrder = msg.data;
+              setOrders(prev => {
+                const filtered = prev.filter(o => o.id !== updatedOrder.id);
+                return [updatedOrder, ...filtered].sort((a, b) => 
+                  new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                );
+              });
+              if (selectedOrderId === updatedOrder.id) {
+                loadOrder(updatedOrder.id);
+              }
+              break;
+            case 'output':
+              // Handle terminal output if needed
+              break;
+          }
+        } catch (err) {
+          console.error('WS parse error:', err);
+        }
+      };
+
+      socket.onclose = () => {
+        setWsStatus('disconnected');
+        if (token && reconnectCount.current < 5) {
+          setTimeout(() => {
+            reconnectCount.current++;
+            connect();
+          }, 3000);
+        }
+      };
+
+      socket.onerror = () => {
+        setWsStatus('error');
+      };
+    }
+
+    connect();
+    return () => {
+      if (ws.current) ws.current.close();
+    };
+  }, [token, remoteUrl, selectedOrderId]); // Added selectedOrderId to handle detail updates properly
 
   useEffect(() => {
     loadOrder(selectedOrderId);
-    if (!selectedOrderId || !token) return undefined;
-    const interval = setInterval(() => loadOrder(selectedOrderId), 1500);
-    return () => clearInterval(interval);
   }, [selectedOrderId, token, remoteUrl]);
 
   async function submitOrder() {
@@ -119,7 +190,6 @@ export default function App() {
         body: JSON.stringify({ prompt, agent, modelPolicy }),
       });
       const id = data.order?.id;
-      await loadOrders();
       if (id) setSelectedOrderId(id);
     } catch (err) {
       setApiError(err.message);
@@ -196,7 +266,9 @@ export default function App() {
         <div className="topbar-actions">
           <input className="chip input-chip" value={remoteUrl} onChange={(e) => setRemoteUrl(e.target.value)} placeholder="http://localhost:7533" />
           <input className="chip input-chip" value={token} onChange={(e) => setToken(e.target.value)} placeholder="X-Soupz-Token" />
-          <button className={`chip ${token ? 'success' : ''}`}>{token ? 'Auth Ready' : 'Token Needed'}</button>
+          <button className={`chip ${wsStatus === 'connected' ? 'success' : wsStatus === 'connecting' ? 'warning' : 'danger'}`}>
+            {wsStatus.toUpperCase()}
+          </button>
           <button className="chip">Model Policy: {modelPolicy}</button>
           <button className="chip clickable" onClick={() => setShowChanges((v) => !v)}>
             {showChanges ? 'Hide File Changes' : 'View File Changes'}
@@ -209,7 +281,9 @@ export default function App() {
         <section className="card composer">
           <div className="section-head">
             <h2>Order Composer</h2>
-            <span className="status-dot">Live</span>
+            <span className="status-dot" style={{ backgroundColor: wsStatus === 'connected' ? 'var(--green)' : 'var(--danger)' }}>
+              {wsStatus === 'connected' ? 'Live' : 'Offline'}
+            </span>
           </div>
           <label htmlFor="prompt-input">Prompt</label>
           <textarea
@@ -229,7 +303,7 @@ export default function App() {
               <option value="balanced">Balanced</option>
               <option value="premium">Premium</option>
             </select>
-            <button className="primary" onClick={submitOrder} disabled={sending || !token}>
+            <button className="primary" onClick={submitOrder} disabled={sending || !token || wsStatus !== 'connected'}>
               {sending ? 'Sending...' : 'Send Order'}
             </button>
           </div>

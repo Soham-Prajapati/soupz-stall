@@ -37,7 +37,7 @@ Complete documentation for Soupz-Stall - The Multi-Agent AI Orchestrator
 - [Cloud Kitchen (Remote Server)](integrations/CLOUD_KITCHEN.md)
 - [Mobile IDE (App)](integrations/MOBILE_APP.md)
 - [Browser Extension (AI Vision)](integrations/BROWSER_EXTENSION.md)
-- [BMAD Import Guide](integrations/BMAD_IMPORT_GUIDE.md)
+- [SOUPZ Import Guide](integrations/SOUPZ_IMPORT_GUIDE.md)
 - [Kiro Integration](integrations/KIRO_INTEGRATION.md)
 
 ---

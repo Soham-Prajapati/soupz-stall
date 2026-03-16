@@ -473,7 +473,7 @@ Your soupz agents are now also available as Copilot CLI skills (in `/skills` pan
 |-------|-------------|
 | `soupz-designer` | Full design agency — Awwwards-quality UI, GSAP, brand |
 | `soupz-svgart` | SVG logo/icon/illustration generator |
-| `soupz-orchestrator` | BMAD-style coordinator for complex tasks |
+| `soupz-orchestrator` | SOUPZ-style coordinator for complex tasks |
 | `soupz-architect` | Tech stack, system design, API schemas |
 | `soupz-researcher` | Competitive analysis, design inspiration |
 

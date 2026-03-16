@@ -34,7 +34,7 @@ const BUILTIN_SKILLS = [
     {
         name: 'orchestrator',
         icon: '🎯',
-        description: 'BMAD-style master orchestrator — breaks down complex tasks, coordinates multi-agent workflows',
+        description: 'SOUPZ-style master orchestrator — breaks down complex tasks, coordinates multi-agent workflows',
         location: 'global',
         category: 'orchestration',
         invoke: '@orchestrator',
@@ -176,12 +176,12 @@ const BUILTIN_SKILLS = [
         capabilities: ['multi-agent', 'parallel-dispatch', 'hackathon', 'full-project'],
     },
     {
-        name: 'bmad',
+        name: 'maestro',
         icon: '⚡',
-        description: 'BMAD orchestration — party mode (fan-out to all agents) or quick-dev (architect→dev→qa pipeline). Auto-delegation via @DELEGATE[agent]: task tokens.',
+        description: 'Maestro orchestration — party mode (fan-out to all agents) or quick-dev (architect→dev→qa pipeline). Auto-delegation via @DELEGATE[agent]: task tokens.',
         location: 'global',
         category: 'orchestration',
-        invoke: '@bmad',
+        invoke: '@maestro',
         capabilities: ['party-mode', 'quick-dev', 'fan-out', 'pipeline', 'auto-delegation'],
     },
     {
