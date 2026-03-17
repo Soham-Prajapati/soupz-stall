@@ -1,6 +1,7 @@
 # Soupz Stall — Task Tracker
 
 ## ✅ Completed
+- [x] feat: add Supabase relay — CLI now syncs all tasks to cloud in real-time (46366bc)
 - [x] Delete _bmad/ folder
 - [x] Delete bmad-export/
 - [x] Delete one-time migration scripts
@@ -15,7 +16,7 @@
 - [x] THING 3: Update Rule #10 in GEMINI.md files
 - [x] CLI: Fix outdated model warnings (gpt-4.1 update)
 - [x] CLI: Fix triple status line (move to start)
-- [x] CLI: Fix tunnel message interruption (\r prefix)
+- [x] CLI: Remove debug relay console.log
 - [x] Dashboard: Create KitchenView.jsx (Pixel Art Dashboard)
 - [x] Dashboard: Integrate KitchenView into App.jsx
 - [x] Dashboard: Fix Vercel 404 (Build Output Investigation)
@@ -23,8 +24,8 @@
 - [x] Fix SyntaxError in Session.js (Duplicate statusLine)
 
 ## 🔧 In Progress
-- [/] feat: add Supabase relay — CLI now syncs all tasks to cloud in real-time
-- [/] Test relay end-to-end (Verified RELAY DEBUG shows SET)
+- [x] Test relay end-to-end (Verified RELAY DEBUG shows SET)
+- [x] Dashboard: Full UI rewrite with pixel art stalls and multi-panel layout.
 - [ ] Browser extension bridge to CLI
 - [ ] Fleet status in dashboard timeline
 - [ ] Supabase sync for MemoryPool

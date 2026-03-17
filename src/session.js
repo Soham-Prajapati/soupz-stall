@@ -441,20 +441,12 @@ export class Session {
             }
         });
 
-        // Print status line once on startup
-        const toolPart = this.activeTool || 'auto';
-        const modelPart = this.activeModel ? ` · ${this.activeModel}` : '';
-        const yoloPart = this.yolo ? ' 🔥' : '';
-        const sessPart = this.sessionName ? ` [${this.sessionName}]` : '';
-        const promptCount = this.totalPromptsSent;
-        const msgCount = this.conversationLog.length;
-        const startupStatusLine = chalk.hex('#666')(toolPart + modelPart + yoloPart + sessPart)
-            + chalk.hex('#555')('  ·  ')
-            + chalk.dim(`${msgCount} msgs · ${promptCount} sent`);
-        process.stdout.write(startupStatusLine + '\n');
-
         emitKeypressEvents(process.stdin);
         this.renderPrompt();
+        
+        // Start polling for dashboard orders
+        this._pollDashboardOrders();
+
         process.stdin.on('keypress', (ch, key) => {
             // Allow Escape even when busy (to cancel)
             if (this.busy) {
@@ -472,6 +464,27 @@ export class Session {
             }
             this.handleKeypress(ch, key);
         });
+    }
+
+    /** Polling loop to check for orders submitted from the dashboard */
+    async _pollDashboardOrders() {
+        if (!this.relay?.enabled) return;
+        try {
+            const orders = await this.relay.pollPendingOrders();
+            for (const order of orders) {
+                if (order.source === 'dashboard' && order.status === 'pending') {
+                    console.log(`\n📱 Dashboard order received: ${order.prompt}`);
+                    await this.relay.supabase
+                        .from('soupz_orders')
+                        .update({ status: 'running' })
+                        .eq('id', order.id);
+                    await this.handleInput(order.prompt);
+                }
+            }
+        } catch (err) {
+            // Silently fail to not interrupt the CLI
+        }
+        setTimeout(() => this._pollDashboardOrders(), 5000);
     }
 
     // ── Prompt (clean 2-line: status + input) ──────────────────────────────────
@@ -1524,8 +1537,7 @@ export class Session {
                 const currentIds = COPILOT_MODELS.map(m => m.id);
                 const newModels = models.filter(m => !currentIds.includes(m));
                 if (newModels.length > 0) {
-                    for (const nm of newModels) COPILOT_MODELS.push({ id: nm, desc: 'New', cost: 1 });
-                    console.log(chalk.hex('#FFD93D')(`  🆕 New Copilot models: ${newModels.join(', ')}`));
+                    console.log(chalk.hex('#4ECDC4')(`  🔪 Model: gpt-4.1`));
                 }
             }
         } catch {}

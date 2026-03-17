@@ -1,30 +1,40 @@
-# Agent 1 Output - Supabase Relay Verification
+# Last Output
 
-## Verification Steps
-1. Checked `src/supabase-relay.js`:
-   - Singleton export `export const relay = new SupabaseRelay()` is REMOVED.
-   - Replaced with `export { SupabaseRelay }; export default SupabaseRelay;`.
-2. Checked `src/session.js`:
-   - `import SupabaseRelay from './supabase-relay.js';` imports the class correctly.
-   - `this.relay = new SupabaseRelay();` is the first line of the constructor.
-   - All `relay.X()` calls are changed to `this.relay.X()`.
-3. Verified `src/auth/user-auth.js`:
-   - No imports of `relay` found.
-4. Run `soupz-stall` (node bin/soupz.js):
-   - Output: `RELAY DEBUG: { url: 'SET', key: 'SET', enabled: true }`.
-   - Fixed a `SyntaxError` in `src/session.js` where `statusLine` was redeclared.
+Timestamp: Tuesday March 17 2026 08:16 PM
 
-## Terminal Output (Partial)
-```
-[dotenv@17.3.1] injecting env (7) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
-ENV loaded: 7 vars
-RELAY DEBUG: { url: 'SET', key: 'SET', enabled: true }
+## Task: Add dashboard order polling loop
 
-       ███████╗  ██████╗  ██╗   ██╗ ██████╗  ███████╗
-       ██╔════╝ ██╔═══██╗ ██║   ██║ ██╔══██╗ ╚══███╔╝
-       ███████╗ ██║   ██║ ██║   ██║ ██████╔╝   ███╔╝ 
-       ╚════██║ ██║   ██║ ██║   ██║ ██╔═══╝   ███╔╝  
-       ███████║ ╚██████╔╝ ╚██████╔╝ ██║      ███████╗
-       ╚══════╝  ╚═════╝   ╚═════╝  ╚═╝      ╚══════╝
-                    S  T  A  L  L  v0.1-alpha
+### Changed Lines in `src/session.js`
+
+```javascript
+447:         this.renderPrompt();
+448:         
+449:         // Start polling for dashboard orders
+450:         this._pollDashboardOrders();
+451: 
+452:         process.stdin.on('keypress', (ch, key) => {
+...
+468:         });
+469:     }
+470: 
+471:     /** Polling loop to check for orders submitted from the dashboard */
+472:     async _pollDashboardOrders() {
+473:         if (!this.relay?.enabled) return;
+474:         try {
+475:             const orders = await this.relay.pollPendingOrders();
+476:             for (const order of orders) {
+477:                 if (order.source === 'dashboard' && order.status === 'pending') {
+478:                     console.log(`\n📱 Dashboard order received: ${order.prompt}`);
+479:                     await this.relay.supabase
+480:                         .from('soupz_orders')
+481:                         .update({ status: 'running' })
+482:                         .eq('id', order.id);
+483:                     await this.handleInput(order.prompt);
+484:                 }
+485:             }
+486:         } catch (err) {
+487:             // Silently fail to not interrupt the CLI
+488:         }
+489:         setTimeout(() => this._pollDashboardOrders(), 5000);
+490:     }
 ```

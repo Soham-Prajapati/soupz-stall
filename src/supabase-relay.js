@@ -9,14 +9,9 @@ class SupabaseRelay {
     const key = process.env.SOUPZ_SUPABASE_KEY 
       || process.env.SUPABASE_SERVICE_ROLE_KEY;
     this.enabled = !!(url && key);
-    this.supabase = this.enabled 
-      ? createClient(url, key) 
+    this.supabase = this.enabled
+      ? createClient(url, key)
       : null;
-    console.error('RELAY DEBUG:', {
-      url: url ? 'SET' : 'NOT SET',
-      key: key ? 'SET' : 'NOT SET', 
-      enabled: this.enabled
-    });
     this.machineId = this._getMachineId();
     this.userId = null;
     this.heartbeatInterval = null;

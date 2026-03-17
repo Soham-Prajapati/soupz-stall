@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Soupz Stalls - Terminal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #12141d;
+            --ui-panel: #202436;
+            --ui-border: #3c445c;
+            --ui-accent: #2c3664;
+            --text-green: #4ade80;
+            --text-orange: #fb923c;
+            --stall-design: #8b4e31;
+            --stall-code: #444b6e;
+            --stall-build: #3e7348;
+            --stall-strategy: #9b6b2d;
+            --stall-research: #6b448a; /* Purple */
+            --stall-deploy: #2d3b5a;
+        }
+
+        body {
+            background-color: #0b0c12;
+            color: #d1d5db;
+            font-family: 'VT323', monospace;
+            image-rendering: pixelated;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .pixel-window {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-dark);
+            border: 4px solid var(--ui-border);
+        }
+
+        /* Top Title Bar */
+        .title-bar {
+            background: var(--ui-accent);
+            height: 34px;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            border-bottom: 4px solid var(--ui-border);
+            flex-shrink: 0;
+            font-size: 14px;
+            letter-spacing: 1px;
+        }
+
+        .main-container {
+            display: flex;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        @media (max-width: 1024px) {
+            .main-container { flex-direction: column; }
+        }
+
+        /* Market Map (Left) */
+        .market-map {
+            flex-grow: 1;
+            background: #1a1c2c;
+            position: relative;
+            border-right: 4px solid var(--ui-border);
+            /* Cobblestone Pattern */
+            background-image: 
+                radial-gradient(#141624 15%, transparent 16%),
+                radial-gradient(#141624 15%, transparent 16%);
+            background-size: 40px 40px;
+            background-position: 0 0, 20px 20px;
+            overflow: hidden;
+        }
+
+        @media (max-width: 1024px) {
+            .market-map { height: 60%; border-right: none; border-bottom: 4px solid var(--ui-border); }
+        }
+
+        /* String Lights */
+        .lights {
+            position: absolute;
+            top: 25px;
+            width: 100%;
+            height: 40px;
+            display: flex;
+            justify-content: space-around;
+            z-index: 10;
+        }
+        .bulb {
+            width: 8px;
+            height: 10px;
+            background: #ffcc00;
+            border-radius: 50%;
+            box-shadow: 0 0 15px #ffcc00;
+            animation: flicker 2s infinite alternate;
+        }
+        @keyframes flicker { from { opacity: 0.6; } to { opacity: 1; } }
+
+        /* Stall Styling */
+        .stall {
+            position: absolute;
+            width: 90px;
+            height: 130px;
+            border: 3px solid #000;
+            display: flex;
+            flex-direction: column;
+            cursor: pointer;
+            transition: transform 0.1s;
+            z-index: 20;
+        }
+        .stall:hover { transform: scale(1.05); }
+        .stall-sign {
+            background: #000;
+            color: #fff;
+            text-align: center;
+            font-size: 12px;
+            padding: 2px 0;
+            box-shadow: 0 0 10px currentColor;
+            border-bottom: 2px solid #fff;
+        }
+        .stall-interior {
+            flex-grow: 1;
+            background: transparent;
+            position: relative;
+            padding: 5px;
+        }
+
+        /* Seating Area */
+        .table-group {
+            position: absolute;
+            width: 60px;
+            height: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .table { width: 40px; height: 20px; background: #5d4037; border: 2px solid #2d1b15; z-index: 5; }
+        .person { 
+            width: 16px; height: 24px; background: #d2b48c; border: 2px solid #000; 
+            position: absolute;
+        }
+        .laptop-glow { 
+            width: 12px; height: 6px; background: #00f2ff; box-shadow: 0 0 10px #00f2ff; 
+            position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
+        }
+
+        /* YOU Character */
+        .you-character .person { background: #ffdf00; border-color: #b8860b; }
+        .you-label {
+            position: absolute;
+            top: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #ffd700;
+            color: #000;
+            font-size: 10px;
+            padding: 0 4px;
+            font-weight: bold;
+            border: 1px solid #000;
+        }
+
+        /* Order Counter */
+        .order-counter {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 32px;
+            height: 50px;
+            background: #fff;
+            border: 3px solid #000;
+            z-index: 30;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            animation: bounce 2s infinite;
+        }
+        @keyframes bounce { 0%, 100% { margin-top: 0; } 50% { margin-top: -5px; } }
+
+        /* Gate Entrance */
+        .gate-area {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 80px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: none;
+            z-index: 40;
+        }
+        .gate-arch {
+            background: var(--ui-border);
+            padding: 5px 30px;
+            border: 4px solid #000;
+            border-bottom: none;
+            border-radius: 50px 50px 0 0;
+            color: white;
+            font-size: 20px;
+        }
+        .iron-fence {
+            width: 100%;
+            height: 40px;
+            background-image: repeating-linear-gradient(90deg, #111, #111 2px, transparent 2px, transparent 15px);
+            border-top: 4px solid #111;
+        }
+
+        /* Right Panel Modules */
+        .sidebar {
+            width: 400px;
+            background: var(--ui-panel);
+            border-left: 4px solid var(--ui-border);
+            display: flex;
+            flex-direction: column;
+            padding: 12px;
+            gap: 12px;
+            transition: transform 0.3s ease;
+        }
+
+        @media (max-width: 1024px) {
+            .sidebar {
+                position: absolute;
+                bottom: 44px;
+                left: 0;
+                width: 100%;
+                height: 40%;
+                transform: translateY(110%);
+                z-index: 100;
+                border-left: none;
+                border-top: 4px solid var(--ui-border);
+                box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
+            }
+            .sidebar.open { transform: translateY(0); }
+        }
+
+        .module {
+            background: var(--ui-accent);
+            border: 4px solid var(--ui-border);
+            padding: 10px;
+            position: relative;
+        }
+
+        .mod-header {
+            background: #1a1a2e;
+            margin: -10px -10px 10px -10px;
+            padding: 4px 10px;
+            font-size: 14px;
+            color: #888;
+            border-bottom: 2px solid var(--ui-border);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* Diff View Buttons */
+        .pixel-btn {
+            border: 4px solid #000;
+            padding: 6px;
+            text-transform: uppercase;
+            font-weight: bold;
+            font-size: 14px;
+            box-shadow: 3px 3px 0 #000;
+            cursor: pointer;
+        }
+        .pixel-btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0 #000; }
+        .btn-keep { background: #4ade80; color: #000; }
+        .btn-discard { background: #f87171; color: #000; }
+
+        /* Floating Token Bill Scroll */
+        #token-bill {
+            position: absolute;
+            top: 50px;
+            right: -350px; /* Hidden off-screen right */
+            width: 320px;
+            background: #fdf5e6;
+            color: #333;
+            padding: 25px;
+            border: 8px solid #d4c4a8;
+            box-shadow: 10px 10px 0 rgba(0,0,0,0.4);
+            z-index: 200;
+            transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transform: rotate(-1deg);
+        }
+        #token-bill.active { right: 20px; }
+
+        .bill-header { text-align: center; border-bottom: 2px dashed #888; padding-bottom: 10px; margin-bottom: 15px; }
+
+        /* Recent Orders List */
+        .order-item {
+            background: rgba(0,0,0,0.4);
+            margin-bottom: 5px;
+            padding: 5px 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 4px solid var(--text-green);
+            font-size: 14px;
+        }
+
+        /* Bottom Prompt Bar */
+        .prompt-bar {
+            height: 48px;
+            background: var(--ui-accent);
+            border-top: 4px solid var(--ui-border);
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+            z-index: 150;
+        }
+        .prompt-input {
+            background: #000;
+            border: none;
+            color: var(--text-green);
+            flex-grow: 1;
+            padding: 5px 10px;
+            outline: none;
+            font-size: 18px;
+        }
+        .drawer-toggle {
+            display: none;
+            background: var(--text-orange);
+            color: #000;
+            padding: 4px 12px;
+            margin-left: 10px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        @media (max-width: 1024px) { .drawer-toggle { display: block; } }
+
+    </style>
+</head>
+<body>
+
+    <div class="pixel-window">
+        <!-- Title Bar -->
+        <div class="title-bar">
+            <div class="flex gap-2 mr-4">
+                <div class="w-2.5 h-2.5 bg-red-500 rounded-full border border-black"></div>
+                <div class="w-2.5 h-2.5 bg-yellow-500 rounded-full border border-black"></div>
+                <div class="w-2.5 h-2.5 bg-green-500 rounded-full border border-black"></div>
+            </div>
+            <span class="opacity-50 uppercase tracking-widest">SOUPZ MARKET TERMINAL v4.0.0</span>
+        </div>
+
+        <div class="main-container">
+            <!-- Market Map (Left) -->
+            <div class="market-map" id="map" onclick="hideBill()">
+                <div class="lights" id="lights"></div>
+
+                <!-- Row 1 (Top) -->
+                <div class="stall" style="top: 60px; left: 15%; color: var(--stall-design);" onclick="event.stopPropagation(); triggerBill('DESIGN')">
+                    <div class="stall-sign" style="box-shadow: 0 0 10px var(--stall-design)">DESIGN</div>
+                    <div class="stall-interior">
+                        <div style="position:relative;width:100%;height:100%;overflow:hidden;">
+                          <img src="/assets/no-bg-stalls.png" style="position:absolute;top:0;left:0;width:2420px;height:1350px;margin-left:-484px;margin-top:0px;transform:scale(0.186);transform-origin:top left;image-rendering:pixelated;">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stall" style="top: 60px; left: 45%; color: var(--stall-code);" onclick="event.stopPropagation(); triggerBill('CODE')">
+                    <div class="stall-sign" style="box-shadow: 0 0 10px var(--stall-code)">CODE</div>
+                    <div class="stall-interior">
+                        <div style="position:relative;width:100%;height:100%;overflow:hidden;">
+                          <img src="/assets/no-bg-stalls.png" style="position:absolute;top:0;left:0;width:2420px;height:1350px;margin-left:-968px;margin-top:0px;transform:scale(0.186);transform-origin:top left;image-rendering:pixelated;">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stall" style="top: 60px; left: 75%; color: var(--stall-build);" onclick="event.stopPropagation(); triggerBill('BUILD')">
+                    <div class="stall-sign" style="box-shadow: 0 0 10px var(--stall-build)">BUILD</div>
+                    <div class="stall-interior">
+                        <div style="position:relative;width:100%;height:100%;overflow:hidden;">
+                          <img src="/assets/no-bg-stalls.png" style="position:absolute;top:0;left:0;width:2420px;height:1350px;margin-left:-1452px;margin-top:0px;transform:scale(0.186);transform-origin:top left;image-rendering:pixelated;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Center Seating & YOU -->
+                <div class="table-group" style="top: 50%; left: 30%;">
+                    <div class="person" style="left: -20px;"></div>
+                    <div class="table"></div>
+                    <div class="laptop-glow"></div>
+                </div>
+
+                <div class="table-group you-character" style="top: 50%; left: 70%;">
+                    <div class="you-label">YOU</div>
+                    <div class="person" style="left: -20px;"></div>
+                    <div class="table"></div>
+                    <div class="laptop-glow"></div>
+                </div>
+
+                <!-- Order Taker -->
+                <div class="order-counter" onclick="event.stopPropagation(); triggerBill('ORCHESTRATOR')">
+                    <div class="w-full h-1/2 bg-white"></div>
+                    <div class="w-4 h-3 bg-black mt-4 border border-cyan-400 shadow-[0_0_5px_#0ff]"></div>
+                </div>
+
+                <!-- Row 2 (Bottom) -->
+                <div class="stall" style="top: 65%; left: 15%; color: var(--stall-strategy);" onclick="event.stopPropagation(); triggerBill('STRATEGY')">
+                    <div class="stall-sign" style="box-shadow: 0 0 10px var(--stall-strategy)">STRATEGY</div>
+                    <div class="stall-interior">
+                        <div style="position:relative;width:100%;height:100%;overflow:hidden;">
+                          <img src="/assets/no-bg-stalls.png" style="position:absolute;top:0;left:0;width:2420px;height:1350px;margin-left:-484px;margin-top:-675px;transform:scale(0.186);transform-origin:top left;image-rendering:pixelated;">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stall" style="top: 65%; left: 45%; color: var(--stall-research);" onclick="event.stopPropagation(); triggerBill('RESEARCH')">
+                    <div class="stall-sign" style="box-shadow: 0 0 10px var(--stall-research)">RESEARCH</div>
+                    <div class="stall-interior">
+                        <div style="position:relative;width:100%;height:100%;overflow:hidden;">
+                          <img src="/assets/no-bg-stalls.png" style="position:absolute;top:0;left:0;width:2420px;height:1350px;margin-left:0px;margin-top:-675px;transform:scale(0.186);transform-origin:top left;image-rendering:pixelated;">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stall" style="top: 65%; left: 75%; color: var(--stall-deploy);" onclick="event.stopPropagation(); triggerBill('DEPLOY')">
+                    <div class="stall-sign" style="box-shadow: 0 0 10px var(--stall-deploy)">DEPLOY</div>
+                    <div class="stall-interior">
+                        <div style="position:relative;width:100%;height:100%;overflow:hidden;">
+                          <img src="/assets/no-bg-stalls.png" style="position:absolute;top:0;left:0;width:2420px;height:1350px;margin-left:-968px;margin-top:-675px;transform:scale(0.186);transform-origin:top left;image-rendering:pixelated;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Gate Area -->
+                <div class="gate-area">
+                    <div class="gate-arch">SOUPZ STALLS</div>
+                    <div class="iron-fence"></div>
+                </div>
+
+                <!-- Sliding Bill Scroll -->
+                <div id="token-bill">
+                    <div class="bill-header">
+                        <div class="text-2xl font-bold">TOKEN BILL</div>
+                        <div class="text-[10px] opacity-60">ID: <span id="bill-id">SOUPZ-STALL-X</span></div>
+                    </div>
+                    <div class="space-y-4 text-sm font-bold">
+                        <div class="flex justify-between">
+                            <span>STALL USAGE (<span id="stall-name">---</span>)</span>
+                            <span class="text-green-700">120 Tokens</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>SERVER LOAD</span>
+                            <span class="text-orange-600">40 Tokens</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>FEES</span>
+                            <span class="text-orange-600">20 Tokens</span>
+                        </div>
+                        <div class="border-t-2 border-black pt-2 mt-4 flex justify-between text-xl">
+                            <span>TOTAL:</span>
+                            <span>180 TOKENS</span>
+                        </div>
+                        <button class="pixel-btn btn-keep w-full mt-6" onclick="confirmPayment()">PAY NOW</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar (Desktop Right / Mobile Bottom Drawer) -->
+            <div class="sidebar" id="sidebar">
+                <!-- Diff Module -->
+                <div class="module">
+                    <div class="mod-header"><span>CODE DIFF VIEW</span> <span>X</span></div>
+                    <div class="bg-black p-2 font-mono text-[10px] space-y-1 mb-3">
+                        <div class="bg-red-900/40 text-red-200">- code.stall;</div>
+                        <div class="bg-green-900/40 text-green-200">+ anserted();</div>
+                        <div class="bg-green-900/40 text-green-200">+ modified();</div>
+                        <div class="bg-green-900/40 text-green-200">+ return od();</div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="pixel-btn btn-discard flex-grow">DISCARD</button>
+                        <button class="pixel-btn btn-keep flex-grow">KEEP</button>
+                    </div>
+                </div>
+
+                <!-- Recent Orders Module -->
+                <div class="module flex-grow">
+                    <div class="mod-header">RECENT ORDERS</div>
+                    <div id="orders-list">
+                        <!-- Dynamic content -->
+                    </div>
+                    <div class="mt-auto pt-4 border-t border-white/10">
+                        <div class="flex justify-between text-[10px] opacity-50 mb-2">
+                            <span>SYSTEM UPTIME</span>
+                            <span>99.98%</span>
+                        </div>
+                        <div class="h-2 w-full bg-black/40 overflow-hidden">
+                            <div class="h-full bg-green-500 w-3/4 animate-pulse"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Prompt Bar -->
+        <div class="prompt-bar">
+            <span class="text-gray-500 mr-2">></span>
+            <input type="text" class="prompt-input" id="prompt-in" placeholder="Enter Prompt for Station...">
+            <div class="drawer-toggle" onclick="toggleDrawer()">DASHBOARD</div>
+        </div>
+    </div>
+
+    <script>
+        // Init state
+        const orders = ["DESIGN", "BUILD", "CODE"];
+        const bill = document.getElementById('token-bill');
+        const sidebar = document.getElementById('sidebar');
+
+        // Render Recent Orders
+        function updateOrders() {
+            const list = document.getElementById('orders-list');
+            list.innerHTML = orders.slice(-3).reverse().map(o => `
+                <div class="order-item">
+                    <span>${o} STATION REQUEST</span>
+                    <span class="text-[10px] opacity-50">COMPLETED</span>
+                </div>
+            `).join('');
+        }
+
+        function triggerBill(stall) {
+            document.getElementById('stall-name').innerText = stall;
+            document.getElementById('bill-id').innerText = stall + "-TERMINAL-" + Math.floor(Math.random()*900 + 100);
+            bill.classList.add('active');
+        }
+
+        function hideBill() {
+            bill.classList.remove('active');
+        }
+
+        function confirmPayment() {
+            const sName = document.getElementById('stall-name').innerText;
+            orders.push(sName);
+            updateOrders();
+            hideBill();
+        }
+
+        function toggleDrawer() {
+            sidebar.classList.toggle('open');
+        }
+
+        // Init string lights
+        const lightsContainer = document.getElementById('lights');
+        for(let i=0; i<15; i++) {
+            const bulb = document.createElement('div');
+            bulb.className = 'bulb';
+            bulb.style.animationDelay = (Math.random() * 2) + 's';
+            lightsContainer.appendChild(bulb);
+        }
+
+        // Handle Enter key
+        document.getElementById('prompt-in').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const val = e.target.value;
+                if(val) triggerBill('PROMPT');
+                e.target.value = '';
+            }
+        });
+
+        // Initialize
+        updateOrders();
+    </script>
+</body>
+</html>
