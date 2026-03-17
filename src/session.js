@@ -3,6 +3,8 @@ import { emitKeypressEvents } from 'readline';
 import { homedir } from 'os';
 import { join, resolve } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, copyFileSync } from 'fs';
+import { randomUUID } from 'crypto';
+import relay from './supabase-relay.js';
 import { ContextPantry } from './core/context-pantry.js';
 import { CostTracker } from './core/cost-tracker.js';
 import { ColoredOutput } from './core/colored-output.js';
@@ -154,6 +156,8 @@ export class Session {
         this.sessionName = generateSessionName();
         this.activePersonas = [];
         this.inputBuffer = '';
+        this.currentOrderId = null;
+        this.currentOrderStartTime = null;
         this.dropdownItems = [];
         this.dropdownIndex = -1;
         this.dropdownVisible = false;
@@ -366,6 +370,12 @@ export class Session {
                 const a = this.registry.get(agentId);
                 this.getAgentTokens(agentId).out += Math.ceil(parsed.text.length / 4);
                 this.conversationLog.push({ role: 'assistant', agent: agentId, text: parsed.text, ts: Date.now() });
+                
+                // Supabase Relay: Stream chunk to cloud
+                if (this.currentOrderId) {
+                    void relay.pushChunk(this.currentOrderId, parsed.text);
+                }
+
                 // Filter out Copilot verbose usage stats logging
                 // For instance, "Total usage est:" or "API time spent:" or mock AI models usage.
                 const filteredLines = parsed.text.split('\n').filter((l) => {
@@ -1185,7 +1195,37 @@ export class Session {
             } else {
                 // Simple/focused task → single agent (still with auto-delegation parsing)
                 this.startSpinner(toolId);
+                
+                // Supabase Relay: Create order
+                this.currentOrderId = randomUUID();
+                this.currentOrderStartTime = Date.now();
+                const selectedAgent = this.registry.get(toolId);
+                await relay.createOrder({
+                    id: this.currentOrderId,
+                    prompt: input,
+                    agent: selectedAgent?.id || 'auto',
+                    runAgent: toolId,
+                    modelPolicy: this.modelPolicy || 'auto'
+                });
+
                 const result = await this.orchestrator.runOn(toolId, resolved, this.cwd);
+
+                // Supabase Relay: Complete order
+                if (this.currentOrderId) {
+                    await relay.completeOrder({
+                        id: this.currentOrderId,
+                        stdout: result?.output || '',
+                        stderr: result?.error || '',
+                        exitCode: result?.exitCode || 0,
+                        durationMs: Date.now() - this.currentOrderStartTime,
+                        gradeScore: result?.grade || 0,
+                        linesGenerated: (result?.output || '').split('\n').length,
+                        tokensUsed: result?.tokensUsed || 0,
+                        tokensSaved: result?.tokensSaved || 0
+                    });
+                    this.currentOrderId = null;
+                }
+
                 // Parse response for auto-delegations
                 if (result) await this.processDelegations(result, toolId);
             }

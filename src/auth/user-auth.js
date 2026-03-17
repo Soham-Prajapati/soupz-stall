@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import relay from '../supabase-relay.js';
 
 const AUTH_DIR = join(homedir(), '.soupz-agents', 'auth');
 const USER_FILE = join(AUTH_DIR, 'user.json');
@@ -14,6 +15,10 @@ export class UserAuth {
     constructor() {
         if (!existsSync(AUTH_DIR)) mkdirSync(AUTH_DIR, { recursive: true });
         this.user = this._loadUser();
+        if (this.user) {
+            relay.setUser(this.user.id || this.user.email);
+            void relay.registerMachine();
+        }
         this.supabase = null;
         if (SUPABASE_URL && SUPABASE_KEY) {
             this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -28,6 +33,10 @@ export class UserAuth {
     _saveUser(user) {
         this.user = user;
         writeFileSync(USER_FILE, JSON.stringify(user, null, 2));
+        if (user) {
+            relay.setUser(user.id || user.email);
+            void relay.registerMachine();
+        }
     }
 
     isLoggedIn() { return !!this.user?.id; }

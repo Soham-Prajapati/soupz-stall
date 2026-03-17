@@ -1,50 +1,58 @@
 # Last Task Output
 
-**Task:** Create Relay Tables Migration
+**Task:** Update Global and Local Gemini Rules
 **Status:** ✅ Done
 
-## Confirmation
-File created at: `supabase/migrations/20260316000200_soupz_relay_tables.sql`
+## Verification
+- **Global File Line Count:** 72
+- **Global File First 15 Lines:**
+```
+# Soham's Global Gemini Rules
+# Applies to ALL projects automatically
 
-## Full File Contents
-```sql
--- Add relay columns to existing orders table
-alter table public.soupz_orders 
-  add column if not exists user_id text,
-  add column if not exists machine_id text,
-  add column if not exists source text default 'cli';
+## Universal Workflow Rules
 
--- Real-time output streaming chunks
-create table if not exists public.soupz_output_chunks (
-  id bigserial primary key,
-  order_id text not null references public.soupz_orders(id),
-  chunk text not null,
-  created_at timestamptz not null default now()
-);
+1. **Language**: Always respond in English only. Never switch languages.
 
-create index if not exists idx_chunks_order_id
-  on public.soupz_output_chunks (order_id, created_at asc);
+2. **New Project Setup**: When starting in any new project directory,
+   check if a local .gemini.md exists in that directory.
+   If it does NOT exist, create one by copying this global file
+   and tell the user: "Created local .gemini.md — customize it 
+   for this project."
 
--- Machine heartbeat (is laptop online?)
-create table if not exists public.soupz_machines (
-  id text primary key,
-  user_id text not null,
-  name text not null default 'My Laptop',
-  last_seen timestamptz not null default now(),
-  status text not null default 'offline',
-  version text
-);
-
--- Enable Supabase real-time on these tables
-alter publication supabase_realtime 
-  add table public.soupz_orders;
-alter publication supabase_realtime 
-  add table public.soupz_output_chunks;
-alter publication supabase_realtime 
-  add table public.soupz_machines;
+3. **Output Logging**: After completing any task write TWO files
+   in the current project root:
+```
+- **Local Rule #3:**
+```
+3. **Output Logging**: After every task write BOTH:
+   - last-output.md (full raw text)
+   - last-output.html (using the HTML template from global GEMINI.md)
+   Never summarize. Full raw output always.
 ```
 
-## Tables Included
-1. `soupz_orders` (altered)
-2. `soupz_output_chunks` (new)
-3. `soupz_machines` (new)
+## Raw Shell Output
+```
+      72 /Users/shubh/.gemini/GEMINI.md
+# Soham's Global Gemini Rules
+# Applies to ALL projects automatically
+
+## Universal Workflow Rules
+
+1. **Language**: Always respond in English only. Never switch languages.
+
+2. **New Project Setup**: When starting in any new project directory,
+   check if a local .gemini.md exists in that directory.
+   If it does NOT exist, create one by copying this global file
+   and tell the user: "Created local .gemini.md — customize it 
+   for this project."
+
+3. **Output Logging**: After completing any task write TWO files
+   in the current project root:
+3. **Output Logging**: After every task write BOTH:
+   - last-output.md (full raw text)
+   - last-output.html (using the HTML template from global GEMINI.md)
+   Never summarize. Full raw output always.
+
+4. **Task Tracking**: Every project has a tasks.md with these states:
+```
