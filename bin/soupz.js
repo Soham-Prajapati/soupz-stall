@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import '/Users/shubh/Developer/soupz-agents/src/env.js';
+
 import meow from 'meow';
 import chalk from 'chalk';
 import { ensureDirectories } from '../src/config.js';

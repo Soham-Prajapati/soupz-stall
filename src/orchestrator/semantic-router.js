@@ -92,7 +92,7 @@ Task: ${prompt.slice(0, 400)}
 Answer:`;
 
         return new Promise((resolve) => {
-            const proc = execFile('gh', ['copilot', '--model', 'claude-sonnet', '-p', routingPrompt, '--allow-all-tools'], {
+            const proc = execFile('gh', ['copilot', '--model', 'gpt-4.1', '-p', routingPrompt, '--allow-all-tools'], {
                 timeout: 30000,
                 maxBuffer: 1024 * 64,
             }, (err, stdout) => {
@@ -203,7 +203,7 @@ Answer:`;
         // Layer 1: Copilot Claude Sonnet
         try {
             const result = await new Promise((resolve, reject) => {
-                execFile('gh', ['copilot', '--model', 'claude-sonnet', '-p', enginePrompt, '--allow-all-tools'], {
+                execFile('gh', ['copilot', '--model', 'gpt-4.1', '-p', enginePrompt, '--allow-all-tools'], {
                     timeout: 10000, maxBuffer: 1024 * 4,
                 }, (err, stdout) => {
                     if (err) { reject(err); return; }

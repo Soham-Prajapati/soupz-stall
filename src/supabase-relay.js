@@ -2,17 +2,21 @@ import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import os from 'os';
 
-const SUPABASE_URL = process.env.SOUPZ_SUPABASE_URL 
-  || process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SOUPZ_SUPABASE_KEY 
-  || process.env.SUPABASE_SERVICE_ROLE_KEY;
-
 class SupabaseRelay {
   constructor() {
-    this.enabled = !!(SUPABASE_URL && SUPABASE_KEY);
+    const url = process.env.SOUPZ_SUPABASE_URL 
+      || process.env.SUPABASE_URL;
+    const key = process.env.SOUPZ_SUPABASE_KEY 
+      || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    this.enabled = !!(url && key);
     this.supabase = this.enabled 
-      ? createClient(SUPABASE_URL, SUPABASE_KEY) 
+      ? createClient(url, key) 
       : null;
+    console.error('RELAY DEBUG:', {
+      url: url ? 'SET' : 'NOT SET',
+      key: key ? 'SET' : 'NOT SET', 
+      enabled: this.enabled
+    });
     this.machineId = this._getMachineId();
     this.userId = null;
     this.heartbeatInterval = null;
@@ -165,5 +169,5 @@ class SupabaseRelay {
   }
 }
 
-export const relay = new SupabaseRelay();
-export default relay;
+export { SupabaseRelay };
+export default SupabaseRelay;

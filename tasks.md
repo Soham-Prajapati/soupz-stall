@@ -10,9 +10,21 @@
 - [x] Fix remaining bmad refs in 10 files
 - [x] WebSocket upgrade (packages/dashboard/)
 - [x] Supabase relay wiring (CLI → DB)
+- [x] THING 1: Fix last-output.html (Remove auto-refresh)
+- [x] THING 2: Check git identity
+- [x] THING 3: Update Rule #10 in GEMINI.md files
+- [x] CLI: Fix outdated model warnings (gpt-4.1 update)
+- [x] CLI: Fix triple status line (move to start)
+- [x] CLI: Fix tunnel message interruption (\r prefix)
+- [x] Dashboard: Create KitchenView.jsx (Pixel Art Dashboard)
+- [x] Dashboard: Integrate KitchenView into App.jsx
+- [x] Dashboard: Fix Vercel 404 (Build Output Investigation)
+- [x] Supabase Relay Refactor (Class-based instantiation in Session)
+- [x] Fix SyntaxError in Session.js (Duplicate statusLine)
 
 ## 🔧 In Progress
-- [ ] Test relay end-to-end
+- [/] feat: add Supabase relay — CLI now syncs all tasks to cloud in real-time
+- [/] Test relay end-to-end (Verified RELAY DEBUG shows SET)
 - [ ] Browser extension bridge to CLI
 - [ ] Fleet status in dashboard timeline
 - [ ] Supabase sync for MemoryPool

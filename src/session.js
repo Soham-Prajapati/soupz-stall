@@ -4,7 +4,7 @@ import { homedir } from 'os';
 import { join, resolve } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, copyFileSync } from 'fs';
 import { randomUUID } from 'crypto';
-import relay from './supabase-relay.js';
+import SupabaseRelay from './supabase-relay.js';
 import { ContextPantry } from './core/context-pantry.js';
 import { CostTracker } from './core/cost-tracker.js';
 import { ColoredOutput } from './core/colored-output.js';
@@ -94,22 +94,10 @@ const GEMINI_MODELS = [
 
 const COPILOT_MODELS = [
     { id: 'gpt-5-mini', desc: '0x (FREE)', cost: 0 },
-    { id: 'claude-sonnet-4.6', desc: '1x (default)', cost: 1 },
-    { id: 'claude-haiku-4.5', desc: '0.33x', cost: 0.33 },
-    { id: 'gpt-5.1-codex-mini', desc: '0.33x', cost: 0.33 },
-    { id: 'claude-opus-4.6', desc: '3x', cost: 3 },
-    { id: 'claude-opus-4.6-fast', desc: '30x (Preview)', cost: 30 },
-    { id: 'claude-opus-4.5', desc: '3x', cost: 3 },
-    { id: 'claude-sonnet-4', desc: '1x', cost: 1 },
-    { id: 'gemini-3-pro-preview', desc: '1x', cost: 1 },
-    { id: 'gpt-5.4', desc: '1x', cost: 1 },
-    { id: 'gpt-5.3-codex', desc: '1x', cost: 1 },
-    { id: 'gpt-5.2-codex', desc: '1x', cost: 1 },
-    { id: 'gpt-5.2', desc: '1x', cost: 1 },
-    { id: 'gpt-5.1-codex-max', desc: '1x', cost: 1 },
+    { id: 'gpt-4.1', desc: '1x (default)', cost: 1 },
+    { id: 'gemini-2.5-pro', desc: '1x', cost: 1 },
     { id: 'gpt-5.1-codex', desc: '1x', cost: 1 },
-    { id: 'gpt-5.1', desc: '1x', cost: 1 },
-    { id: 'gpt-4.1', desc: '0x (FREE)', cost: 0 }
+    { id: 'gpt-4.1-mini', desc: '0x (FREE)', cost: 0 }
 ];
 
 const OLLAMA_MODELS = [
@@ -133,6 +121,7 @@ function generateSessionName() {
 
 export class Session {
     constructor({ registry, spawner, orchestrator, contextManager, memory, grading, auth, userAuth, cwd, compressor, preprocessor, kitchenMonitor, mcpClient, memoryPool }) {
+        this.relay = new SupabaseRelay();
         this.registry = registry;
         this.spawner = spawner;
         this.orchestrator = orchestrator;
@@ -179,6 +168,12 @@ export class Session {
 
         // Apply saved model preferences to agents on startup
         this._applyModelPrefs();
+
+        // Initialize relay with user if logged in
+        if (this.userAuth?.user) {
+            this.relay.setUser(this.userAuth.user.id || this.userAuth.user.email);
+            void this.relay.registerMachine();
+        }
     }
 
     /** Apply saved model preferences to agent build_args */
@@ -339,7 +334,7 @@ export class Session {
             '/hackathon — phased plan with chef assignments',
             '#file.js — attach file content inline',
             '↑↓ keys — navigate command history',
-            '/utensil sonnet — switch AI model (fuzzy match)',
+            '/utensil gpt-4.1 — switch AI model (fuzzy match)',
         ];
         console.log(chalk.dim(`  💡 ${tips[Math.floor(Math.random() * tips.length)]}`));
         console.log(); // bottom padding
@@ -373,7 +368,7 @@ export class Session {
                 
                 // Supabase Relay: Stream chunk to cloud
                 if (this.currentOrderId) {
-                    void relay.pushChunk(this.currentOrderId, parsed.text);
+                    void this.relay.pushChunk(this.currentOrderId, parsed.text);
                 }
 
                 // Filter out Copilot verbose usage stats logging
@@ -446,6 +441,18 @@ export class Session {
             }
         });
 
+        // Print status line once on startup
+        const toolPart = this.activeTool || 'auto';
+        const modelPart = this.activeModel ? ` · ${this.activeModel}` : '';
+        const yoloPart = this.yolo ? ' 🔥' : '';
+        const sessPart = this.sessionName ? ` [${this.sessionName}]` : '';
+        const promptCount = this.totalPromptsSent;
+        const msgCount = this.conversationLog.length;
+        const startupStatusLine = chalk.hex('#666')(toolPart + modelPart + yoloPart + sessPart)
+            + chalk.hex('#555')('  ·  ')
+            + chalk.dim(`${msgCount} msgs · ${promptCount} sent`);
+        process.stdout.write(startupStatusLine + '\n');
+
         emitKeypressEvents(process.stdin);
         this.renderPrompt();
         process.stdin.on('keypress', (ch, key) => {
@@ -498,31 +505,14 @@ export class Session {
     }
 
     renderPrompt() {
-        const cwdShort = this.cwd.replace(homedir(), '~');
-        const toolColor = this.activeTool
-            ? this.registry.get(this.activeTool)?.color || '#FFF'
-            : '#4ECDC4';
-        const toolPart = chalk.hex(toolColor)(this.activeTool || 'auto');
-        const modelPart = this.activeModel ? chalk.dim(` · ${this.activeModel}`) : '';
-        const yoloPart = this.yolo ? chalk.hex('#FF6B6B')(' 🔥') : '';
-        const sessPart = this.sessionName ? chalk.dim(` [${this.sessionName}]`) : '';
-        const promptCount = this.totalPromptsSent;
-        const msgCount = this.conversationLog.length;
-
-        // Line 1: status — cwd  tool·model  msgs  /help
-        const cloudPart = this._cloudKitchen ? chalk.hex('#4ECDC4')(' ☁️') : '';
-        const statusLine = chalk.hex('#666')(cwdShort) + '  ' + toolPart + modelPart + yoloPart + sessPart + cloudPart
-            + chalk.hex('#555')('  ·  ')
-            + chalk.dim(`${msgCount} msgs · ${promptCount} sent`);
-
-        // Line 2: ❯ input (with colorized commands)
+        // Line ❯ input (with colorized commands)
         const displayBuf = this.colorizeInput(this.inputBuffer);
 
         // Calculate how many physical lines the prompt is currently taking on screen
         if (this._prompted) {
             const cols = process.stdout.columns || 80;
             const rows = ('❯ ' + (this._lastPromptBuf || '')).split('\n');
-            let lines = 1; // 1 line for the status line above
+            let lines = 0; // Only prompt lines now
             for (const r of rows) {
                 // Determine how many lines this row wraps to (if it's long)
                 lines += Math.max(1, Math.ceil(r.length / cols));
@@ -534,7 +524,7 @@ export class Session {
             process.stdout.write('\r\x1b[J');
         }
 
-        process.stdout.write('\r\x1b[K' + statusLine + '\n' + chalk.bold.hex('#6C63FF')('❯') + ' ' + displayBuf);
+        process.stdout.write('\r\x1b[K' + chalk.bold.hex('#6C63FF')('❯') + ' ' + displayBuf);
         this._prompted = true;
         this._lastPromptBuf = this.inputBuffer;
     }
@@ -1200,7 +1190,7 @@ export class Session {
                 this.currentOrderId = randomUUID();
                 this.currentOrderStartTime = Date.now();
                 const selectedAgent = this.registry.get(toolId);
-                await relay.createOrder({
+                await this.relay.createOrder({
                     id: this.currentOrderId,
                     prompt: input,
                     agent: selectedAgent?.id || 'auto',
@@ -1212,7 +1202,7 @@ export class Session {
 
                 // Supabase Relay: Complete order
                 if (this.currentOrderId) {
-                    await relay.completeOrder({
+                    await this.relay.completeOrder({
                         id: this.currentOrderId,
                         stdout: result?.output || '',
                         stderr: result?.error || '',
@@ -1726,7 +1716,8 @@ export class Session {
                 if (match) {
                     this._tunnel = { url: match[0], proc, type: 'cloudflared' };
                     // Always show tunnel URL — this is important info even on auto-start
-                    console.log(chalk.hex('#4ECDC4')(`  🌍 Tunnel: ${match[0]}`));
+                    process.stdout.write('\r' + chalk.hex('#4ECDC4')(`  🌍 Tunnel: ${match[0]}`) + '\n');
+                    this.renderPrompt();
                     proc.stderr.removeListener('data', extractUrl);
                     proc.stdout.removeListener('data', extractUrl);
                 }
@@ -1748,7 +1739,8 @@ export class Session {
                 const match = data.toString().match(/url=(https?:\/\/[^\s]+)/);
                 if (match && !this._tunnel) {
                     this._tunnel = { url: match[1], proc, type: 'ngrok' };
-                    console.log(chalk.hex('#4ECDC4')(`  🌍 Tunnel: ${match[1]}`));
+                    process.stdout.write('\r' + chalk.hex('#4ECDC4')(`  🌍 Tunnel: ${match[1]}`) + '\n');
+                    this.renderPrompt();
                 }
             });
             proc.on('error', () => {});
@@ -1768,7 +1760,8 @@ export class Session {
                 const match = data.toString().match(/(https?:\/\/[^\s]+\.localhost\.run)/);
                 if (match && !this._tunnel) {
                     this._tunnel = { url: match[1], proc, type: 'localhost.run' };
-                    console.log(chalk.hex('#4ECDC4')(`  🌍 Tunnel: ${match[1]}`));
+                    process.stdout.write('\r' + chalk.hex('#4ECDC4')(`  🌍 Tunnel: ${match[1]}`) + '\n');
+                    this.renderPrompt();
                 }
             });
             proc.on('error', () => {
@@ -1901,6 +1894,10 @@ export class Session {
             if (!email || !password) { console.log(chalk.dim(`  Usage: /user ${sub} <email> <password>`)); return; }
             const result = sub === 'signup' ? await this.userAuth.signup(email, password) : await this.userAuth.login(email, password);
             console.log(result.success ? chalk.green(`  ✅ ${sub} successful (${result.mode})`) : chalk.red(`  ❌ ${result.error}`));
+            if (result.success && this.userAuth.user) {
+                this.relay.setUser(this.userAuth.user.id || this.userAuth.user.email);
+                await this.relay.registerMachine();
+            }
         } else if (sub === 'logout') {
             await this.userAuth.logout();
             console.log(chalk.green('  ✅ Logged out'));
@@ -2177,7 +2174,7 @@ export class Session {
                 console.log(`    ${chalk.hex('#4ECDC4')(m.id.padEnd(40))} ${chalk.dim(m.desc)}${a}`);
             }
             console.log(chalk.dim(`\n  Usage: /utensil <model name>  (case-insensitive, partial match OK)`));
-            console.log(chalk.dim(`  Example: /utensil gpt-5 mini   or   /utensil sonnet\n`));
+            console.log(chalk.dim(`  Example: /utensil gpt-5 mini   or   /utensil gpt-4.1\n`));
             return;
         }
 

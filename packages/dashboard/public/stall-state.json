@@ -1,13 +1,13 @@
 {
-  "sessionId": "57d472d4",
-  "timestamp": 1773589237877,
+  "sessionId": "5ce2d752",
+  "timestamp": 1773750667346,
   "stall": {
-    "name": "Stall 57d4",
-    "status": "cooking",
-    "uptime": 128185,
+    "name": "Stall 5ce2",
+    "status": "idle",
+    "uptime": 207609,
     "health": {
-      "cpu": 26,
-      "ram": 98
+      "cpu": 27,
+      "ram": 99
     }
   },
   "chefs": [
@@ -251,7 +251,7 @@
       "calls": 0
     },
     {
-      "id": "innovation-strategist-soupz",
+      "id": "innovation-strategist-bmad",
       "name": "Innovation Strategist (Victor)",
       "icon": "🚀",
       "color": "#FF5722",
@@ -644,8 +644,8 @@
       "color": "#6E40C9",
       "grade": 50,
       "available": true,
-      "state": "cooking",
-      "calls": 1
+      "state": "idle",
+      "calls": 0
     },
     {
       "id": "gemini",
@@ -680,52 +680,25 @@
   ],
   "orders": [
     {
-      "id": 1773589179821,
+      "id": 1773750627095,
       "prompt": "hello",
       "agent": "copilot",
       "persona": null,
-      "status": "cooking",
-      "startTime": 1773589179821
+      "status": "served",
+      "startTime": 1773750627095,
+      "duration": 28919,
+      "endTime": 1773750656014
     }
   ],
-  "activeOrders": [
-    {
-      "id": 1773589179821,
-      "prompt": "hello",
-      "agent": "copilot",
-      "persona": null,
-      "status": "cooking",
-      "startTime": 1773589179821
-    }
-  ],
+  "activeOrders": [],
   "stats": {
     "totalOrders": 1,
-    "completedOrders": 0,
+    "completedOrders": 1,
     "failedOrders": 0,
-    "avgCookTime": 0,
+    "avgCookTime": 28919,
     "personaCalls": {},
-    "toolCalls": {
-      "copilot": 1
-    },
-    "routingHistory": [
-      {
-        "timestamp": 1773589179820,
-        "agent": "copilot",
-        "persona": null,
-        "reason": "Best match: GitHub Copilot (score: 54.5)",
-        "confidence": 0.09,
-        "alternatives": [
-          {
-            "agent": "gemini",
-            "score": 50
-          },
-          {
-            "agent": "kiro",
-            "score": 47
-          }
-        ]
-      }
-    ]
+    "toolCalls": {},
+    "routingHistory": []
   },
   "recommendations": [
     {
@@ -788,7 +761,7 @@
     },
     "copilot": {
       "grade": 50,
-      "usage": 9,
+      "usage": 13,
       "name": "GitHub Copilot",
       "icon": "🐙"
     },
@@ -852,7 +825,7 @@
       "name": "Gemini",
       "icon": "🔮"
     },
-    "innovation-strategist-soupz": {
+    "innovation-strategist-bmad": {
       "grade": 50,
       "usage": 0,
       "name": "Innovation Strategist (Victor)",
