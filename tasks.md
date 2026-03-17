@@ -9,8 +9,10 @@
 - [x] Internal content replacement across 152 files
 - [x] Fix remaining bmad refs in 10 files
 - [x] WebSocket upgrade (packages/dashboard/)
+- [x] Supabase relay wiring (CLI → DB)
 
 ## 🔧 In Progress
+- [ ] Test relay end-to-end
 - [ ] Browser extension bridge to CLI
 - [ ] Fleet status in dashboard timeline
 - [ ] Supabase sync for MemoryPool
