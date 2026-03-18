@@ -22,11 +22,8 @@
 - [x] Dashboard: Fix Vercel 404 (Build Output Investigation)
 - [x] Supabase Relay Refactor (Class-based instantiation in Session)
 - [x] Fix SyntaxError in Session.js (Duplicate statusLine)
-
-## 🔧 In Progress
-- [x] Test relay end-to-end (Verified RELAY DEBUG shows SET)
-- [x] Dashboard: Full UI rewrite with pixel art stalls and multi-panel layout.
-- [ ] Browser extension bridge to CLI
+- [x] Dashboard: Full UI rewrite with Trae/Lovable IDE cockpit aesthetic.
+- [/] Browser extension bridge to CLI
 - [ ] Fleet status in dashboard timeline
 - [ ] Supabase sync for MemoryPool
 - [ ] AST/WASM agent booster

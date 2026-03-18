@@ -1,609 +1,247 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 
-const stalls = [
-  {id:'design-station',name:'Design Station',
-   emoji:'🎨',awning:'#7B2D8B',wall:'#3d1545',row:'top'},
-  {id:'code-station',name:'Code Station',
-   emoji:'💻',awning:'#E86A33',wall:'#5a2800',row:'top'},
-  {id:'build-station',name:'Build Station',
-   emoji:'🏗️',awning:'#1a5fa8',wall:'#0d2d52',row:'top'},
-  {id:'research-station',name:'Research Station',
-   emoji:'🔬',awning:'#1a7a3a',wall:'#0a3a1a',row:'bot'},
-  {id:'deploy-station',name:'Deploy Station',
-   emoji:'🚀',awning:'#444',wall:'#1a1a1a',row:'bot'},
-  {id:'order-counter',name:'Order Counter',
-   emoji:'🎯',awning:'#c45c00',wall:'#5a2800',
-   row:'center'}
+const AGENTS = [
+  { id: 'orchestrator', name: 'Orchestrator', icon: '🎯', status: 'ready', color: '#10b981', handle: '@orchestrator', desc: 'Routes to best available agent' },
+  { id: 'designer', name: 'Designer', icon: '🎨', status: 'idle', color: '#8b5cf6', handle: '@designer', desc: 'UI/UX & Brand Identity' },
+  { id: 'developer', name: 'Developer', icon: '💻', status: 'working', color: '#3b82f6', handle: '@dev', desc: 'Full-stack & Debugging' },
+  { id: 'architect', name: 'Architect', icon: '🏗️', status: 'idle', color: '#f59e0b', handle: '@architect', desc: 'System Design & APIs' },
+  { id: 'researcher', name: 'Researcher', icon: '🔬', status: 'idle', color: '#ec4899', handle: '@researcher', desc: 'Market Data & Insights' },
+  { id: 'tester', name: 'Tester', icon: '🧪', status: 'idle', color: '#ef4444', handle: '@tester', desc: 'QA & Edge Cases' },
 ];
 
-const PixelChar = ({shirtColor,hatColor,label,animate}) => (
-  <div style={{display:'flex',flexDirection:'column',
-    alignItems:'center',
-    animation:animate?'bob 2s ease-in-out infinite':'none'}}>
-    <svg width="32" height="48" viewBox="0 0 32 48">
-      <rect x="10" y="0" width="12" height="4" 
-        fill={hatColor} rx="1"/>
-      <rect x="8" y="4" width="16" height="14" 
-        fill="#FDBCB4" rx="2"/>
-      <rect x="11" y="8" width="4" height="4" 
-        fill="#333" rx="1"/>
-      <rect x="17" y="8" width="4" height="4" 
-        fill="#333" rx="1"/>
-      <rect x="13" y="14" width="6" height="2" 
-        fill="#c47c5a"/>
-      <rect x="6" y="18" width="20" height="14" 
-        fill={shirtColor} rx="1"/>
-      <rect x="2" y="18" width="4" height="10" 
-        fill={shirtColor}/>
-      <rect x="26" y="18" width="4" height="10" 
-        fill={shirtColor}/>
-      <rect x="8" y="32" width="6" height="10" 
-        fill="#555" rx="1"/>
-      <rect x="18" y="32" width="6" height="10" 
-        fill="#555" rx="1"/>
-    </svg>
-    <span style={{fontSize:'8px',color:'#FFD700',
-      marginTop:'2px',fontWeight:'bold',
-      letterSpacing:'1px'}}>{label}</span>
-  </div>
-);
+const s = {
+  app: { display: 'flex', height: '100vh', width: '100vw', background: '#09090b', color: '#fafafa', overflow: 'hidden' },
+  fleet: { width: '280px', background: '#09090b', borderRight: '1px solid #18181b', display: 'flex', flexDirection: 'column', flexShrink: 0 },
+  fleetHeader: { padding: '20px 16px', borderBottom: '1px solid #18181b', display: 'flex', alignItems: 'center', gap: '10px' },
+  brandIcon: { width: '32px', height: '32px', background: 'linear-gradient(135deg, #10b981, #3b82f6)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' },
+  brandText: { fontSize: '15px', fontWeight: '700', letterSpacing: '-0.025em' },
+  fleetList: { flex: 1, overflowY: 'auto', padding: '12px' },
+  agentCard: (isSel, color) => ({ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', marginBottom: '4px', transition: 'all 0.15s', background: isSel ? '#18181b' : 'transparent', border: isSel ? `1px solid ${color}33` : '1px solid transparent' }),
+  agentIcon: (color) => ({ width: '36px', height: '36px', background: `${color}15`, borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', border: `1px solid ${color}33` }),
+  agentStatus: (status) => ({ fontSize: '10px', fontWeight: '600', textTransform: 'uppercase', color: status === 'working' ? '#3b82f6' : '#71717a', display: 'flex', alignItems: 'center', gap: '4px' }),
+  pulse: { width: '6px', height: '6px', background: '#3b82f6', borderRadius: '50%', boxShadow: '0 0 8px #3b82f6', animation: 'pulse 1.5s infinite' },
 
-const Stall = ({id,name,emoji,awning,wall,
-                isSelected,onSelect}) => (
-  <div onClick={()=>onSelect(id)}
-    style={{cursor:'pointer',display:'flex',
-      flexDirection:'column',alignItems:'center',
-      transition:'transform 0.15s',
-      transform:isSelected?'translateY(-4px)':'none'}}>
-    <div style={{width:'120px',height:'28px',
-      background:awning,borderRadius:'4px 4px 0 0',
-      display:'flex',alignItems:'center',
-      justifyContent:'center',fontSize:'9px',
-      fontWeight:'bold',color:'rgba(255,255,255,0.9)',
-      letterSpacing:'1px',position:'relative',
-      overflow:'hidden'}}>
-      <div style={{position:'absolute',inset:0,
-        background:'repeating-linear-gradient(90deg,'+
-        'rgba(255,255,255,0.12) 0px,'+
-        'rgba(255,255,255,0.12) 8px,'+
-        'transparent 8px,transparent 16px)'}}/>
-      <span style={{position:'relative'}}>
-        {emoji} {name.split(' ')[0].toUpperCase()}
-      </span>
-    </div>
-    <div style={{width:'110px',height:'80px',
-      background:wall,borderRadius:'0 0 4px 4px',
-      border:isSelected?'2px solid #FFD700':
-        '1px solid rgba(255,255,255,0.1)',
-      boxShadow:isSelected?'0 0 16px rgba(255,215,0,0.4)':'none',
-      position:'relative',overflow:'hidden'}}>
-      <div style={{position:'absolute',top:'8px',
-        left:'8px',right:'8px',height:'36px',
-        background:'rgba(135,206,235,0.12)',
-        border:'1px solid rgba(135,206,235,0.25)',
-        borderRadius:'2px',display:'flex',
-        alignItems:'center',justifyContent:'center',
-        fontSize:'18px'}}>{emoji}</div>
-      <div style={{position:'absolute',bottom:0,
-        left:0,right:0,height:'20px',
-        background:'rgba(0,0,0,0.4)',
-        borderTop:'1px solid rgba(255,255,255,0.1)',
-        display:'flex',alignItems:'center',
-        justifyContent:'center',gap:'4px'}}>
-        {[0,1,2].map(i=>(
-          <div key={i} style={{width:'6px',height:'6px',
-            borderRadius:'50%',background:awning,
-            opacity:0.7}}/>
-        ))}
-      </div>
-    </div>
-    <div style={{width:'70px',height:'6px',
-      background:'rgba(0,0,0,0.3)',
-      borderRadius:'0 0 2px 2px'}}/>
-  </div>
-);
+  center: { flex: 1, display: 'flex', flexDirection: 'column', background: '#09090b', overflow: 'hidden' },
+  topbar: { height: '56px', background: '#09090b', borderBottom: '1px solid #18181b', display: 'flex', alignItems: 'center', padding: '0 24px', justifyContent: 'space-between' },
+  statChip: { display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: '#71717a' },
+  statItem: { display: 'flex', alignItems: 'center', gap: '4px' },
+  chatArea: { flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' },
+  msg: (role) => ({ alignSelf: role === 'user' ? 'flex-end' : 'flex-start', maxWidth: role === 'user' ? '70%' : '85%', display: 'flex', gap: '12px', alignItems: 'flex-start' }),
+  bubble: (role, color) => ({ padding: '14px 18px', borderRadius: '12px', fontSize: '14px', lineHeight: '1.6', background: role === 'user' ? `${color}cc` : '#18181b', border: role === 'user' ? 'none' : '1px solid #27272a' }),
+  thinking: { fontSize: '13px', color: '#71717a', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' },
 
-const StatusPanel = () => (
-  <div>
-    <div style={{fontSize:'11px',color:'#2FA7A0',
-      letterSpacing:'1.5px',marginBottom:'12px',
-      paddingBottom:'8px',
-      borderBottom:'1px solid #1a1a1a'}}>
-      SYSTEM STATUS
-    </div>
-    <div style={{display:'grid',
-      gridTemplateColumns:'1fr 1fr',
-      gap:'6px',marginBottom:'14px'}}>
-      {[{l:'Machine',v:'Online',c:'#4CAF50'},
-        {l:'Agent',v:'Copilot',c:'#eee'},
-        {l:'Orders',v:'1',c:'#eee'},
-        {l:'Tokens Saved',v:'142',c:'#2FA7A0'}
-      ].map(s=>(
-        <div key={s.l} style={{background:'#1a1a1a',
-          padding:'8px 10px',borderRadius:'3px',
-          border:'1px solid #222'}}>
-          <div style={{fontSize:'10px',color:'#555',
-            marginBottom:'3px'}}>{s.l}</div>
-          <div style={{fontSize:'13px',color:s.c,
-            fontWeight:'bold'}}>{s.v}</div>
-        </div>
-      ))}
-    </div>
-    <div style={{fontSize:'11px',lineHeight:'2',
-      color:'#555'}}>
-      <div>YOU → type a prompt</div>
-      <div style={{color:'#2FA7A0'}}>↓</div>
-      <div>ORDER TAKER → routes to chef</div>
-      <div style={{color:'#2FA7A0'}}>↓</div>
-      <div>CHEF → executes task</div>
-      <div style={{color:'#2FA7A0'}}>↓</div>
-      <div>RESULT → delivered to you</div>
-    </div>
-  </div>
-);
+  inputContainer: { padding: '24px', background: '#09090b', borderTop: '1px solid #18181b' },
+  inputBox: { background: '#18181b', border: '1px solid #27272a', borderRadius: '12px', padding: '8px 8px 8px 16px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' },
+  inputRow: { display: 'flex', alignItems: 'center', gap: '12px' },
+  inputField: { flex: 1, background: 'transparent', border: 'none', color: '#fafafa', outline: 'none', fontSize: '15px', padding: '8px 0' },
+  contextRow: { display: 'flex', gap: '6px', flexWrap: 'wrap' },
+  contextChip: { background: '#27272a', padding: '2px 10px', borderRadius: '6px', fontSize: '11px', color: '#a1a1aa', border: '1px solid #3f3f46', display: 'flex', alignItems: 'center', gap: '4px' },
+  planToggle: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#a1a1aa', borderLeft: '1px solid #27272a', paddingLeft: '12px', marginLeft: '8px' },
+  sendBtn: (color, disabled) => ({ background: disabled ? '#27272a' : color, color: disabled ? '#52525b' : '#fff', border: 'none', width: '36px', height: '36px', borderRadius: '8px', cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }),
 
-const BillPanel = ({data}) => (
-  <div style={{background:'linear-gradient(#f5e6c8,#e8d5a3)',
-    border:'2px solid #8B6914',borderRadius:'6px',
-    padding:'14px',color:'#2a1500'}}>
-    <div style={{textAlign:'center',fontSize:'13px',
-      fontWeight:'bold',borderBottom:'1.5px solid #8B6914',
-      paddingBottom:'8px',marginBottom:'10px'}}>
-      📜 YOUR ORDER BILL
-    </div>
-    {[{l:'Agent',v:data?.agent||'Copilot'},
-      {l:'Tokens Used',v:data?.tokensUsed||180,
-       c:'#c45c00'},
-      {l:'Tokens Saved',v:data?.tokensSaved||142,
-       c:'#2d6b2d'},
-      {l:'Duration',v:(data?.durationMs
-        ?Math.round(data.durationMs/1000)+'s':'9s')}
-    ].map(r=>(
-      <div key={r.l} style={{display:'flex',
-        justifyContent:'space-between',fontSize:'11px',
-        padding:'3px 0',
-        borderBottom:'1px dotted rgba(139,105,20,0.3)'}}>
-        <span>{r.l}</span>
-        <span style={{fontWeight:'bold',
-          color:r.c||'#2a1500'}}>{r.v}</span>
-      </div>
-    ))}
-    <div style={{display:'flex',gap:'6px',
-      marginTop:'10px'}}>
-      <button style={{flex:1,background:'#4CAF50',
-        color:'white',border:'none',padding:'6px',
-        fontFamily:'monospace',fontSize:'11px',
-        fontWeight:'bold',borderRadius:'3px',
-        cursor:'pointer'}}>✓ KEEP</button>
-      <button style={{flex:1,background:'#D64545',
-        color:'white',border:'none',padding:'6px',
-        fontFamily:'monospace',fontSize:'11px',
-        fontWeight:'bold',borderRadius:'3px',
-        cursor:'pointer'}}>✕ DISCARD</button>
-    </div>
-  </div>
-);
+  right: { width: '420px', background: '#09090b', borderLeft: '1px solid #18181b', display: 'flex', flexDirection: 'column', flexShrink: 0 },
+  tabs: { display: 'flex', borderBottom: '1px solid #18181b', padding: '0 16px' },
+  tab: (active) => ({ padding: '16px 12px', fontSize: '13px', fontWeight: '600', color: active ? '#fafafa' : '#71717a', border: 'none', background: 'none', cursor: 'pointer', borderBottom: active ? '2px solid #3b82f6' : '2px solid transparent' }),
+  panel: { flex: 1, overflowY: 'auto', padding: '20px' },
+  planCard: { background: '#18181b', border: '1px solid #27272a', borderRadius: '12px', padding: '16px', marginBottom: '12px' },
+  planStep: { display: 'flex', gap: '12px', marginBottom: '16px' },
+  stepNum: { width: '20px', height: '20px', background: '#27272a', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', flexShrink: 0 },
+  diffBox: { background: '#0c0c0e', border: '1px solid #18181b', borderRadius: '8px', padding: '12px', fontSize: '12px', fontFamily: 'JetBrains Mono, monospace', lineHeight: '1.6', overflow: 'auto' },
+};
 
-const ActivityFeed = ({orders}) => (
-  <div>
-    <div style={{fontSize:'11px',color:'#555',
-      letterSpacing:'1.5px',marginBottom:'8px',
-      textTransform:'uppercase'}}>
-      Recent Orders
-    </div>
-    {orders.map(o=>(
-      <div key={o.id} style={{background:'#1a1a1a',
-        padding:'8px',borderRadius:'3px',
-        border:'1px solid #222',marginBottom:'4px',
-        fontSize:'11px'}}>
-        <div style={{display:'flex',
-          justifyContent:'space-between',
-          marginBottom:'2px'}}>
-          <span style={{color:'#2FA7A0'}}>{o.id}</span>
-          <span style={{color:o.status==='done'?
-            '#4CAF50':'#E86A33'}}>
-            {o.status==='done'?'✓ done':'⟳ running'}
-          </span>
-        </div>
-        <div style={{color:'#555'}}>
-          {o.agent} · "{o.prompt}"
-        </div>
-      </div>
-    ))}
-  </div>
-);
-
-const KitchenView = () => {
-  const [selected,setSelected] = useState('order-counter');
-  const [prompt,setPrompt] = useState('');
-  const [activePanel,setActivePanel] = useState('status');
-  const [orders,setOrders] = useState([
-    {id:'#001',agent:'copilot',
-     status:'done',prompt:'hello'}
+export default function KitchenView() {
+  const [selected, setSelected] = useState('orchestrator');
+  const [activeTab, setActiveTab] = useState('plan');
+  const [prompt, setPrompt] = useState('');
+  const [isPlanOn, setIsPlanOn] = useState(true);
+  const [messages, setMessages] = useState([
+    { role: 'agent', agent: 'orchestrator', content: 'Ready to collaborate. Use @agent to route specifically, or just tell me your goal.' }
   ]);
+  const [isThinking, setIsThinking] = useState(false);
 
-  const selectedStall = stalls.find(s=>s.id===selected);
-  const topStalls = stalls.filter(s=>s.row==='top');
-  const botStalls = stalls.filter(s=>s.row==='bot');
+  const selectedAgent = AGENTS.find(a => a.id === selected);
 
   const handleOrder = () => {
-    if(!prompt.trim()) return;
-    const newOrder = {
-      id:'#00'+(orders.length+1),
-      agent:selected.replace('-station','')
-        .replace('-counter','orchestrator'),
-      status:'running',
-      prompt
-    };
-    setOrders(prev=>[newOrder,...prev]);
+    if (!prompt.trim() || isThinking) return;
+    const p = prompt;
     setPrompt('');
-    setTimeout(()=>{
-      setOrders(prev=>prev.map(o=>
-        o.id===newOrder.id?{...o,status:'done'}:o
-      ));
-      setActivePanel('bill');
-    },3000);
+    setIsThinking(true);
+    setMessages(prev => [...prev, { role: 'user', content: p }]);
+
+    setTimeout(() => {
+      setIsThinking(false);
+      setMessages(prev => [...prev, {
+        role: 'agent',
+        agent: selected,
+        content: `I've analyzed your request for "${p}". Starting Phase 1 of the implementation plan.`
+      }]);
+    }, 2500);
   };
 
   return (
-    <div style={{display:'flex',height:'100vh',
-      width:'100vw',background:'#0a0a0a',
-      fontFamily:'monospace',overflow:'hidden'}}>
-
-      {/* LEFT: Market View */}
-      <div style={{width:'62%',display:'flex',
-        flexDirection:'column',position:'relative',
-        overflow:'hidden'}}>
-
-        {/* Top Bar */}
-        <div style={{height:'44px',background:'#0d0d0d',
-          borderBottom:'1.5px solid #2FA7A0',
-          display:'flex',alignItems:'center',
-          padding:'0 16px',justifyContent:'space-between',
-          flexShrink:0,zIndex:20}}>
-          <div style={{color:'#2FA7A0',fontSize:'15px',
-            fontWeight:'bold',letterSpacing:'2px'}}>
-            🍜 SOUPZ STALL
-          </div>
-          <div style={{display:'flex',alignItems:'center',
-            gap:'8px',fontSize:'11px',color:'#666'}}>
-            <div style={{width:'8px',height:'8px',
-              borderRadius:'50%',background:'#4CAF50',
-              boxShadow:'0 0 6px #4CAF50'}}/>
-            <span style={{color:'#4CAF50'}}>Online</span>
-          </div>
+    <div style={s.app}>
+      {/* LEFT: FLEET */}
+      <aside style={s.fleet}>
+        <div style={s.fleetHeader}>
+          <div style={s.brandIcon}>🍜</div>
+          <div style={s.brandText}>SOUPZ STALL</div>
         </div>
-
-        {/* Game World */}
-        <div style={{flex:1,position:'relative',
-          background:'#111008',overflow:'hidden',
-          backgroundImage:'repeating-linear-gradient('+
-          '0deg,transparent,transparent 31px,'+
-          'rgba(255,255,255,0.02) 31px,'+
-          'rgba(255,255,255,0.02) 32px),'+
-          'repeating-linear-gradient(90deg,'+
-          'transparent,transparent 31px,'+
-          'rgba(255,255,255,0.02) 31px,'+
-          'rgba(255,255,255,0.02) 32px)'}}>
-
-          {/* String Lights */}
-          <div style={{position:'absolute',top:'8px',
-            left:0,right:0,display:'flex',
-            alignItems:'flex-end',
-            justifyContent:'center',
-            height:'28px',zIndex:5}}>
-            {Array.from({length:36}).map((_,i)=>{
-              const colors=['#FFD700','#E86A33','#2FA7A0'];
-              const c=colors[i%3];
-              return (
-                <div key={i} style={{display:'flex',
-                  flexDirection:'column',
-                  alignItems:'center'}}>
-                  <div style={{width:'18px',height:'1px',
-                    background:'#444'}}/>
-                  <div style={{width:'7px',height:'7px',
-                    borderRadius:'50%',background:c,
-                    boxShadow:`0 0 5px ${c}`,
-                    animation:`pulse ${1+i*0.08}s `+
-                    'ease-in-out infinite',
-                    animationDelay:`${i*0.15}s`}}/>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Top Row Stalls */}
-          <div style={{position:'absolute',top:'44px',
-            left:0,right:0,display:'flex',
-            justifyContent:'space-around',
-            padding:'0 20px'}}>
-            {topStalls.map(s=>(
-              <Stall key={s.id} {...s}
-                isSelected={selected===s.id}
-                onSelect={setSelected}/>
-            ))}
-          </div>
-
-          {/* Center: Order Counter */}
-          <div style={{position:'absolute',
-            top:'50%',left:'50%',
-            transform:'translate(-50%,-70%)',
-            display:'flex',flexDirection:'column',
-            alignItems:'center',zIndex:5}}>
-            <div onClick={()=>setSelected('order-counter')}
-              style={{cursor:'pointer',display:'flex',
-                flexDirection:'column',
-                alignItems:'center'}}>
-              <div style={{width:'150px',height:'32px',
-                background:'#c45c00',
-                borderRadius:'4px 4px 0 0',
-                display:'flex',alignItems:'center',
-                justifyContent:'center',fontSize:'10px',
-                fontWeight:'bold',color:'white',
-                letterSpacing:'1px',
-                position:'relative',overflow:'hidden'}}>
-                <div style={{position:'absolute',inset:0,
-                  background:'repeating-linear-gradient('+
-                  '90deg,rgba(255,255,255,0.1) 0px,'+
-                  'rgba(255,255,255,0.1) 8px,'+
-                  'transparent 8px,transparent 16px)'}}/>
-                <span style={{position:'relative'}}>
-                  🎯 ORDER COUNTER
-                </span>
-              </div>
-              <div style={{width:'140px',height:'70px',
-                background:'#5a2800',
-                borderRadius:'0 0 4px 4px',
-                border:selected==='order-counter'?
-                  '2px solid #FFD700':
-                  '1px solid rgba(255,255,255,0.1)',
-                boxShadow:selected==='order-counter'?
-                  '0 0 16px rgba(255,215,0,0.4)':'none',
-                position:'relative',overflow:'hidden'}}>
-                <div style={{position:'absolute',
-                  top:'6px',left:'8px',right:'8px',
-                  height:'36px',
-                  background:'rgba(135,206,235,0.1)',
-                  border:'1px solid rgba(135,206,235,0.2)',
-                  borderRadius:'2px',display:'flex',
-                  alignItems:'center',
-                  justifyContent:'center',
-                  fontSize:'20px'}}>📋</div>
-                <div style={{position:'absolute',
-                  bottom:0,left:0,right:0,height:'20px',
-                  background:'rgba(0,0,0,0.5)',
-                  borderTop:'1px solid rgba(255,255,255,0.1)',
-                  display:'flex',alignItems:'center',
-                  justifyContent:'center',fontSize:'8px',
-                  color:'#E86A33',letterSpacing:'1px'}}>
-                  ORCHESTRATOR
+        <div style={s.fleetList}>
+          <div style={{ fontSize: '11px', fontWeight: '600', color: '#52525b', padding: '0 12px 10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Agent Fleet</div>
+          {AGENTS.map(a => (
+            <div key={a.id} onClick={() => setSelected(a.id)} style={s.agentCard(selected === a.id, a.color)}>
+              <div style={s.agentIcon(a.color)}>{a.icon}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '13px', fontWeight: '600' }}>{a.name}</div>
+                <div style={s.agentStatus(a.status)}>
+                  {a.status === 'working' && <div style={s.pulse} />}
+                  {a.status === 'working' ? 'Processing' : 'Available'}
                 </div>
               </div>
             </div>
+          ))}
+        </div>
+      </aside>
 
-            {/* YOU + Benches */}
-            <div style={{display:'flex',gap:'12px',
-              alignItems:'flex-end',marginTop:'8px'}}>
-              <div style={{width:'45px',height:'14px',
-                background:'#5D3A1A',borderRadius:'2px',
-                position:'relative'}}>
-                <div style={{position:'absolute',
-                  bottom:'-5px',left:'5px',width:'7px',
-                  height:'6px',background:'#4a2e14',
-                  borderRadius:'0 0 2px 2px'}}/>
-                <div style={{position:'absolute',
-                  bottom:'-5px',right:'5px',width:'7px',
-                  height:'6px',background:'#4a2e14',
-                  borderRadius:'0 0 2px 2px'}}/>
-              </div>
-              <PixelChar shirtColor="#2FA7A0"
-                hatColor="#FFD700" label="YOU"
-                animate={true}/>
-              <div style={{width:'45px',height:'14px',
-                background:'#5D3A1A',borderRadius:'2px',
-                position:'relative'}}>
-                <div style={{position:'absolute',
-                  bottom:'-5px',left:'5px',width:'7px',
-                  height:'6px',background:'#4a2e14',
-                  borderRadius:'0 0 2px 2px'}}/>
-                <div style={{position:'absolute',
-                  bottom:'-5px',right:'5px',width:'7px',
-                  height:'6px',background:'#4a2e14',
-                  borderRadius:'0 0 2px 2px'}}/>
+      {/* CENTER: COMMAND */}
+      <main style={s.center}>
+        <div style={s.topbar}>
+          <div style={{ fontSize: '13px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ color: '#71717a' }}>Current Agent:</span>
+            <span style={{ color: selectedAgent.color }}>{selectedAgent.name}</span>
+          </div>
+          <div style={s.statChip}>
+            <div style={s.statItem}><span>12</span> <span style={{ color: '#52525b' }}>Files</span></div>
+            <div style={s.statItem}><span>4.2k</span> <span style={{ color: '#52525b' }}>Tokens</span></div>
+            <div style={{ ...s.statItem, color: '#10b981' }}><span>● Online</span></div>
+          </div>
+        </div>
+
+        <div style={s.chatArea}>
+          {messages.map((m, i) => (
+            <div key={i} style={s.msg(m.role)}>
+              {m.role === 'agent' && <div style={s.agentIcon(AGENTS.find(a => a.id === m.agent)?.color || '#3f3f46')}>{AGENTS.find(a => a.id === m.agent)?.icon}</div>}
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <div style={s.bubble(m.role, selectedAgent.color)}>{m.content}</div>
+                {m.role === 'agent' && <div style={{ fontSize: '11px', color: '#52525b', marginTop: '6px' }}>{m.agent} • Just now</div>}
               </div>
             </div>
-          </div>
-
-          {/* Bottom Row Stalls */}
-          <div style={{position:'absolute',bottom:'56px',
-            left:0,right:0,display:'flex',
-            justifyContent:'space-around',
-            padding:'0 20px'}}>
-            {botStalls.map(s=>(
-              <Stall key={s.id} {...s}
-                isSelected={selected===s.id}
-                onSelect={setSelected}/>
-            ))}
-          </div>
-
-          {/* Arch Sign */}
-          <div style={{position:'absolute',bottom:'8px',
-            left:'50%',transform:'translateX(-50%)',
-            zIndex:3}}>
-            <svg width="200" height="36"
-              viewBox="0 0 200 36">
-              <path d="M10,34 Q100,2 190,34"
-                fill="none" stroke="#E86A33"
-                strokeWidth="3"
-                strokeLinecap="round"/>
-              <text x="100" y="26"
-                textAnchor="middle" fill="#E86A33"
-                fontFamily="monospace" fontSize="9"
-                fontWeight="bold" letterSpacing="2">
-                SOUPZ STALLS
-              </text>
-            </svg>
-          </div>
-        </div>
-
-        {/* Input Bar */}
-        <div style={{height:'52px',background:'#0d0d0d',
-          borderTop:'1.5px solid #2FA7A0',
-          display:'flex',alignItems:'center',
-          padding:'0 12px',gap:'10px',
-          flexShrink:0,zIndex:10}}>
-          <div style={{display:'flex',
-            alignItems:'center',gap:'6px',
-            whiteSpace:'nowrap',fontSize:'11px',
-            fontWeight:'bold',minWidth:'120px'}}>
-            <div style={{width:'10px',height:'10px',
-              borderRadius:'2px',
-              background:selectedStall?.awning||'#E86A33'}}/>
-            <span style={{color:selectedStall?.awning||
-              '#E86A33'}}>
-              → {(selectedStall?.name||
-                'Order Counter').toUpperCase()}
-            </span>
-          </div>
-          <input
-            value={prompt}
-            onChange={e=>setPrompt(e.target.value)}
-            onKeyDown={e=>e.key==='Enter'&&handleOrder()}
-            placeholder={`Order from ${
-              selectedStall?.name||'Order Counter'}...`}
-            style={{flex:1,background:'#1a1a1a',
-              border:'1px solid #333',borderRadius:'3px',
-              padding:'6px 10px',color:'#eee',
-              fontFamily:'monospace',fontSize:'12px',
-              outline:'none'}}/>
-          <button onClick={handleOrder}
-            style={{background:'#2FA7A0',color:'#111',
-              border:'none',padding:'7px 14px',
-              fontFamily:'monospace',fontSize:'12px',
-              fontWeight:'bold',cursor:'pointer',
-              borderRadius:'3px',whiteSpace:'nowrap'}}>
-            ORDER →
-          </button>
-        </div>
-      </div>
-
-      {/* RIGHT: Panels */}
-      <div style={{flex:1,display:'flex',
-        flexDirection:'column',
-        borderLeft:'1.5px solid #1a1a1a',
-        overflow:'hidden'}}>
-
-        {/* Top Panel */}
-        <div style={{flex:'0 0 62%',
-          borderBottom:'1px solid #1a1a1a',
-          overflow:'auto',padding:'14px'}}>
-          <div style={{display:'flex',gap:'6px',
-            marginBottom:'12px'}}>
-            {['status','bill','diff'].map(p=>(
-              <button key={p}
-                onClick={()=>setActivePanel(p)}
-                style={{background:activePanel===p?
-                  '#2FA7A0':'#1a1a1a',
-                  border:activePanel===p?
-                  '1px solid #2FA7A0':
-                  '1px solid #333',
-                  color:activePanel===p?'#111':'#666',
-                  padding:'4px 10px',borderRadius:'3px',
-                  cursor:'pointer',
-                  fontFamily:'monospace',fontSize:'10px',
-                  fontWeight:activePanel===p?
-                  'bold':'normal',
-                  textTransform:'uppercase'}}>
-                {p}
-              </button>
-            ))}
-          </div>
-          {activePanel==='status' && <StatusPanel/>}
-          {activePanel==='bill' && <BillPanel data={null}/>}
-          {activePanel==='diff' && (
-            <div>
-              <div style={{fontSize:'11px',
-                color:'#2FA7A0',letterSpacing:'1.5px',
-                marginBottom:'12px'}}>
-                CODE DIFF VIEW
-              </div>
-              <div style={{display:'grid',
-                gridTemplateColumns:'1fr 1fr',
-                gap:'4px',height:'160px'}}>
-                <div style={{background:'#1a0000',
-                  padding:'8px',borderRadius:'3px',
-                  overflow:'auto'}}>
-                  <div style={{color:'#ff6b6b',
-                    fontSize:'10px',marginBottom:'4px'}}>
-                    OLD
-                  </div>
-                  <pre style={{color:'#ffaaaa',
-                    fontSize:'10px',lineHeight:1.6,
-                    margin:0}}>
-{`function route(p) {
-  return 'copilot';
-}`}
-                  </pre>
+          ))}
+          {isThinking && (
+            <div style={s.msg('agent')}>
+              <div style={s.agentIcon(selectedAgent.color)}>{selectedAgent.icon}</div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <div style={s.thinking}>
+                  <span>{selectedAgent.name} is thinking</span>
+                  <span style={{ display: 'flex', gap: '2px' }}>
+                    <span style={{ animation: 'blink 1s infinite' }}>.</span>
+                    <span style={{ animation: 'blink 1s infinite 0.2s' }}>.</span>
+                    <span style={{ animation: 'blink 1s infinite 0.4s' }}>.</span>
+                  </span>
                 </div>
-                <div style={{background:'#001a00',
-                  padding:'8px',borderRadius:'3px',
-                  overflow:'auto'}}>
-                  <div style={{color:'#6bff6b',
-                    fontSize:'10px',marginBottom:'4px'}}>
-                    NEW
-                  </div>
-                  <pre style={{color:'#aaffaa',
-                    fontSize:'10px',lineHeight:1.6,
-                    margin:0}}>
-{`function route(p) {
-  return semantic
-    Router(p).id;
-}`}
-                  </pre>
-                </div>
-              </div>
-              <div style={{display:'flex',gap:'6px',
-                marginTop:'8px'}}>
-                <button style={{flex:1,
-                  background:'#4CAF50',color:'white',
-                  border:'none',padding:'6px',
-                  fontFamily:'monospace',fontSize:'10px',
-                  fontWeight:'bold',borderRadius:'3px',
-                  cursor:'pointer'}}>
-                  ✓ KEEP
-                </button>
-                <button style={{flex:1,
-                  background:'#D64545',color:'white',
-                  border:'none',padding:'6px',
-                  fontFamily:'monospace',fontSize:'10px',
-                  fontWeight:'bold',borderRadius:'3px',
-                  cursor:'pointer'}}>
-                  ✕ DISCARD
-                </button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Bottom Panel */}
-        <div style={{flex:1,overflow:'auto',
-          padding:'14px'}}>
-          <ActivityFeed orders={orders}/>
+        <div style={s.inputContainer}>
+          <div style={s.inputBox}>
+            <div style={s.contextRow}>
+              <div style={s.contextChip}>📄 main.js</div>
+              <div style={s.contextChip}>📄 config.json</div>
+              <div style={s.contextChip}>🌐 web-context</div>
+            </div>
+            <div style={s.inputRow}>
+              <input 
+                style={s.inputField} 
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleOrder()}
+                placeholder={`Ask ${selectedAgent.name} to plan or build...`} 
+              />
+              <div style={s.planToggle}>
+                <span style={{ color: isPlanOn ? '#3b82f6' : '#71717a' }}>Plan</span>
+                <div 
+                  onClick={() => setIsPlanOn(!isPlanOn)}
+                  style={{ width: '28px', height: '16px', background: isPlanOn ? '#3b82f6' : '#27272a', borderRadius: '10px', position: 'relative', cursor: 'pointer' }}>
+                  <div style={{ width: '12px', height: '12px', background: '#fff', borderRadius: '50%', position: 'absolute', top: '2px', left: isPlanOn ? '14px' : '2px', transition: 'left 0.15s' }} />
+                </div>
+              </div>
+              <button onClick={handleOrder} style={s.sendBtn(selectedAgent.color, !prompt.trim())}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      </main>
+
+      {/* RIGHT: EXECUTION */}
+      <aside style={s.right}>
+        <div style={s.tabs}>
+          {['PLAN', 'DIFF VIEW', 'METRICS', 'HISTORY'].map(t => (
+            <button key={t} onClick={() => setActiveTab(t.toLowerCase().replace(' ', ''))} style={s.tab(activeTab === t.toLowerCase().replace(' ', ''))}>{t}</button>
+          ))}
+        </div>
+        <div style={s.panel}>
+          {activeTab === 'plan' && (
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#52525b', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Implementation Strategy</div>
+              <div style={s.planCard}>
+                <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: '#3b82f6' }}>●</span> Phase 1: Context Analysis
+                </div>
+                <div style={{ fontSize: '13px', color: '#a1a1aa', lineHeight: '1.5' }}>Scanning workspace for relevant symbols and dependencies. Mapping @developer intent to @architect specs.</div>
+              </div>
+              <div style={s.planCard}>
+                <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: '#71717a' }}>○</span> Phase 2: Implementation
+                </div>
+                <div style={{ fontSize: '13px', color: '#52525b', lineHeight: '1.5' }}>Generating surgical diffs for core logic transformation. (Awaiting Phase 1 completion)</div>
+              </div>
+            </div>
+          )}
+          {activeTab === 'diffview' && (
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#52525b', marginBottom: '12px' }}>packages/core/engine.js</div>
+              <div style={s.diffBox}>
+                <div style={{ color: '#ef4444' }}>- const legacy = await oldModel.run(p);</div>
+                <div style={{ color: '#10b981' }}>+ const response = await fleet.orchestrate(p);</div>
+                <div style={{ color: '#10b981' }}>+ return response.map(verify);</div>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                <button style={{ ...s.sendBtn('#10b981', false), width: 'auto', padding: '0 20px', fontSize: '13px', fontWeight: '600' }}>Accept Changes</button>
+                <button style={{ ...s.sendBtn('#27272a', false), width: 'auto', padding: '0 20px', fontSize: '13px', fontWeight: '600', color: '#a1a1aa' }}>Discard</button>
+              </div>
+            </div>
+          )}
+          {activeTab === 'metrics' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              {[
+                { l: 'Efficiency', v: '94%', c: '#10b981' },
+                { l: 'Latency', v: '1.2s', c: '#3b82f6' },
+                { l: 'Success', v: '99.9%', c: '#8b5cf6' },
+                { l: 'Tokens', v: '12.4k', c: '#f59e0b' },
+              ].map(m => (
+                <div key={m.l} style={{ background: '#18181b', padding: '16px', borderRadius: '10px', border: '1px solid #27272a' }}>
+                  <div style={{ fontSize: '11px', color: '#52525b', marginBottom: '4px' }}>{m.l}</div>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: m.c }}>{m.v}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </aside>
 
       <style>{`
         @keyframes pulse {
-          0%,100%{opacity:1} 50%{opacity:0.5}
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(0.9); }
         }
-        @keyframes bob {
-          0%,100%{transform:translateY(0)}
-          50%{transform:translateY(-3px)}
+        @keyframes blink {
+          0%, 100% { opacity: 0; }
+          50% { opacity: 1; }
         }
-        input:focus{border-color:#2FA7A0 !important}
       `}</style>
     </div>
   );
-};
-
-export default KitchenView;
+}

@@ -1,5 +1,4 @@
-import KitchenView from './KitchenView.jsx';
-
+import KitchenView from './KitchenView'
 export default function App() {
-  return <KitchenView />;
+  return <KitchenView />
 }
