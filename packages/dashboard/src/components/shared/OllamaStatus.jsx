@@ -30,7 +30,7 @@ export default function OllamaStatus({ useOllama, onToggle }) {
       {/* Badge button */}
       <button
         onClick={() => setOpen(v => !v)}
-        title="Using daemon to classify prompts (Copilot free -> Gemini -> Ollama -> keywords)"
+        title="Smart routing: picks best available free AI to classify your prompt"
         className={cn(
           'flex items-center gap-1.5 px-2 py-1.5 rounded-md border text-xs font-ui transition-all select-none',
           'bg-bg-elevated border-border-subtle hover:border-border-mid text-text-sec',

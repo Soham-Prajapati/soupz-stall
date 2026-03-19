@@ -82,7 +82,7 @@ function CopyButton({ text, className = '' }) {
 /* ─── Animated terminal mockup ────────────────────────────────────── */
 const TERMINAL_LINES = [
   { delay: 0,    type: 'cmd',  text: '$ npx soupz' },
-  { delay: 600,  type: 'info', text: '▸ Starting Soupz daemon v0.9.4...' },
+  { delay: 600,  type: 'info', text: '▸ Starting Soupz agent server v0.9.4...' },
   { delay: 1100, type: 'info', text: '▸ Tunnel established' },
   { delay: 1600, type: 'code', text: '' },
   { delay: 1700, type: 'pair', text: '  Pairing code:  4 7 B 2 - 9 X 1 K  ' },
@@ -623,7 +623,7 @@ export default function LandingPage({ navigate }) {
             <FeatureCard
               icon={Wifi}
               title="Zero cloud lock-in"
-              desc="Local daemon on your machine. Web UI on our servers. Your code never leaves your filesystem."
+              desc="Local agent server on your machine. Web UI on our servers. Your code never leaves your filesystem."
               delay={120}
             />
             <FeatureCard
@@ -666,7 +666,7 @@ export default function LandingPage({ navigate }) {
               <HowStep
                 number="01"
                 title="Run npx soupz"
-                desc="One command starts a local daemon and opens a secure tunnel. An 8-digit pairing code appears."
+                desc="One command starts a local agent server and opens a secure tunnel. An 8-digit pairing code appears."
                 code="npx soupz"
               />
               <HowStep
@@ -694,7 +694,7 @@ export default function LandingPage({ navigate }) {
                     <Terminal size={20} className="text-text-sec" />
                   </div>
                   <div className="text-text-pri font-ui font-medium text-sm">Your machine</div>
-                  <div className="text-text-faint font-mono text-xs">daemon + code</div>
+                  <div className="text-text-faint font-mono text-xs">server + code</div>
                 </div>
 
                 {/* Arrow */}

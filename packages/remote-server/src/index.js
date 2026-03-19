@@ -1156,7 +1156,7 @@ export function startRemoteServer(port = DEFAULT_PORT, opts = {}) {
             startCodeAutoRefresh();
 
             if (!opts.silent) {
-                console.log(`\n  \x1b[32m● Daemon running\x1b[0m  http://localhost:${port}\n`);
+                console.log(`\n  \x1b[32m● Soupz running\x1b[0m  http://localhost:${port}\n`);
             }
 
             // Start Supabase command listener (wires web IDE → local execution)
@@ -1177,7 +1177,7 @@ export function startRemoteServer(port = DEFAULT_PORT, opts = {}) {
 
         server.on('error', (err) => {
             if (err.code === 'EADDRINUSE') {
-                resolve(null); // not fatal — daemon already running
+                resolve(null); // not fatal — server already running on this port
             } else {
                 reject(err);
             }

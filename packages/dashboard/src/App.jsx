@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Terminal, Wifi, WifiOff, LogOut, Layers, Code2, Loader2 } from 'lucide-react';
+import {
+  Terminal, Wifi, WifiOff, LogOut, Layers, Code2, Loader2, Sun, Moon, Contrast,
+} from 'lucide-react';
 import { useRoute } from './hooks/useRoute';
 import ConnectPage from './components/connect/ConnectPage';
 import AuthScreen from './components/auth/AuthScreen';
@@ -14,7 +16,19 @@ import {
 } from './lib/daemon.js';
 import { cn } from './lib/cn';
 
-const MODE_KEY = 'soupz_ide_mode';
+const MODE_KEY  = 'soupz_ide_mode';
+const THEME_KEY = 'soupz_theme';
+
+const THEMES = [
+  { id: 'dark',     label: 'Dark',     icon: Moon },
+  { id: 'dim',      label: 'Dim',      icon: Contrast },
+  { id: 'midnight', label: 'Midnight', icon: Moon },
+  { id: 'light',    label: 'Light',    icon: Sun },
+];
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+}
 
 export default function App() {
   const { path, getParam, navigate } = useRoute();
@@ -22,14 +36,27 @@ export default function App() {
   const [user, setUser]           = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [mode, setMode]           = useState(() => localStorage.getItem(MODE_KEY) || 'simple');
-  const [daemonOnline, setDaemonOnline] = useState(false);
-  const [daemonMachine, setDaemonMachine] = useState(null);
+  const [theme, setTheme]         = useState(() => {
+    const saved = localStorage.getItem(THEME_KEY) || 'dark';
+    applyTheme(saved);
+    return saved;
+  });
+  const [workspaceOnline, setWorkspaceOnline] = useState(false);
+  const [workspaceMachine, setWorkspaceMachine] = useState(null);
+  const [themeOpen, setThemeOpen] = useState(false);
 
   // File/git state for ProMode
   const [fileTree, setFileTree]   = useState(null);
   const [changedFiles, setChangedFiles] = useState([]);
 
   useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
+
+  function changeTheme(t) {
+    setTheme(t);
+    localStorage.setItem(THEME_KEY, t);
+    applyTheme(t);
+    setThemeOpen(false);
+  }
 
   // Auth
   useEffect(() => {
@@ -48,12 +75,12 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Daemon health
+  // Workspace health check
   useEffect(() => {
     async function check() {
       const h = await checkDaemonHealth();
-      setDaemonOnline(h.online);
-      if (h.online) setDaemonMachine(h.machine);
+      setWorkspaceOnline(h.online);
+      if (h.online) setWorkspaceMachine(h.machine);
     }
     check();
     const id = setInterval(check, 8000);
@@ -63,26 +90,25 @@ export default function App() {
   // Supabase relay
   useEffect(() => {
     if (!user || user.id === 'local') return;
-    return subscribeToDaemon(user.id, handleDaemonResponse);
+    return subscribeToDaemon(user.id, handleWorkspaceResponse);
   }, [user]);
 
-  function handleDaemonResponse(response) {
+  function handleWorkspaceResponse(response) {
     if (response.type === 'FILE_TREE') {
       setFileTree(response.payload?.tree);
       setChangedFiles(response.payload?.changedFiles || []);
     }
   }
 
-  // Daemon interface object passed to components
-  const daemon = {
-    online: daemonOnline,
-    machine: daemonMachine,
+  // Workspace interface object passed to components
+  const workspace = {
+    online: workspaceOnline,
+    machine: workspaceMachine,
     async sendPrompt({ prompt, agentId, buildMode }, onChunk) {
-      return sendAgentPrompt(prompt, agentId, buildMode, user?.id);
+      return sendAgentPrompt(prompt, agentId, buildMode, user?.id, onChunk);
     },
     async readFile(path) {
-      const id = await readFile(path, user?.id);
-      return id; // response comes via relay
+      return readFile(path, user?.id);
     },
     async writeFile(path, content) {
       return writeFile(path, content, user?.id);
@@ -109,7 +135,7 @@ export default function App() {
     return <ConnectPage getParam={getParam} navigate={navigate} />;
   }
 
-  // /landing route — marketing / investor page, no auth needed
+  // /landing route — marketing page, no auth needed
   if (path === '/landing') {
     return <LandingPage navigate={navigate} />;
   }
@@ -131,6 +157,8 @@ export default function App() {
     return <AuthScreen supabase={supabase} onAuth={() => {}} />;
   }
 
+  const CurrentThemeIcon = THEMES.find(t => t.id === theme)?.icon || Moon;
+
   return (
     <div className="h-screen flex flex-col bg-bg-base overflow-hidden">
       {/* Nav */}
@@ -145,17 +173,50 @@ export default function App() {
 
         {/* Mode toggle */}
         <div className="flex items-center gap-0.5 bg-bg-base rounded-md p-0.5 border border-border-subtle">
-          <ModeBtn active={mode === 'simple'} onClick={() => setMode('simple')} icon={<Layers size={12} />} label="Simple" />
-          <ModeBtn active={mode === 'pro'}    onClick={() => setMode('pro')}    icon={<Code2 size={12} />}  label="Pro" />
+          <ModeBtn active={mode === 'simple'} onClick={() => setMode('simple')} icon={<Layers size={12} />} label="Chat" />
+          <ModeBtn active={mode === 'pro'}    onClick={() => setMode('pro')}    icon={<Code2 size={12} />}  label="IDE" />
         </div>
 
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Daemon status */}
-        <DaemonStatus online={daemonOnline} machine={daemonMachine} navigate={navigate} />
+        {/* Theme picker */}
+        <div className="relative">
+          <button
+            onClick={() => setThemeOpen(o => !o)}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-text-faint hover:text-text-sec hover:bg-bg-elevated transition-all"
+            title="Change theme"
+          >
+            <CurrentThemeIcon size={13} />
+          </button>
+          {themeOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setThemeOpen(false)} />
+              <div className="absolute right-0 top-8 z-40 bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden py-1 min-w-[120px]">
+                {THEMES.map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    onClick={() => changeTheme(id)}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors',
+                      theme === id
+                        ? 'text-accent bg-accent/5'
+                        : 'text-text-sec hover:text-text-pri hover:bg-bg-elevated',
+                    )}
+                  >
+                    <Icon size={12} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
 
-        {/* User */}
+        {/* Workspace status */}
+        <WorkspaceStatus online={workspaceOnline} machine={workspaceMachine} navigate={navigate} />
+
+        {/* User email */}
         {user?.email && user.id !== 'local' && (
           <span className="text-text-faint text-xs font-ui hidden md:block truncate max-w-36">{user.email}</span>
         )}
@@ -175,13 +236,13 @@ export default function App() {
 
       {/* Main */}
       <div className="flex-1 overflow-hidden min-h-0">
-        {!daemonOnline && (
-          <DaemonOfflineBanner navigate={navigate} />
+        {!workspaceOnline && (
+          <WorkspaceOfflineBanner navigate={navigate} />
         )}
         {mode === 'simple' ? (
-          <SimpleMode daemon={daemon} />
+          <SimpleMode daemon={workspace} />
         ) : (
-          <ProMode daemon={daemon} fileTree={fileTree} changedPaths={changedFiles} />
+          <ProMode daemon={workspace} fileTree={fileTree} changedPaths={changedFiles} />
         )}
       </div>
     </div>
@@ -205,11 +266,11 @@ function ModeBtn({ active, onClick, icon, label }) {
   );
 }
 
-function DaemonStatus({ online, machine, navigate }) {
+function WorkspaceStatus({ online, machine, navigate }) {
   return (
     <button
       onClick={() => !online && navigate('/connect')}
-      title={online ? `Connected: ${machine || 'your machine'}` : 'Click to connect your machine'}
+      title={online ? `Connected to ${machine || 'your machine'}` : 'Click to connect your machine'}
       className={cn(
         'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-ui transition-all',
         online
@@ -220,21 +281,21 @@ function DaemonStatus({ online, machine, navigate }) {
       {online ? (
         <><Wifi size={11} /><span className="hidden sm:block">{machine || 'Connected'}</span></>
       ) : (
-        <><WifiOff size={11} /><span className="hidden sm:block">Offline</span></>
+        <><WifiOff size={11} /><span className="hidden sm:block">Not connected</span></>
       )}
       {online && <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />}
     </button>
   );
 }
 
-function DaemonOfflineBanner({ navigate }) {
+function WorkspaceOfflineBanner({ navigate }) {
   return (
     <div className="bg-warning/5 border-b border-warning/15 px-4 py-2 flex items-center gap-3 text-xs font-ui">
       <WifiOff size={13} className="text-warning shrink-0" />
       <span className="text-text-sec">
-        Daemon not connected — run{' '}
+        Not connected — run{' '}
         <code className="font-mono text-warning bg-warning/10 px-1 rounded">npx soupz</code>
-        {' '}on your machine to start
+        {' '}in your terminal to start
       </span>
       <div className="ml-auto flex items-center gap-3 shrink-0">
         <button

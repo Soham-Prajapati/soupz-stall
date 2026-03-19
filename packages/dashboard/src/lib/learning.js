@@ -109,11 +109,17 @@ export function trackUsage(prompt, agentId, specialistId = 'auto', buildMode = '
   usage[agentId] = (usage[agentId] || 0) + 1;
   writeJSON(USAGE_KEY, usage);
 
-  // --- Auto-promote combos with 10+ uses ---
+  // --- Adaptive auto-promotion ---
+  // Threshold scales with total usage: at least 5 uses, but grows proportionally
+  // so the bar rises as the system learns more (no rigid hardcoded numbers)
   const key = comboKey(agentId, specialistId);
-  const comboCount = patterns.filter(p => comboKey(p.agentId, p.specialistId) === key).length;
+  const comboPatterns = patterns.filter(p => comboKey(p.agentId, p.specialistId) === key);
+  const comboCount = comboPatterns.length;
+  const adaptiveThreshold = Math.max(5, Math.floor(patterns.length * 0.12));
+  const comboShare = patterns.length > 0 ? comboCount / patterns.length : 0;
 
-  if (comboCount >= 10) {
+  // Promote when: enough absolute uses AND significant share of total activity
+  if (comboCount >= adaptiveThreshold && comboShare >= 0.20) {
     const existingCustom = getCustomAgents();
     const alreadyExists = existingCustom.some(
       a => a.preferredCli === agentId && a.preferredSpecialist === specialistId && a.autoCreated,
@@ -126,7 +132,6 @@ export function trackUsage(prompt, agentId, specialistId = 'auto', buildMode = '
       const specLabel = specialistId === 'auto' ? '' : ` + ${specialistId}`;
 
       // Collect the most common keywords used with this combo
-      const comboPatterns = patterns.filter(p => comboKey(p.agentId, p.specialistId) === key);
       const catCounts = {};
       for (const p of comboPatterns) {
         catCounts[p.category] = (catCounts[p.category] || 0) + 1;
@@ -295,10 +300,12 @@ export function getAgentSuggestions() {
   const suggestions = [];
 
   for (const entry of Object.values(comboCounts)) {
-    if (entry.count < 5) continue;
+    // Adaptive suggestion bar: at least 3 uses, at least 15% of total
+    const minUses = Math.max(3, Math.floor(totalPatterns * 0.08));
+    if (entry.count < minUses) continue;
 
     const confidence = entry.count / totalPatterns;
-    if (confidence < 0.7) continue;
+    if (confidence < 0.15) continue;
 
     // Skip if user already has a custom agent covering this combo
     const alreadyCovered = existingCustom.some(

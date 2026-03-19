@@ -48,7 +48,7 @@ export default function ConnectPage({ getParam, navigate }) {
         setStatus('error');
       }
     } catch {
-      setErrorMsg('Could not reach daemon — is it running?');
+      setErrorMsg('Could not connect — make sure npx soupz is running');
       setStatus('error');
     }
   }

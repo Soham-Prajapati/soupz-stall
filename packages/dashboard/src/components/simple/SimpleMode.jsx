@@ -3,7 +3,7 @@ import {
   Send, Mic, MicOff, ChevronDown, Check, X, Paperclip,
   Cpu, Palette, Code2, Search, TrendingUp, Server, DollarSign, Bot,
   Zap, BrainCircuit, Sparkles, Github, RotateCcw, Copy, CheckCheck,
-  Square,
+  Square, Volume2, VolumeX,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS, SPECIALISTS, BUILD_MODES, getAgentById } from '../../lib/agents';
@@ -87,10 +87,12 @@ export default function SimpleMode({ daemon }) {
   const [useOllama, setUseOllama] = useState(
     () => localStorage.getItem('soupz_use_ollama') !== 'false',
   );
+  const [speakingId, setSpeakingId] = useState(null); // id of message being read aloud
 
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
   const recogRef = useRef(null);
+  const utteranceRef = useRef(null);
   // abortRef lets pauseStreaming() stop mid-flight chunk processing
   const abortRef = useRef(false);
 
@@ -157,12 +159,12 @@ export default function SimpleMode({ daemon }) {
           ));
         });
       } else {
-        // No daemon — show helpful message
+        // No workspace connected — show helpful message
         await new Promise(r => setTimeout(r, 600));
         if (!abortRef.current) {
           setMessages(prev => prev.map(m =>
             m.id === aiMsg.id
-              ? { ...m, content: `**Daemon not connected.**\n\nRun \`npx soupz\` on your machine and connect via the pairing code.` }
+              ? { ...m, content: `**Not connected to your machine.**\n\nRun \`npx soupz\` in your terminal and enter the pairing code to connect.` }
               : m
           ));
         }
@@ -220,6 +222,36 @@ export default function SimpleMode({ daemon }) {
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 1500);
     });
+  }
+
+  function speakMessage(content, id) {
+    if (!window.speechSynthesis) return;
+    // Stop current utterance if any
+    window.speechSynthesis.cancel();
+    if (speakingId === id) { setSpeakingId(null); return; }
+
+    // Strip markdown for cleaner speech
+    const plainText = content
+      .replace(/```[\s\S]*?```/g, 'code block')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/#+ /g, '')
+      .trim();
+
+    const utt = new SpeechSynthesisUtterance(plainText);
+    utt.rate = 1.0;
+    utt.pitch = 1.0;
+    utt.onend = () => setSpeakingId(null);
+    utt.onerror = () => setSpeakingId(null);
+    utteranceRef.current = utt;
+    setSpeakingId(id);
+    window.speechSynthesis.speak(utt);
+  }
+
+  function stopSpeaking() {
+    window.speechSynthesis?.cancel();
+    setSpeakingId(null);
   }
 
   function clearHistory() {
@@ -353,6 +385,8 @@ export default function SimpleMode({ daemon }) {
             msg={msg}
             onCopy={copyMessage}
             copied={copiedId === msg.id}
+            onSpeak={speakMessage}
+            speaking={speakingId === msg.id}
             getIcon={getIcon}
             autoLabel={msg.autoLabel}
             onQuestionSubmit={handleQuestionSubmit}
@@ -417,14 +451,15 @@ export default function SimpleMode({ daemon }) {
           </button>
         </div>
         <p className="text-text-faint text-[11px] font-ui mt-1.5 ml-1">
-          Enter to send · Shift+Enter for newline · Hold mic to speak
+          Enter to send · Shift+Enter for newline{(window.SpeechRecognition || window.webkitSpeechRecognition) ? ' · Hold mic to speak' : ''}
+          {window.speechSynthesis ? ' · Tap speaker to read aloud' : ''}
         </p>
       </div>
     </div>
   );
 }
 
-function Message({ msg, onCopy, copied, getIcon, autoLabel, onQuestionSubmit }) {
+function Message({ msg, onCopy, copied, onSpeak, speaking, getIcon, autoLabel, onQuestionSubmit }) {
   const isUser = msg.role === 'user';
   const Icon = getIcon(msg.agentId || 'auto');
 
@@ -476,13 +511,27 @@ function Message({ msg, onCopy, copied, getIcon, autoLabel, onQuestionSubmit }) 
           )}
         </div>
         {!msg.streaming && msg.content && (
-          <button
-            onClick={() => onCopy(msg.content, msg.id)}
-            className="mt-1 ml-1 text-text-faint hover:text-text-sec transition-colors"
-            title="Copy"
-          >
-            {copied ? <CheckCheck size={11} className="text-success" /> : <Copy size={11} />}
-          </button>
+          <div className="mt-1 ml-1 flex items-center gap-2">
+            <button
+              onClick={() => onCopy(msg.content, msg.id)}
+              className="text-text-faint hover:text-text-sec transition-colors"
+              title="Copy"
+            >
+              {copied ? <CheckCheck size={11} className="text-success" /> : <Copy size={11} />}
+            </button>
+            {window.speechSynthesis && (
+              <button
+                onClick={() => onSpeak(msg.content, msg.id)}
+                className={cn(
+                  'transition-colors',
+                  speaking ? 'text-accent' : 'text-text-faint hover:text-text-sec',
+                )}
+                title={speaking ? 'Stop reading' : 'Read aloud'}
+              >
+                {speaking ? <VolumeX size={11} /> : <Volume2 size={11} />}
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
