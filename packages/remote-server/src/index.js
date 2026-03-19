@@ -16,7 +16,7 @@ try {
 import { execSync, spawn } from 'child_process';
 import crypto from 'crypto';
 
-const DEFAULT_PORT = 7533;
+const DEFAULT_PORT = 7070;
 let activePort = DEFAULT_PORT; // Track the actual bound port
 const app = express();
 const server = createServer(app);

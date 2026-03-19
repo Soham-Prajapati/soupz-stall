@@ -1668,7 +1668,7 @@ export class Session {
         try {
             const serverPath = new URL('../packages/remote-server/src/index.js', import.meta.url).href;
             const { startRemoteServer } = await import(serverPath);
-            const result = await startRemoteServer(7533, { silent: true });
+            const result = await startRemoteServer(7070, { silent: true });
             if (result) {
                 this._cloudKitchen = result;
                 if (showBanner) {

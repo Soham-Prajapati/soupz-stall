@@ -6,7 +6,7 @@
 
 import { supabase } from './supabase.js';
 
-const LOCAL_DAEMON_URL = import.meta.env.VITE_DAEMON_URL || 'http://localhost:7533';
+const LOCAL_DAEMON_URL = import.meta.env.VITE_DAEMON_URL || 'http://localhost:7070';
 let daemonChannel = null;
 let responseHandlers = new Map();
 
