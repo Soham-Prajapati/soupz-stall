@@ -5,6 +5,7 @@ import ConnectPage from './components/connect/ConnectPage';
 import AuthScreen from './components/auth/AuthScreen';
 import SimpleMode from './components/simple/SimpleMode';
 import ProMode from './components/pro/ProMode';
+import LandingPage from './components/landing/LandingPage';
 import { supabase, isSupabaseConfigured } from './lib/supabase.js';
 import {
   checkDaemonHealth, subscribeToDaemon, sendAgentPrompt,
@@ -106,6 +107,11 @@ export default function App() {
   // /connect route — no auth needed
   if (path === '/connect') {
     return <ConnectPage getParam={getParam} navigate={navigate} />;
+  }
+
+  // /landing route — marketing / investor page, no auth needed
+  if (path === '/landing') {
+    return <LandingPage navigate={navigate} />;
   }
 
   if (authLoading) {
@@ -230,12 +236,20 @@ function DaemonOfflineBanner({ navigate }) {
         <code className="font-mono text-warning bg-warning/10 px-1 rounded">npx soupz</code>
         {' '}on your machine to start
       </span>
-      <button
-        onClick={() => navigate('/connect')}
-        className="ml-auto text-accent hover:text-accent-hover transition-colors shrink-0"
-      >
-        Connect
-      </button>
+      <div className="ml-auto flex items-center gap-3 shrink-0">
+        <button
+          onClick={() => navigate('/landing')}
+          className="text-text-faint hover:text-text-sec transition-colors"
+        >
+          View demo
+        </button>
+        <button
+          onClick={() => navigate('/connect')}
+          className="text-accent hover:text-accent-hover transition-colors"
+        >
+          Connect
+        </button>
+      </div>
     </div>
   );
 }

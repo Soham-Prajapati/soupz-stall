@@ -89,6 +89,8 @@ export default function SimpleMode({ daemon }) {
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
   const recogRef = useRef(null);
+  // abortRef lets pauseStreaming() stop mid-flight chunk processing
+  const abortRef = useRef(false);
 
   // Persist messages
   useEffect(() => {
@@ -109,10 +111,10 @@ export default function SimpleMode({ daemon }) {
     return daemon.onFileChange(changes => setFileChanges(prev => [...prev, ...changes]));
   }, [daemon]);
 
-  async function sendMessage() {
-    const text = input.trim();
+  async function sendMessage(overrideText) {
+    const text = (overrideText !== undefined ? overrideText : input).trim();
     if (!text || isStreaming) return;
-    setInput('');
+    if (overrideText === undefined) setInput('');
 
     // Resolve the effective agent — run auto-selection when agentId is 'auto'
     let effectiveAgentId = agentId;
@@ -142,10 +144,12 @@ export default function SimpleMode({ daemon }) {
     };
     setMessages(prev => [...prev, userMsg, aiMsg]);
     setIsStreaming(true);
+    abortRef.current = false;
 
     try {
       if (daemon?.sendPrompt) {
         await daemon.sendPrompt({ prompt: text, agentId: effectiveAgentId, buildMode }, chunk => {
+          if (abortRef.current) return;
           setMessages(prev => prev.map(m =>
             m.id === aiMsg.id ? { ...m, content: m.content + chunk } : m
           ));
@@ -153,11 +157,13 @@ export default function SimpleMode({ daemon }) {
       } else {
         // No daemon — show helpful message
         await new Promise(r => setTimeout(r, 600));
-        setMessages(prev => prev.map(m =>
-          m.id === aiMsg.id
-            ? { ...m, content: `**Daemon not connected.**\n\nRun \`npx soupz\` on your machine and connect via the pairing code.` }
-            : m
-        ));
+        if (!abortRef.current) {
+          setMessages(prev => prev.map(m =>
+            m.id === aiMsg.id
+              ? { ...m, content: `**Daemon not connected.**\n\nRun \`npx soupz\` on your machine and connect via the pairing code.` }
+              : m
+          ));
+        }
       }
     } catch (err) {
       setMessages(prev => prev.map(m =>
@@ -166,7 +172,21 @@ export default function SimpleMode({ daemon }) {
     } finally {
       setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, streaming: false } : m));
       setIsStreaming(false);
+      abortRef.current = false;
     }
+  }
+
+  // Stop the current stream and let user type a new message to redirect
+  function pauseStreaming() {
+    abortRef.current = true;
+    setIsStreaming(false);
+    setMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m));
+  }
+
+  // Called when user submits answers to a SOUPZ_Q block
+  function handleQuestionSubmit(questions, answers) {
+    const formatted = formatAnswers(questions, answers);
+    sendMessage(`Answers to questions:\n\n${formatted}`);
   }
 
   function startVoice() {
@@ -258,6 +278,17 @@ export default function SimpleMode({ daemon }) {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Pause button — only visible while streaming */}
+          {isStreaming && (
+            <button
+              onClick={pauseStreaming}
+              title="Pause generation"
+              className="flex items-center gap-1 px-2 py-1 rounded border border-transparent text-text-faint hover:text-warning hover:bg-warning/10 hover:border-warning/20 text-xs font-ui transition-all"
+            >
+              <Square size={11} />
+              <span className="hidden sm:inline">Pause</span>
+            </button>
+          )}
           <OllamaStatus
             useOllama={useOllama}
             onToggle={v => {
@@ -319,6 +350,7 @@ export default function SimpleMode({ daemon }) {
             copied={copiedId === msg.id}
             getIcon={getIcon}
             autoLabel={msg.autoLabel}
+            onQuestionSubmit={handleQuestionSubmit}
           />
         ))}
         <div ref={bottomRef} />
