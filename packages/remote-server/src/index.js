@@ -412,6 +412,75 @@ app.get('/api/agents', (req, res) => {
     });
 });
 
+// PUBLIC: Classify a prompt to best agent (uses best available free model)
+app.post('/api/classify', express.json(), async (req, res) => {
+  const { prompt, availableAgents = [] } = req.body || {};
+  if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
+
+  const agentList = availableAgents.length ? availableAgents : ['claude-code', 'gemini', 'copilot', 'kiro', 'ollama'];
+  const specialistList = ['dev', 'architect', 'ai-engineer', 'devops', 'security', 'designer', 'ux-designer', 'researcher', 'analyst', 'strategist', 'pm', 'contentwriter', 'techwriter'];
+
+  const classifyPrompt = `Task classifier. Reply with ONLY JSON, no explanation.
+Given this task: "${prompt.slice(0, 300)}"
+Pick the best: cliAgent (one of: ${agentList.join(', ')}) and specialist (one of: ${specialistList.join(', ')})
+Reply ONLY with: {"cliAgent":"...","specialist":"..."}`;
+
+  // Try gh copilot first (free model, most capable)
+  try {
+    const out = execSync(
+      `gh copilot suggest ${JSON.stringify(classifyPrompt)} --target shell 2>/dev/null`,
+      { timeout: 5000, encoding: 'utf8' }
+    ).trim();
+    const match = out.match(/\{[\s\S]*?\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (agentList.includes(parsed.cliAgent) && specialistList.includes(parsed.specialist)) {
+        return res.json({ ...parsed, method: 'copilot' });
+      }
+    }
+  } catch { /* fall through */ }
+
+  // Try Gemini CLI
+  try {
+    const out = execSync(
+      `gemini -p ${JSON.stringify(classifyPrompt)} 2>/dev/null`,
+      { timeout: 5000, encoding: 'utf8' }
+    ).trim();
+    const match = out.match(/\{[\s\S]*?\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (agentList.includes(parsed.cliAgent) && specialistList.includes(parsed.specialist)) {
+        return res.json({ ...parsed, method: 'gemini' });
+      }
+    }
+  } catch { /* fall through */ }
+
+  // Try Ollama
+  try {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 2000);
+    const r = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'qwen2.5:0.5b', prompt: classifyPrompt, stream: false, options: { temperature: 0, num_predict: 64 } }),
+      signal: controller.signal,
+    });
+    if (r.ok) {
+      const data = await r.json();
+      const match = (data.response || '').match(/\{[\s\S]*?\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        if (agentList.includes(parsed.cliAgent)) {
+          return res.json({ ...parsed, method: 'ollama' });
+        }
+      }
+    }
+  } catch { /* fall through */ }
+
+  // Keyword fallback (done in frontend, but return 503 to signal use local)
+  return res.status(503).json({ error: 'No classifier available', method: 'local' });
+});
+
 // PUBLIC: Health check (no auth needed — useful for discovery)
 app.get('/health', (req, res) => {
     res.json({ ...getSystemHealth(), authenticated: false, port: activePort, lanIPs: getLocalIPs(), hostname: os.hostname() });
