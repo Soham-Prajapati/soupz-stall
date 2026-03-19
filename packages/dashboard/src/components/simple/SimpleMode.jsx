@@ -419,17 +419,20 @@ export default function SimpleMode({ daemon }) {
   );
 }
 
-function Message({ msg, onCopy, copied, getIcon, autoLabel }) {
+function Message({ msg, onCopy, copied, getIcon, autoLabel, onQuestionSubmit }) {
   const isUser = msg.role === 'user';
   const Icon = getIcon(msg.agentId || 'auto');
 
   if (isUser) return (
     <div className="flex justify-end">
-      <div className="max-w-[85%] sm:max-w-[70%] bg-accent/15 border border-accent/20 rounded-xl rounded-tr-sm px-3.5 py-2.5 text-text-pri text-sm font-ui leading-relaxed">
+      <div className="max-w-[85%] sm:max-w-[70%] bg-accent/15 border border-accent/20 rounded-xl rounded-tr-sm px-3.5 py-2.5 text-text-pri text-sm font-ui leading-relaxed whitespace-pre-wrap">
         {msg.content}
       </div>
     </div>
   );
+
+  // Detect [SOUPZ_Q]...[/SOUPZ_Q] in finished AI messages
+  const parsed = !msg.streaming ? parseSoupzQ(msg.content) : null;
 
   return (
     <div className="flex items-start gap-2.5">
@@ -450,6 +453,19 @@ function Message({ msg, onCopy, copied, getIcon, autoLabel }) {
             <div className="flex items-center gap-1 py-1">
               {[0,1,2].map(i => <span key={i} className="thinking-dot" style={i ? { animationDelay: `${i * 0.2}s` } : {}} />)}
             </div>
+          ) : parsed ? (
+            <>
+              {parsed.before.trim() && (
+                <div className="mb-2">{renderMarkdown(parsed.before)}</div>
+              )}
+              <InteractiveQuestions
+                data={parsed.data}
+                onSubmit={(answers) => onQuestionSubmit?.(parsed.data.questions, answers)}
+              />
+              {parsed.after.trim() && (
+                <div className="mt-2">{renderMarkdown(parsed.after)}</div>
+              )}
+            </>
           ) : (
             <div>{renderMarkdown(msg.content)}</div>
           )}

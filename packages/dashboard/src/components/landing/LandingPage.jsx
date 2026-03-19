@@ -374,13 +374,24 @@ function SectionLabel({ children }) {
 export default function LandingPage({ navigate }) {
   const NPX_CMD = 'npx soupz';
 
+  // Allow body to scroll when landing page is mounted (app shell sets overflow:hidden)
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'auto';
+    document.documentElement.style.overflow = 'auto';
+    return () => {
+      document.body.style.overflow = prev;
+      document.documentElement.style.overflow = '';
+    };
+  }, []);
+
   function handleNavToApp() {
     if (navigate) navigate('/');
   }
 
   return (
     <div
-      className="min-h-screen bg-bg-base text-text-pri font-ui overflow-x-hidden overflow-y-auto"
+      className="min-h-screen bg-bg-base text-text-pri font-ui overflow-x-hidden"
       style={{ '--header-h': '56px' }}
     >
       <InjectStyles />
