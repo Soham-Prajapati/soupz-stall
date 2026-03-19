@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   GitBranch, Plus, Minus, Check, Upload, RefreshCw, ChevronDown, ChevronRight,
+  Sparkles, Loader2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 
@@ -13,6 +14,7 @@ export default function GitPanel({ daemon }) {
   const [pushing, setPushing]   = useState(false);
   const [expandDiff, setExpandDiff] = useState(true);
   const [branch, setBranch]     = useState('main');
+  const [generatingMsg, setGeneratingMsg] = useState(false);
 
   async function refresh() {
     setLoading(true);
@@ -45,6 +47,34 @@ export default function GitPanel({ daemon }) {
       refresh();
     } catch { /* no daemon */ }
     setLoading(false);
+  }
+
+  async function generateCommitMessage() {
+    if (generatingMsg) return;
+    setGeneratingMsg(true);
+    try {
+      // Get diff for context
+      const diff = await daemon?.gitDiff?.() || {};
+      const status = await daemon?.gitStatus?.() || {};
+
+      const diffText = diff.diff || diff.content || '';
+      const changedFiles = status.files?.map(f => f.path || f).join(', ') || '';
+
+      const prompt = `Generate a concise git commit message (imperative mood, max 72 chars for subject line) for these changes:\n\nChanged files: ${changedFiles}\n\nDiff:\n${diffText.slice(0, 3000)}\n\nRespond with ONLY the commit message. No quotes, no explanation. Format: subject line, then optional blank line + bullet body.`;
+
+      let result = '';
+      if (daemon?.sendPrompt) {
+        await daemon.sendPrompt({ prompt, agentId: 'auto', buildMode: 'quick' }, (chunk, done) => {
+          result += chunk;
+          if (!done) setMessage(result.trim());
+        });
+      }
+      setMessage(result.trim() || message);
+    } catch (err) {
+      console.warn('Could not generate commit message:', err);
+    } finally {
+      setGeneratingMsg(false);
+    }
   }
 
   async function push() {
@@ -125,6 +155,18 @@ export default function GitPanel({ daemon }) {
 
       {/* Commit area */}
       <div className="border-t border-border-subtle p-3 shrink-0 space-y-2">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs font-medium text-text-faint">Commit message</span>
+          <button
+            onClick={generateCommitMessage}
+            disabled={generatingMsg || staged.length === 0}
+            title="Generate commit message with AI"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-ui text-text-faint hover:text-accent hover:bg-accent/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            {generatingMsg ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+            <span>Generate</span>
+          </button>
+        </div>
         <textarea
           value={message}
           onChange={e => setMessage(e.target.value)}
