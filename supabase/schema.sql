@@ -1,0 +1,74 @@
+-- ─── Soupz Web IDE Schema ─────────────────────────────────────────────────────
+-- Run this in your Supabase SQL editor or via supabase db push
+-- Keeps tables small: auto-deletes rows older than 1 hour
+
+-- ─── Commands (web → daemon) ──────────────────────────────────────────────────
+create table if not exists soupz_commands (
+    id          uuid primary key default gen_random_uuid(),
+    user_id     uuid not null references auth.users(id) on delete cascade,
+    type        text not null,  -- FILE_TREE, FILE_READ, FILE_WRITE, GIT_STATUS, etc.
+    payload     jsonb default '{}',
+    status      text not null default 'pending',  -- pending | running | done | error
+    created_at  timestamptz default now()
+);
+
+-- ─── Responses (daemon → web) ─────────────────────────────────────────────────
+create table if not exists soupz_responses (
+    id          uuid primary key default gen_random_uuid(),
+    command_id  uuid references soupz_commands(id) on delete cascade,
+    user_id     uuid not null references auth.users(id) on delete cascade,
+    type        text not null,
+    result      jsonb default '{}',
+    status      text not null default 'success',  -- success | error
+    created_at  timestamptz default now()
+);
+
+-- ─── Indexes ──────────────────────────────────────────────────────────────────
+create index if not exists idx_commands_user_status  on soupz_commands(user_id, status);
+create index if not exists idx_commands_created      on soupz_commands(created_at);
+create index if not exists idx_responses_command     on soupz_responses(command_id);
+create index if not exists idx_responses_user        on soupz_responses(user_id, created_at);
+
+-- ─── Row Level Security ───────────────────────────────────────────────────────
+alter table soupz_commands  enable row level security;
+alter table soupz_responses enable row level security;
+
+-- Users can only see and insert their own commands
+create policy "commands: user owns rows" on soupz_commands
+    for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Users can only see their own responses
+create policy "responses: user owns rows" on soupz_responses
+    for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Service role (daemon) can read/write all rows
+-- (The daemon uses SUPABASE_SERVICE_ROLE_KEY which bypasses RLS)
+
+-- ─── Realtime ─────────────────────────────────────────────────────────────────
+-- Enable Realtime for both tables so the daemon receives commands
+-- and the web app receives responses in real time
+alter publication supabase_realtime add table soupz_commands;
+alter publication supabase_realtime add table soupz_responses;
+
+-- ─── Auto-cleanup: delete rows older than 1 hour (keep free tier small) ───────
+create or replace function cleanup_old_soupz_rows() returns void
+language plpgsql security definer as $$
+begin
+    delete from soupz_responses where created_at < now() - interval '1 hour';
+    delete from soupz_commands  where created_at < now() - interval '1 hour'
+        and status in ('done', 'error');
+end;
+$$;
+
+-- Run cleanup every hour via pg_cron (enable pg_cron extension in Supabase dashboard first)
+-- Uncomment after enabling pg_cron:
+-- select cron.schedule('cleanup-soupz', '0 * * * *', 'select cleanup_old_soupz_rows()');
+
+-- ─── Also keep soupz_orders table small ──────────────────────────────────────
+-- Existing orders table cleanup (if you have soupz_orders from earlier setup)
+create or replace function cleanup_old_orders() returns void
+language plpgsql security definer as $$
+begin
+    delete from soupz_orders where created_at < now() - interval '7 days';
+end;
+$$;

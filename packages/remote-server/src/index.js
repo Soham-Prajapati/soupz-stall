@@ -5,9 +5,14 @@ import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { createClient } from '@supabase/supabase-js';
-const require = createRequire(import.meta.url);
-const pty = require('node-pty');
 import os from 'os';
+
+// node-pty is optional — terminal feature won't work if not installed
+let pty = null;
+try {
+    const require = createRequire(import.meta.url);
+    pty = require('node-pty');
+} catch { /* terminal feature unavailable */ }
 import { execSync, spawn } from 'child_process';
 import crypto from 'crypto';
 
@@ -78,6 +83,7 @@ function createPairingCode() {
 }
 
 let silentMode = false;
+let codeRefreshCallback = null;
 
 /** Auto-refresh: generate a new code and display it, repeat every 5 minutes */
 function startCodeAutoRefresh() {
@@ -87,8 +93,9 @@ function startCodeAutoRefresh() {
     codeRefreshTimer = setInterval(() => {
         currentPairingCode = createPairingCode();
         if (!silentMode) {
-            console.log(`\n  \x1b[38;5;214m🔑  New Order Number: ${currentPairingCode.code}\x1b[0m  \x1b[2m(auto-refreshed, expires in ${currentPairingCode.expiresIn}s)\x1b[0m`);
+            console.log(`\n  \x1b[38;5;214m🔑  New Code: ${currentPairingCode.code}\x1b[0m  \x1b[2m(auto-refreshed)\x1b[0m`);
         }
+        if (codeRefreshCallback) codeRefreshCallback(currentPairingCode);
     }, PAIRING_CODE_EXPIRY_MS);
 }
 
@@ -618,6 +625,7 @@ function getConnections() {
 
 // AUTHENTICATED: Create terminal
 app.post('/terminal', requireAuth, (req, res) => {
+    if (!pty) return res.status(503).json({ error: 'Terminal unavailable (node-pty not installed)' });
     const id = ++terminalCounter;
     const shell = process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : 'bash');
     const proc = pty.spawn(shell, [], {
@@ -647,6 +655,136 @@ app.post('/terminal', requireAuth, (req, res) => {
 
     terminals.set(id, terminal);
     res.json({ id, pid: proc.pid });
+});
+
+// ═══════════════════════════════════════════════════════════
+// FILE SYSTEM & GIT API (for web IDE)
+// ═══════════════════════════════════════════════════════════
+
+import { readdir, readFile, writeFile, stat } from 'fs/promises';
+import { existsSync } from 'fs';
+import { resolve, relative, extname } from 'path';
+
+const IGNORED_DIRS = new Set(['.git', 'node_modules', '.next', 'dist', 'build', '__pycache__', '.DS_Store']);
+const MAX_FILE_SIZE = 1024 * 1024; // 1MB max for editor
+
+async function buildFileTree(dirPath, rootPath, depth = 0) {
+    if (depth > 6) return null;
+    const entries = await readdir(dirPath, { withFileTypes: true });
+    const children = [];
+    for (const entry of entries) {
+        if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+        const fullPath = join(dirPath, entry.name);
+        const relPath = relative(rootPath, fullPath);
+        if (entry.isDirectory()) {
+            const subtree = await buildFileTree(fullPath, rootPath, depth + 1);
+            if (subtree) children.push({ name: entry.name, path: relPath, type: 'directory', children: subtree.children });
+        } else {
+            children.push({ name: entry.name, path: relPath, type: 'file' });
+        }
+    }
+    children.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+    });
+    return { name: dirPath, path: relative(rootPath, dirPath) || '.', type: 'directory', children };
+}
+
+// GET /api/fs/tree?root=/path (authenticated)
+app.get('/api/fs/tree', requireAuth, async (req, res) => {
+    const rootPath = resolve(req.query.root || REPO_ROOT || process.cwd());
+    if (!existsSync(rootPath)) return res.status(404).json({ error: 'Path not found' });
+    try {
+        const tree = await buildFileTree(rootPath, rootPath);
+        // Get changed files from git
+        let changedFiles = [];
+        try {
+            const out = execSync('git status --porcelain', { cwd: rootPath, timeout: 3000 }).toString();
+            changedFiles = out.split('\n').filter(Boolean).map(l => l.slice(3).trim());
+        } catch { /* not a git repo */ }
+        res.json({ tree, changedFiles });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/fs/file?path=/relative/path&root=/root (authenticated)
+app.get('/api/fs/file', requireAuth, async (req, res) => {
+    const rootPath = resolve(req.query.root || REPO_ROOT || process.cwd());
+    const filePath = resolve(rootPath, req.query.path || '');
+    // Security: ensure path is within root
+    if (!filePath.startsWith(rootPath)) return res.status(403).json({ error: 'Access denied' });
+    try {
+        const stats = await stat(filePath);
+        if (stats.size > MAX_FILE_SIZE) return res.status(413).json({ error: 'File too large for editor' });
+        const content = await readFile(filePath, 'utf8');
+        res.json({ content, path: req.query.path });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/fs/file — write file (authenticated)
+app.post('/api/fs/file', express.json(), requireAuth, async (req, res) => {
+    const { path: relPath, content, root } = req.body;
+    const rootPath = resolve(root || REPO_ROOT || process.cwd());
+    const filePath = resolve(rootPath, relPath);
+    if (!filePath.startsWith(rootPath)) return res.status(403).json({ error: 'Access denied' });
+    try {
+        await writeFile(filePath, content, 'utf8');
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/git/stage — stage a file (authenticated)
+app.post('/api/git/stage', express.json(), requireAuth, (req, res) => {
+    const { path: filePath, root } = req.body;
+    const cwd = root || REPO_ROOT || process.cwd();
+    try {
+        execSync(`git add -- "${filePath}"`, { cwd, timeout: 5000 });
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/git/commit (authenticated)
+app.post('/api/git/commit', express.json(), requireAuth, (req, res) => {
+    const { message, root } = req.body;
+    if (!message?.trim()) return res.status(400).json({ error: 'Commit message required' });
+    const cwd = root || REPO_ROOT || process.cwd();
+    try {
+        execSync(`git commit -m ${JSON.stringify(message)}`, { cwd, timeout: 10000 });
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/git/push (authenticated)
+app.post('/api/git/push', express.json(), requireAuth, (req, res) => {
+    const { root } = req.body || {};
+    const cwd = root || REPO_ROOT || process.cwd();
+    try {
+        const result = execSync('git push', { cwd, timeout: 30000 }).toString();
+        res.json({ ok: true, output: result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /command — unified command endpoint for web IDE (no auth for local browser)
+app.post('/command', express.json(), (req, res) => {
+    const { type, payload } = req.body;
+    // Only allow if request comes from localhost
+    const clientIP = req.ip || req.connection?.remoteAddress;
+    const isLocal = clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === '::ffff:127.0.0.1';
+    if (!isLocal) return res.status(403).json({ error: 'Remote access requires authentication via /pair' });
+
+    res.json({ ok: true, commandId: req.body.id || crypto.randomUUID() });
+    // Commands are handled asynchronously and results pushed via WebSocket
 });
 
 // AUTHENTICATED: Revoke session (logout)
@@ -765,6 +903,10 @@ wss.on('connection', (ws) => {
                 }
 
                 case 'create_terminal': {
+                    if (!pty) {
+                        ws.send(JSON.stringify({ type: 'error', message: 'Terminal unavailable (node-pty not installed)' }));
+                        break;
+                    }
                     const id = ++terminalCounter;
                     const shell = process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : 'bash');
                     const proc = pty.spawn(shell, [], {
@@ -911,40 +1053,208 @@ export function startRemoteServer(port = DEFAULT_PORT, opts = {}) {
             const localIPs = getLocalIPs();
             startCodeAutoRefresh();
 
-            const banner = `
-  \x1b[38;5;197m🫕  ═══════════════════════════════════════════\x1b[0m
-  \x1b[38;5;197m    SOUPZ CLOUD KITCHEN — Remote Stove\x1b[0m
-  \x1b[38;5;197m  ═══════════════════════════════════════════\x1b[0m
+            if (!opts.silent) {
+                console.log(`\n  \x1b[32m● Daemon running\x1b[0m  http://localhost:${port}\n`);
+            }
 
-  \x1b[1mSTOVE STATUS:\x1b[0m  \x1b[32m🔥 HOT\x1b[0m
-  \x1b[1mREST API:\x1b[0m      \x1b[34mhttp://localhost:${port}\x1b[0m
-  \x1b[1mWEBSOCKET:\x1b[0m     \x1b[34mws://localhost:${port}\x1b[0m
-${localIPs.map(ip => `  \x1b[1mLAN ACCESS:\x1b[0m    \x1b[34mws://${ip}:${port}\x1b[0m`).join('\n')}
+            // Start Supabase command listener (wires web IDE → local execution)
+            startCommandListener().catch(() => {});
 
-  \x1b[38;5;214m🔑  ORDER NUMBER:  ${currentPairingCode.code}\x1b[0m
-      \x1b[2mAuto-refreshes every ${currentPairingCode.expiresIn}s\x1b[0m
-
-  \x1b[1m📱  MOBILE:\x1b[0m  Enter code in Expo app
-  \x1b[1m🔌  BROWSER:\x1b[0m Click 🫕 extension → enter code
-
-  \x1b[38;5;197m═══════════════════════════════════════════════\x1b[0m
-`;
-            if (!opts.silent) console.log(banner);
-
-            resolve({ server, wss, port, localIPs, getCode: getCurrentCode, getConnections, stop: () => {
-                clearInterval(codeRefreshTimer);
-                server.close();
-            }});
+            const handle = {
+                server, wss, port, localIPs,
+                getCode: getCurrentCode,
+                getConnections,
+                onCodeRefresh: (cb) => { codeRefreshCallback = cb; },
+                stop: () => {
+                    clearInterval(codeRefreshTimer);
+                    server.close();
+                },
+            };
+            resolve(handle);
         });
 
         server.on('error', (err) => {
             if (err.code === 'EADDRINUSE') {
-                if (!opts.silent) console.log(`  ⚠️  Port ${port} in use — Cloud Kitchen already running`);
-                resolve(null); // not fatal — server may already be running
+                resolve(null); // not fatal — daemon already running
             } else {
                 reject(err);
             }
         });
+    });
+}
+
+// ═══════════════════════════════════════════════════════════
+// SUPABASE COMMAND LISTENER (web IDE → local execution)
+// ═══════════════════════════════════════════════════════════
+
+async function startCommandListener() {
+    if (!supabase) return;
+
+    const { data: pending } = await supabase
+        .from('soupz_commands')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true })
+        .limit(20);
+
+    for (const cmd of pending || []) {
+        executeCommand(cmd).catch(() => {});
+    }
+
+    supabase
+        .channel('soupz_cmd_listener')
+        .on('postgres_changes', {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'soupz_commands',
+        }, (payload) => {
+            executeCommand(payload.new).catch(() => {});
+        })
+        .subscribe();
+}
+
+async function executeCommand(cmd) {
+    const { id, type, payload = {}, user_id } = cmd;
+
+    await supabase.from('soupz_commands').update({ status: 'running' }).eq('id', id);
+
+    let result;
+    try {
+        switch (type) {
+            case 'FILE_TREE': {
+                const root = resolve(payload.path || process.cwd());
+                const tree = await buildFileTree(root, root);
+                let changedFiles = [];
+                try {
+                    const out = execSync('git status --porcelain', { cwd: root, timeout: 3000 }).toString();
+                    changedFiles = out.split('\n').filter(Boolean).map(l => l.slice(3).trim());
+                } catch { /* not a git repo */ }
+                result = { tree, changedFiles };
+                break;
+            }
+
+            case 'FILE_READ': {
+                const root = resolve(payload.root || process.cwd());
+                const filePath = resolve(root, payload.path || '');
+                if (!filePath.startsWith(root)) throw new Error('Access denied');
+                const stats = await stat(filePath);
+                if (stats.size > MAX_FILE_SIZE) throw new Error('File too large for editor');
+                const content = await readFile(filePath, 'utf8');
+                result = { content, path: payload.path };
+                break;
+            }
+
+            case 'FILE_WRITE': {
+                const root = resolve(payload.root || process.cwd());
+                const filePath = resolve(root, payload.path || '');
+                if (!filePath.startsWith(root)) throw new Error('Access denied');
+                await writeFile(filePath, payload.content || '', 'utf8');
+                result = { ok: true };
+                break;
+            }
+
+            case 'GIT_STATUS': {
+                const cwd = payload.path || process.cwd();
+                const out = execSync('git status --porcelain', { cwd, timeout: 5000 }).toString();
+                const files = out.split('\n').filter(Boolean).map(l => ({
+                    status: l.slice(0, 2).trim(),
+                    path: l.slice(3).trim(),
+                }));
+                result = { files };
+                break;
+            }
+
+            case 'GIT_DIFF': {
+                const cwd = payload.root || process.cwd();
+                const escaped = (payload.path || '').replace(/"/g, '\\"');
+                const diff = execSync(`git diff -- "${escaped}"`, { cwd, timeout: 5000 }).toString();
+                result = { diff, path: payload.path };
+                break;
+            }
+
+            case 'GIT_STAGE': {
+                const cwd = payload.root || process.cwd();
+                execSync(`git add -- "${(payload.path || '').replace(/"/g, '\\"')}"`, { cwd, timeout: 5000 });
+                result = { ok: true };
+                break;
+            }
+
+            case 'GIT_COMMIT': {
+                const cwd = payload.root || process.cwd();
+                execSync(`git commit -m ${JSON.stringify(payload.message || 'Update')}`, { cwd, timeout: 10000 });
+                result = { ok: true };
+                break;
+            }
+
+            case 'GIT_PUSH': {
+                const cwd = payload.root || process.cwd();
+                execSync('git push', { cwd, timeout: 30000 });
+                result = { ok: true };
+                break;
+            }
+
+            case 'AGENT_PROMPT': {
+                result = await runAgentPrompt(payload);
+                break;
+            }
+
+            default:
+                throw new Error(`Unknown command: ${type}`);
+        }
+
+        await supabase.from('soupz_responses').insert({
+            command_id: id,
+            user_id,
+            type,
+            result,
+            status: 'success',
+            created_at: new Date().toISOString(),
+        });
+        await supabase.from('soupz_commands').update({ status: 'done' }).eq('id', id);
+    } catch (err) {
+        await supabase.from('soupz_responses').insert({
+            command_id: id,
+            user_id,
+            type,
+            result: { error: err.message },
+            status: 'error',
+            created_at: new Date().toISOString(),
+        });
+        await supabase.from('soupz_commands').update({ status: 'error' }).eq('id', id);
+    }
+}
+
+async function runAgentPrompt({ prompt, agentId = 'auto', mode, cwd: workDir }) {
+    return new Promise((resolve) => {
+        const args = [CLI_ENTRY];
+        if (agentId && agentId !== 'auto') {
+            args.push('ask', agentId, prompt);
+        } else {
+            args.push('run', prompt);
+        }
+
+        const child = spawn(process.execPath, args, {
+            cwd: workDir || REPO_ROOT,
+            env: process.env,
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        let stdout = '';
+        let stderr = '';
+        child.stdout?.on('data', (d) => { stdout += d.toString(); });
+        child.stderr?.on('data', (d) => { stderr += d.toString(); });
+        child.on('close', (code) => {
+            resolve({ output: stdout.trim() || stderr.trim(), exitCode: code });
+        });
+        child.on('error', (err) => {
+            resolve({ error: err.message, exitCode: 1 });
+        });
+
+        // 5-minute timeout
+        setTimeout(() => {
+            child.kill();
+            resolve({ output: stdout.trim(), timedOut: true });
+        }, 300000);
     });
 }
 

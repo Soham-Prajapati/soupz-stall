@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { execFile } from 'child_process';
+import { callApiProvider, getBestApiProvider } from '../providers/api-runner.js';
 
 export class SemanticRouter extends EventEmitter {
     constructor(registry, contextManager, memory) {
@@ -26,6 +27,12 @@ export class SemanticRouter extends EventEmitter {
             orchestration: /\b(coordinate|orchestrate|complex|multiple.steps|end.to.end|full.project|full.stack|everything|breakdown|multi.step)\b/i,
             'file-operations': /\b(file|read|write|create|delete|search|grep|find)\b/i,
             'code-analysis': /\b(analyze|review|inspect|check|lint|format|structure)\b/i,
+            finance: /\b(finance|financial|revenue|profit|loss|cash.?flow|valuation|DCF|IRR|NPV|cap.?table|funding|runway|burn|EBITDA|LTV|CAC|payback|raise|Series|seed.?round|unit.?economics)\b/i,
+            legal: /\b(legal|contract|terms|privacy|GDPR|compliance|liability|IP|trademark|copyright|NDA|SAFE|incorporation|equity|vesting)\b/i,
+            growth: /\b(growth|viral|retention|churn|conversion|funnel|A.?B.?test|DAU|MAU|activation|onboarding|referral|NPS|engagement|product.?led|PLG)\b/i,
+            mobile: /\b(mobile|iOS|Android|React.?Native|Expo|app|phone|tablet|native|push.?notification|App.?Store|Play.?Store)\b/i,
+            'ai-engineering': /\b(LLM|GPT|Claude|Gemini|embedding|vector|RAG|retrieval|fine.?tune|prompt|MCP|tool.?use|function.?calling|inference|token|context.?window|langchain)\b/i,
+            security: /\b(security|OWASP|vulnerability|auth|authentication|authorization|XSS|CSRF|injection|encrypt|token|JWT|session|pentest|threat)\b/i,
         };
     }
 
@@ -73,6 +80,25 @@ Answer:`;
             if (!match) match = candidates.find(c => picked.includes(c.id) || c.id.includes(picked));
             if (!match) match = candidates.find(c => c.name.toLowerCase().includes(picked));
             if (match) return { agent: match.id, name: match.name, method: 'ai' };
+        } catch { /* fall through */ }
+        return null;
+    }
+
+    /** Route via API key provider (Anthropic/OpenAI/Groq/OpenRouter) */
+    async _aiRouteViaApi(prompt, candidates, provider) {
+        const options = candidates.map(c => {
+            const desc = (c.description || c.capabilities?.slice(0, 3)?.join(', ') || 'general').slice(0, 80);
+            return `${c.id}: ${desc}`;
+        }).join('\n');
+
+        const routingPrompt = `Pick the single best id from this list for the given task. Reply with ONLY the id, nothing else.\n\n${options}\n\nTask: ${prompt.slice(0, 400)}\nAnswer:`;
+
+        try {
+            const raw = await callApiProvider(routingPrompt, 'You are a routing engine. Reply with only the agent id.', { tier: 'fast' });
+            const picked = raw.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '');
+            let match = candidates.find(c => c.id === picked);
+            if (!match) match = candidates.find(c => picked.startsWith(c.id) || c.id.startsWith(picked));
+            if (match) return { agent: match.id, name: match.name, method: `api-${provider.id}` };
         } catch { /* fall through */ }
         return null;
     }
@@ -137,6 +163,13 @@ Answer:`;
             }
         }
 
+        // Last resort: use API key provider for routing (if available)
+        const apiProvider = getBestApiProvider('fast');
+        if (apiProvider) {
+            const apiResult = await this._aiRouteViaApi(prompt, candidates, apiProvider);
+            if (apiResult) return apiResult;
+        }
+
         return null;
     }
 
@@ -147,8 +180,8 @@ Answer:`;
 
     /** Full AI-powered routing — Copilot primary, Ollama fallback, rules last */
     async routeAI(prompt, options = {}) {
-        // Only Copilot and Gemini as CLI providers (no Kiro/Antigravity/Ollama for tasks)
-        const agents = this.registry.headless().filter(a => !['ollama', 'kiro', 'antigravity'].includes(a.id));
+        // Available headless CLI agents (exclude routing-only agents like ollama)
+        const agents = this.registry.headless().filter(a => !['ollama'].includes(a.id));
         if (agents.length === 0) return null;
 
         if (options.forceAgent) {

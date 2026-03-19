@@ -23,7 +23,32 @@
 - [x] Supabase Relay Refactor (Class-based instantiation in Session)
 - [x] Fix SyntaxError in Session.js (Duplicate statusLine)
 - [x] Dashboard: Full UI rewrite with Trae/Lovable IDE cockpit aesthetic.
+- [x] CLI: Fix Gemini output parser (stream-json → readable text)
+- [x] Add 9 new agents: finance, ai-engineer, growth-hacker, mobile-dev, product-analyst, legal, cost-optimizer, claude-code, kiro
+- [x] Add API provider system (Anthropic, OpenAI, Groq, OpenRouter, Gemini API)
+- [x] Web IDE: Rebuild dashboard as Simple Mode + Pro Mode (Monaco editor)
+- [x] Web IDE: File tree, git panel, auth screen, Supabase relay
+- [x] Web IDE: Vercel deployment config
+- [x] Agent type: migrate 'persona' → 'agent' terminology
+
+- [x] Remove redundant agents (brainstorm, quick-flow, design-thinking-coach, workflow-builder, forager, module-builder, tea, scrum, master) — 57 → 42 specialists
+- [x] Delete BMAD ghost agents from ~/.soupz-agents/agents/
+- [x] Rewrite bin/soupz.js as daemon starter (ditch interactive CLI loop)
+- [x] Wire daemon commands: FILE_TREE, FILE_READ, FILE_WRITE, GIT_STATUS, GIT_DIFF, GIT_STAGE, GIT_COMMIT, GIT_PUSH, AGENT_PROMPT
+- [x] Supabase schema: soupz_commands + soupz_responses tables with RLS + auto-cleanup
+- [x] npx soupz pairing flow: generates code, opens browser to soupz.app/connect?code=...
+- [x] Fix node-pty as optional dep (daemon starts even without it)
+
+## 🚧 In Progress / TODO Next
+- [ ] Landing page (marketing site — soupz.app)
+- [ ] Connect page on web app: /connect?code=... (enter code, pair device)
+- [ ] npm publish: test end-to-end npx soupz flow
+- [ ] Supabase: apply schema.sql (run in Supabase SQL editor)
+
+## 📋 Backlog
 - [/] Browser extension bridge to CLI
 - [ ] Fleet status in dashboard timeline
 - [ ] Supabase sync for MemoryPool
 - [ ] AST/WASM agent booster
+- [ ] Mobile-responsive polish for Simple Mode
+- [ ] Offline queue (SQLite)

@@ -6,10 +6,22 @@ export default defineConfig({
   server: {
     port: 7534,
     proxy: {
-      '/stall-state.json': {
-        target: 'http://localhost:7533', // Future: server could serve this
-        changeOrigin: true
-      }
-    }
-  }
+      '/api': { target: 'http://localhost:7533', changeOrigin: true },
+      '/health': { target: 'http://localhost:7533', changeOrigin: true },
+      '/command': { target: 'http://localhost:7533', changeOrigin: true },
+    },
+  },
+  build: {
+    outDir: 'dist',
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'monaco': ['@monaco-editor/react'],
+          'supabase': ['@supabase/supabase-js'],
+          'vendor': ['react', 'react-dom'],
+        },
+      },
+    },
+  },
 })

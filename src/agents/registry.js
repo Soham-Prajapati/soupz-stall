@@ -20,7 +20,9 @@ export class AgentRegistry {
     list() { return Array.from(this.agents.values()); }
     available() { return this.list().filter((a) => a.available); }
     headless() { return this.available().filter((a) => a.headless); }
-    personas() { return this.list().filter((a) => a.type === 'persona'); }
+    // Support both 'agent' (new term) and 'persona' (legacy) — same thing: wrapper agents
+    personas() { return this.list().filter((a) => a.type === 'persona' || a.type === 'agent'); }
+    agents() { return this.personas(); } // alias with the correct industry term
 
     updateState(id, patch) {
         const agent = this.agents.get(id);

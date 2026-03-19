@@ -1,13 +1,13 @@
 {
-  "sessionId": "5ce2d752",
-  "timestamp": 1773750667346,
+  "sessionId": "d070237b",
+  "timestamp": 1773957013941,
   "stall": {
-    "name": "Stall 5ce2",
+    "name": "Stall d070",
     "status": "idle",
-    "uptime": 207609,
+    "uptime": 28017,
     "health": {
-      "cpu": 27,
-      "ram": 99
+      "cpu": 24,
+      "ram": 83
     }
   },
   "chefs": [
@@ -23,6 +23,23 @@
         "prompt-engineering",
         "agent-architecture",
         "agent-testing"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "ai-engineer",
+      "name": "AI Engineer",
+      "icon": "🤖",
+      "color": "#7C3AED",
+      "grade": 90,
+      "usageCount": 0,
+      "capabilities": [
+        "llm-integration",
+        "rag-systems",
+        "prompt-engineering",
+        "fine-tuning",
+        "embeddings"
       ],
       "state": "idle",
       "calls": 0
@@ -113,6 +130,23 @@
       "grade": 50,
       "usageCount": 0,
       "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "cost-optimizer",
+      "name": "Cost Optimizer",
+      "icon": "💰",
+      "color": "#10B981",
+      "grade": 82,
+      "usageCount": 0,
+      "capabilities": [
+        "token-optimization",
+        "model-tiering",
+        "prompt-compression",
+        "language-bridge",
+        "cost-analysis"
+      ],
       "state": "idle",
       "calls": 0
     },
@@ -234,6 +268,23 @@
       "calls": 0
     },
     {
+      "id": "finance",
+      "name": "Finance Analyst",
+      "icon": "📊",
+      "color": "#00897B",
+      "grade": 88,
+      "usageCount": 0,
+      "capabilities": [
+        "financial-modeling",
+        "dcf-valuation",
+        "unit-economics",
+        "fundraising-strategy",
+        "cash-flow-analysis"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
       "id": "forager",
       "name": "Forager (Ingredient Scout)",
       "icon": "🧺",
@@ -246,6 +297,23 @@
         "visual-research",
         "stock-media",
         "design"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "growth-hacker",
+      "name": "Growth Hacker",
+      "icon": "📈",
+      "color": "#FF6B35",
+      "grade": 86,
+      "usageCount": 0,
+      "capabilities": [
+        "growth-strategy",
+        "funnel-optimization",
+        "ab-testing",
+        "viral-loops",
+        "retention-mechanics"
       ],
       "state": "idle",
       "calls": 0
@@ -278,6 +346,23 @@
       "calls": 0
     },
     {
+      "id": "legal",
+      "name": "Legal Advisor",
+      "icon": "⚖️",
+      "color": "#64748B",
+      "grade": 82,
+      "usageCount": 0,
+      "capabilities": [
+        "contract-review",
+        "privacy-compliance",
+        "terms-of-service",
+        "ip-protection",
+        "startup-legal"
+      ],
+      "state": "idle",
+      "calls": 0
+    },
+    {
       "id": "master",
       "name": "Team Lead",
       "icon": "👑",
@@ -285,6 +370,23 @@
       "grade": 50,
       "usageCount": 0,
       "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "mobile-dev",
+      "name": "Mobile Developer",
+      "icon": "📱",
+      "color": "#0EA5E9",
+      "grade": 85,
+      "usageCount": 0,
+      "capabilities": [
+        "react-native",
+        "expo",
+        "ios-development",
+        "android-development",
+        "mobile-ux"
+      ],
       "state": "idle",
       "calls": 0
     },
@@ -388,6 +490,23 @@
       "grade": 50,
       "usageCount": 0,
       "capabilities": [],
+      "state": "idle",
+      "calls": 0
+    },
+    {
+      "id": "product-analyst",
+      "name": "Product Analyst",
+      "icon": "🔍",
+      "color": "#EC4899",
+      "grade": 84,
+      "usageCount": 0,
+      "capabilities": [
+        "user-analytics",
+        "cohort-analysis",
+        "feature-prioritization",
+        "metrics-framework",
+        "data-visualization"
+      ],
       "state": "idle",
       "calls": 0
     },
@@ -638,6 +757,16 @@
   ],
   "kitchens": [
     {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "icon": "🧠",
+      "color": "#D97706",
+      "grade": 95,
+      "available": true,
+      "state": "idle",
+      "calls": 0
+    },
+    {
       "id": "copilot",
       "name": "GitHub Copilot",
       "icon": "🐙",
@@ -678,24 +807,13 @@
       "calls": 0
     }
   ],
-  "orders": [
-    {
-      "id": 1773750627095,
-      "prompt": "hello",
-      "agent": "copilot",
-      "persona": null,
-      "status": "served",
-      "startTime": 1773750627095,
-      "duration": 28919,
-      "endTime": 1773750656014
-    }
-  ],
+  "orders": [],
   "activeOrders": [],
   "stats": {
-    "totalOrders": 1,
-    "completedOrders": 1,
+    "totalOrders": 0,
+    "completedOrders": 0,
     "failedOrders": 0,
-    "avgCookTime": 28919,
+    "avgCookTime": 0,
     "personaCalls": {},
     "toolCalls": {},
     "routingHistory": []
@@ -716,6 +834,12 @@
       "usage": 0,
       "name": "Agent Builder (Bond)",
       "icon": "🔧"
+    },
+    "ai-engineer": {
+      "grade": 90,
+      "usage": 0,
+      "name": "AI Engineer",
+      "icon": "🤖"
     },
     "analyst": {
       "grade": 50,
@@ -753,6 +877,12 @@
       "name": "Brand Chef",
       "icon": "🧑‍🍳"
     },
+    "claude-code": {
+      "grade": 95,
+      "usage": 0,
+      "name": "Claude Code",
+      "icon": "🧠"
+    },
     "contentwriter": {
       "grade": 50,
       "usage": 0,
@@ -764,6 +894,12 @@
       "usage": 13,
       "name": "GitHub Copilot",
       "icon": "🐙"
+    },
+    "cost-optimizer": {
+      "grade": 82,
+      "usage": 0,
+      "name": "Cost Optimizer",
+      "icon": "💰"
     },
     "creative-problem-solver": {
       "grade": 50,
@@ -813,6 +949,12 @@
       "name": "PS Evaluator",
       "icon": "⚖️"
     },
+    "finance": {
+      "grade": 88,
+      "usage": 0,
+      "name": "Finance Analyst",
+      "icon": "📊"
+    },
     "forager": {
       "grade": 50,
       "usage": 0,
@@ -824,6 +966,12 @@
       "usage": 0,
       "name": "Gemini",
       "icon": "🔮"
+    },
+    "growth-hacker": {
+      "grade": 86,
+      "usage": 0,
+      "name": "Growth Hacker",
+      "icon": "📈"
     },
     "innovation-strategist-bmad": {
       "grade": 50,
@@ -843,11 +991,23 @@
       "name": "Kiro",
       "icon": "🎯"
     },
+    "legal": {
+      "grade": 82,
+      "usage": 0,
+      "name": "Legal Advisor",
+      "icon": "⚖️"
+    },
     "master": {
       "grade": 50,
       "usage": 0,
       "name": "Team Lead",
       "icon": "👑"
+    },
+    "mobile-dev": {
+      "grade": 85,
+      "usage": 0,
+      "name": "Mobile Developer",
+      "icon": "📱"
     },
     "module-builder": {
       "grade": 50,
@@ -896,6 +1056,12 @@
       "usage": 0,
       "name": "Problem Solver",
       "icon": "🧩"
+    },
+    "product-analyst": {
+      "grade": 84,
+      "usage": 0,
+      "name": "Product Analyst",
+      "icon": "🔍"
     },
     "qa": {
       "grade": 50,

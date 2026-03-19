@@ -45,22 +45,26 @@ export function loadAgentDefinition(filePath) {
     const meta = parseYaml(fmMatch[1]);
     const body = fmMatch[2].trim();
 
-    const isPersona = meta.type === 'persona';
-    let personaAvailable = false;
-    if (isPersona) {
+    // Support both 'agent' (new) and 'persona' (legacy) type names
+    const isAgentWrapper = meta.type === 'agent' || meta.type === 'persona';
+    let agentAvailable = false;
+    if (isAgentWrapper) {
         if (meta.uses_tool === 'auto') {
-            // Available if any headless tool agent is installed
-            personaAvailable = !!whichBinary('gemini') || !!whichBinary('gh') || !!whichBinary('claude');
+            // Available if any headless tool is installed — check all supported providers
+            agentAvailable = !!whichBinary('gemini') || !!whichBinary('gh') || !!whichBinary('claude')
+                || !!whichBinary('kiro') || !!whichBinary('aider') || !!process.env.OPENAI_API_KEY
+                || !!process.env.ANTHROPIC_API_KEY || !!process.env.GROQ_API_KEY
+                || !!process.env.OPENROUTER_API_KEY || !!process.env.GEMINI_API_KEY;
         } else {
-            personaAvailable = !!whichBinary(meta.uses_tool);
+            agentAvailable = !!whichBinary(meta.uses_tool);
         }
     }
     return {
         ...meta,
         body,
         filePath,
-        binaryPath: isPersona ? null : whichBinary(meta.binary),
-        available: isPersona ? personaAvailable : !!whichBinary(meta.binary),
+        binaryPath: isAgentWrapper ? null : whichBinary(meta.binary),
+        available: isAgentWrapper ? agentAvailable : !!whichBinary(meta.binary),
         state: 'idle',
         currentTask: null,
         lastOutput: '',
