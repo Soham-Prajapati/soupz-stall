@@ -11,6 +11,8 @@ import { getAutoSelection } from '../../lib/routing';
 import { checkAgentAvailability } from '../../lib/daemon';
 import OllamaStatus from '../shared/OllamaStatus';
 import InteractiveQuestions, { parseSoupzQ, formatAnswers } from '../shared/InteractiveQuestions';
+import LearnedAgents, { SuggestionDot } from '../shared/LearnedAgents';
+import { trackUsage, getCustomAgents } from '../../lib/learning';
 
 const STORAGE_KEY = 'soupz_chat_history';
 const AGENT_KEY   = 'soupz_agent';
@@ -173,6 +175,8 @@ export default function SimpleMode({ daemon }) {
       setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, streaming: false } : m));
       setIsStreaming(false);
       abortRef.current = false;
+      // Track usage for learning system — runs after stream completes
+      trackUsage(text, effectiveAgentId, 'auto', buildMode, 'sent');
     }
   }
 
@@ -234,11 +238,12 @@ export default function SimpleMode({ daemon }) {
         <div className="relative">
           <button
             onClick={() => { setAgentOpen(v => !v); setModeOpen(false); }}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-bg-elevated border border-border-subtle hover:border-border-mid text-text-pri text-xs font-ui transition-all"
+            className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-bg-elevated border border-border-subtle hover:border-border-mid text-text-pri text-xs font-ui transition-all"
           >
             <AgentIcon size={12} style={{ color: currentAgent.color }} />
             <span>{currentAgent.name}</span>
             <ChevronDown size={10} className="text-text-faint ml-0.5" />
+            <SuggestionDot />
           </button>
           {agentOpen && (
             <AgentDropdown
@@ -500,6 +505,7 @@ function EmptyState({ agentName, AgentIcon, agentColor }) {
 
 function AgentDropdown({ selected, onSelect, onClose }) {
   const [tab, setTab] = useState('cli');
+  const [customAgents, setCustomAgents] = useState(() => getCustomAgents());
 
   useEffect(() => {
     function onClickOutside(e) {
@@ -508,6 +514,16 @@ function AgentDropdown({ selected, onSelect, onClose }) {
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, [onClose]);
+
+  // Refresh custom agents list when dropdown opens or storage changes
+  useEffect(() => {
+    setCustomAgents(getCustomAgents());
+    function onStorage(e) {
+      if (e.key === 'soupz_custom_agents') setCustomAgents(getCustomAgents());
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   return (
     <div
@@ -528,11 +544,25 @@ function AgentDropdown({ selected, onSelect, onClose }) {
           </button>
         ))}
       </div>
-      <div className="max-h-56 overflow-y-auto py-1">
+      <div className="max-h-80 overflow-y-auto py-1">
         {tab === 'cli' ? (
           <>
             <AgentOption agent={{ id: 'auto', name: 'Auto', color: '#A855F7', description: 'AI picks best agent', icon: Cpu }} selected={selected} onSelect={onSelect} />
             {CLI_AGENTS.map(a => <AgentOption key={a.id} agent={a} selected={selected} onSelect={onSelect} />)}
+            {/* Custom agents surfaced under CLI tab */}
+            {customAgents.length > 0 && (
+              <>
+                <div className="mx-3 my-1 border-t border-border-subtle" />
+                {customAgents.map(a => (
+                  <AgentOption
+                    key={a.id}
+                    agent={{ ...a, description: a.description }}
+                    selected={selected}
+                    onSelect={onSelect}
+                  />
+                ))}
+              </>
+            )}
           </>
         ) : (
           SPECIALISTS.filter(s => s.id !== 'auto' && s.id !== 'orchestrator').map(a => (
@@ -540,6 +570,11 @@ function AgentDropdown({ selected, onSelect, onClose }) {
           ))
         )}
       </div>
+      {/* Learned agents section — frequently used, suggestions, my agents */}
+      <LearnedAgents
+        selectedId={selected}
+        onSelect={id => { onSelect(id); onClose(); }}
+      />
     </div>
   );
 }

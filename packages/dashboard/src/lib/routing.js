@@ -1,6 +1,7 @@
 // routing.js — Smart agent & specialist selection
 
 import { CLI_AGENTS, SPECIALISTS } from './agents.js';
+import { getLearnedWeight } from './learning.js';
 
 // ---------------------------------------------------------------------------
 // Routing keywords per CLI agent
@@ -240,10 +241,13 @@ export function selectAgentLocally(prompt, availableAgents) {
   // Normalise availableAgents to a Set of ids
   const availSet = resolveAvailableSet(availableAgents);
 
-  // Score all CLI agents
+  // Score all CLI agents — multiply keyword score by learned weight boost
   const agentScores = CLI_AGENTS
     .filter(a => availSet.size === 0 || availSet.has(a.id))
-    .map(a => ({ id: a.id, score: scoreAgentForPrompt(prompt, a.id) }))
+    .map(a => ({
+      id: a.id,
+      score: scoreAgentForPrompt(prompt, a.id) * (1 + getLearnedWeight(a.id, category)),
+    }))
     .sort((a, b) => b.score - a.score);
 
   let cliAgent;
