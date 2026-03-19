@@ -352,30 +352,63 @@ export async function selectAgentWithOllama(prompt, availableAgents) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. getAutoSelection
+// 6. selectAgentWithDaemon + getAutoSelection
 // ---------------------------------------------------------------------------
+
+const DAEMON_URL = 'http://localhost:7070';
+
+/**
+ * Use daemon's /api/classify endpoint (tries Copilot -> Gemini -> Ollama -> local).
+ * @param {string} prompt
+ * @param {string[] | Record<string,boolean>} availableAgents
+ * @returns {Promise<{ cliAgent: string, specialist: string, method: string } | null>}
+ */
+export async function selectAgentWithDaemon(prompt, availableAgents) {
+  const availSet = resolveAvailableSet(availableAgents);
+  const agentList = [...availSet].filter(Boolean);
+
+  try {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(`${DAEMON_URL}/api/classify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, availableAgents: agentList }),
+      signal: controller.signal,
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return { cliAgent: data.cliAgent, specialist: data.specialist, method: data.method };
+    }
+  } catch { /* fall through */ }
+
+  return null; // signal: use local fallback
+}
 
 /**
  * Main entry point for auto agent selection.
  * @param {string} prompt
  * @param {string[] | Record<string,boolean>} availableAgents
  * @param {boolean} useOllama
- * @returns {Promise<{ cliAgent: string, specialist: string, method: 'ollama'|'local' }>}
+ * @returns {Promise<{ cliAgent: string, specialist: string, method: string }>}
  */
 export async function getAutoSelection(prompt, availableAgents, useOllama) {
+  // 1. Try daemon classify (Copilot -> Gemini -> Ollama cascade)
+  const daemonResult = await selectAgentWithDaemon(prompt, availableAgents);
+  if (daemonResult) return daemonResult;
+
+  // 2. Try Ollama directly if daemon is down but Ollama is up
   if (useOllama) {
-    // Check if Ollama is actually reachable before trying
     const ollamaUp = await isOllamaReachable();
     if (ollamaUp) {
       try {
         const result = await selectAgentWithOllama(prompt, availableAgents);
         return { ...result, method: 'ollama' };
-      } catch {
-        // fall through to local
-      }
+      } catch { /* fall through */ }
     }
   }
 
+  // 3. Local keyword matching
   const result = selectAgentLocally(prompt, availableAgents);
   return { ...result, method: 'local' };
 }

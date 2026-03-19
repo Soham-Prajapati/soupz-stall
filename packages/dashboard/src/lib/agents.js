@@ -8,11 +8,11 @@ import {
 } from 'lucide-react';
 
 export const CLI_AGENTS = [
-  { id: 'gemini',      name: 'Gemini',      icon: Sparkles,    color: '#4285F4', binary: 'gemini',   description: 'Google Gemini CLI' },
-  { id: 'claude-code', name: 'Claude Code', icon: BrainCircuit,color: '#D97706', binary: 'claude',   description: 'Anthropic Claude CLI' },
-  { id: 'copilot',     name: 'Copilot',     icon: Github,      color: '#6E40C9', binary: 'gh',       description: 'GitHub Copilot CLI' },
-  { id: 'kiro',        name: 'Kiro',        icon: Zap,         color: '#F59E0B', binary: 'kiro-cli', description: 'AWS Kiro AI agent' },
-  { id: 'ollama',      name: 'Ollama',      icon: Cpu,         color: '#888',    binary: 'ollama',   description: 'Local models (free)' },
+  { id: 'gemini',      name: 'Gemini',      icon: Sparkles,    color: '#4285F4', binary: 'gemini',   description: 'Google Gemini CLI',            freeModel: 'Gemini 2.0 Flash',    tier: 'free'     },
+  { id: 'claude-code', name: 'Claude Code', icon: BrainCircuit,color: '#D97706', binary: 'claude',   description: 'Anthropic Claude CLI',         freeModel: null,                  tier: 'premium'  },
+  { id: 'copilot',     name: 'Copilot',     icon: Github,      color: '#6E40C9', binary: 'gh',       description: 'GitHub Copilot CLI',           freeModel: 'gpt-5.1-codex-mini',  tier: 'freemium' },
+  { id: 'kiro',        name: 'Kiro',        icon: Zap,         color: '#F59E0B', binary: 'kiro-cli', description: 'AWS Kiro AI agent',            freeModel: null,                  tier: 'premium'  },
+  { id: 'ollama',      name: 'Ollama',      icon: Cpu,         color: '#888',    binary: 'ollama',   description: 'Local models (free, offline)', freeModel: 'any local model',     tier: 'free'     },
 ];
 
 export const SPECIALISTS = [

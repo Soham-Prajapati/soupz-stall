@@ -46,6 +46,11 @@ function AgentOption({ agent, selected, onSelect }) {
         <div className="text-xs font-ui font-medium text-text-pri">{agent.name}</div>
         <div className="text-[11px] text-text-faint truncate">{agent.description || agent.desc}</div>
       </div>
+      {agent.freeModel && (
+        <span className="text-[10px] px-1 py-0.5 rounded bg-success/10 text-success font-ui shrink-0">
+          Free
+        </span>
+      )}
       {selected === agent.id && <Check size={11} className="text-accent shrink-0" />}
     </button>
   );
