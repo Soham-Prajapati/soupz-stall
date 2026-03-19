@@ -1,24 +1,144 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-* { 
-  box-sizing: border-box; 
-  margin: 0; 
-  padding: 0; 
-  -webkit-font-smoothing: antialiased;
+/* ─── Design Tokens ────────────────────────────────────────────────── */
+:root {
+  --bg-base:         #0C0C0F;
+  --bg-surface:      #111114;
+  --bg-elevated:     #16161A;
+  --bg-overlay:      #1A1A1F;
+  --border-subtle:   #1E1E24;
+  --border-mid:      #2A2A33;
+  --border-strong:   #3A3A47;
+  --accent:          #6366F1;
+  --accent-hover:    #4F46E5;
+  --accent-muted:    rgba(99,102,241,0.12);
+  --accent-glow:     rgba(99,102,241,0.25);
+  --success:         #22C55E;
+  --success-muted:   rgba(34,197,94,0.12);
+  --warning:         #F59E0B;
+  --warning-muted:   rgba(245,158,11,0.12);
+  --danger:          #EF4444;
+  --danger-muted:    rgba(239,68,68,0.12);
+  --text-pri:        #F0F0F5;
+  --text-sec:        #8B8B9A;
+  --text-faint:      #4A4A5A;
+  --font-ui:         'Inter', -apple-system, sans-serif;
+  --font-mono:       'JetBrains Mono', 'Fira Code', monospace;
+  --radius-sm:       4px;
+  --radius-md:       6px;
+  --radius-lg:       8px;
+  --radius-xl:       12px;
+  --shadow-soft:     0 4px 12px rgba(0,0,0,0.5);
+  --shadow-accent:   0 0 0 1px var(--accent), 0 4px 16px var(--accent-glow);
 }
 
-body { 
-  background: #09090b; 
-  color: #fafafa;
-  font-family: 'Inter', -apple-system, sans-serif;
+/* ─── Reset ─────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html { height: 100%; }
+body {
+  height: 100%;
+  background: var(--bg-base);
+  color: var(--text-pri);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
   overflow: hidden;
 }
 
+#root { height: 100%; display: flex; flex-direction: column; }
+
+code, pre, kbd { font-family: var(--font-mono); }
+
+/* ─── Scrollbar ─────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
 
-code, pre {
-  font-family: 'JetBrains Mono', monospace;
+/* ─── Focus rings ───────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ─── Selection ─────────────────────────────────────────────────────── */
+::selection { background: var(--accent-muted); color: var(--text-pri); }
+
+/* ─── Textarea / Input reset ─────────────────────────────────────────── */
+textarea, input {
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
+textarea { resize: none; }
+
+/* ─── Utility: grid dot background ──────────────────────────────────── */
+.bg-grid {
+  background-image:
+    linear-gradient(var(--border-subtle) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: -1px -1px;
+}
+
+/* ─── Transition base ───────────────────────────────────────────────── */
+.transition-base { transition: all 150ms ease; }
+
+/* ─── Code block in messages ────────────────────────────────────────── */
+.msg-code {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.msg-code-header {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.msg-code pre {
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+}
+
+/* ─── Thinking dots animation ───────────────────────────────────────── */
+.thinking-dot {
+  width: 5px; height: 5px;
+  background: var(--text-faint);
+  border-radius: 50%;
+  animation: thinkBounce 1.2s ease-in-out infinite;
+}
+.thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes thinkBounce {
+  0%, 60%, 100% { transform: translateY(0); background: var(--text-faint); }
+  30% { transform: translateY(-5px); background: var(--accent); }
+}
+
+/* ─── Diff viewer ───────────────────────────────────────────────────── */
+.diff-add  { background: rgba(34,197,94,0.08);  color: #22C55E; }
+.diff-del  { background: rgba(239,68,68,0.08);   color: #EF4444; }
+.diff-hunk { background: rgba(99,102,241,0.08);  color: #8B8B9A; font-style: italic; }
+
+/* ─── Mobile safe area ──────────────────────────────────────────────── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
 }

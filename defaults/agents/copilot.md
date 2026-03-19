@@ -5,7 +5,7 @@ icon: "🐙"
 color: "#6E40C9"
 binary: gh
 headless: true
-description: "GitHub Copilot CLI — shell commands, DevOps, GitHub workflows"
+description: "GitHub Copilot CLI — coding, shell, GitHub. Models: gpt-5.1-codex-mini (free), gpt-5.4, claude-sonnet-4.6"
 output_format: text
 capabilities:
   - coding
@@ -13,6 +13,7 @@ capabilities:
   - github
   - devops
   - commands
+  - multi-model
 routing_keywords:
   - build
   - code
@@ -39,7 +40,22 @@ auth_command: "gh auth login"
 logout_command: "gh auth logout"
 status_command: "gh auth status"
 build_args: ["copilot", "-p", "{prompt}", "--allow-all-tools"]
-grade: 70
+free_model: "gpt-5.1-codex-mini"
+available_models:
+  free:
+    - "gpt-5.1-codex-mini"
+    - "gpt-5-mini"
+    - "gpt-4.1"
+  premium:
+    - "gpt-5.4"
+    - "gpt-5.3-codex"
+    - "gpt-5.2"
+    - "gpt-5.1-codex"
+    - "gpt-5.1"
+    - "claude-sonnet-4.6"
+    - "claude-opus-4.6"
+    - "gemini-3-pro-preview"
+grade: 78
 usage_count: 0
 ---
 

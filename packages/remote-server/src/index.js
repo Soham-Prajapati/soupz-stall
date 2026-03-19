@@ -386,6 +386,32 @@ app.post('/pair/validate', (req, res) => {
     res.json({ token, expiresIn: Math.round(SESSION_EXPIRY_MS / 1000), hostname: os.hostname() });
 });
 
+// PUBLIC: /api/pair — ConnectPage calls this with { code }
+app.post('/api/pair', (req, res) => {
+    const { code } = req.body || {};
+    if (!code) return res.status(400).json({ error: 'Missing code' });
+    const token = validatePairingCode(code.toString().trim());
+    if (!token) return res.status(401).json({ error: 'Invalid or expired pairing code', success: false });
+    if (!silentMode) console.log(`  Paired via /api/pair (code: ${code})`);
+    res.json({ success: true, token, hostname: os.hostname(), expiresIn: Math.round(SESSION_EXPIRY_MS / 1000) });
+});
+
+// PUBLIC: List available CLI agents
+app.get('/api/agents', (req, res) => {
+    const agents = ['gemini', 'claude', 'gh', 'kiro', 'ollama'].reduce((acc, bin) => {
+        try { execSync(`which ${bin}`, { timeout: 1000 }); acc[bin] = true; } catch { acc[bin] = false; }
+        return acc;
+    }, {});
+    // Map binary → agent id
+    res.json({
+        gemini:       agents.gemini,
+        'claude-code': agents.claude,
+        copilot:      agents.gh,
+        kiro:         agents.kiro,
+        ollama:       agents.ollama,
+    });
+});
+
 // PUBLIC: Health check (no auth needed — useful for discovery)
 app.get('/health', (req, res) => {
     res.json({ ...getSystemHealth(), authenticated: false, port: activePort, lanIPs: getLocalIPs(), hostname: os.hostname() });
@@ -477,6 +503,13 @@ app.post('/api/orders', requireAuth, (req, res) => {
         order.stdout += text;
         if (order.stdout.length > 200000) order.stdout = order.stdout.slice(-200000);
         pushOrderEvent(order, 'chef.output.delta', { stream: 'stdout', chars: text.length });
+        // Stream chunks to WebSocket clients in real-time
+        const streamMsg = JSON.stringify({ type: 'agent_chunk', orderId: id, chunk: text, agentId: runAgent });
+        for (const client of wss.clients) {
+            if (client.readyState === 1 && authenticatedClients.has(client)) {
+                client.send(streamMsg);
+            }
+        }
     });
 
     child.stderr.on('data', (chunk) => {
