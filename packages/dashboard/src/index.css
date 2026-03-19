@@ -6,6 +6,23 @@
 /* ─── Default theme (dark) ──────────────────────────────────────────────── */
 :root,
 [data-theme="dark"] {
+  --bg-base-ch:         15 15 19;
+  --bg-surface-ch:      20 20 24;
+  --bg-elevated-ch:     26 26 32;
+  --bg-overlay-ch:      32 32 38;
+  --border-subtle-ch:   33 33 42;
+  --border-mid-ch:      45 45 56;
+  --border-strong-ch:   60 60 74;
+  --accent-ch:          99 102 241;
+  --accent-hover-ch:    85 88 232;
+  --success-ch:         52 211 153;
+  --warning-ch:         251 191 36;
+  --danger-ch:          248 113 113;
+  --text-pri-ch:        226 226 232;
+  --text-sec-ch:        142 142 159;
+  --text-faint-ch:      71 71 90;
+
+  /* Hex vars for direct CSS usage */
   --bg-base:         #0F0F13;
   --bg-surface:      #141418;
   --bg-elevated:     #1A1A20;
@@ -40,6 +57,23 @@
 
 /* ─── Dim theme (GitHub-style softer dark) ──────────────────────────────── */
 [data-theme="dim"] {
+  --bg-base-ch:         22 27 34;
+  --bg-surface-ch:      28 34 48;
+  --bg-elevated-ch:     34 42 58;
+  --bg-overlay-ch:      40 48 74;
+  --border-subtle-ch:   42 51 68;
+  --border-mid-ch:      54 65 87;
+  --border-strong-ch:   69 80 112;
+  --accent-ch:          124 133 245;
+  --accent-hover-ch:    108 117 232;
+  --success-ch:         62 207 142;
+  --warning-ch:         249 191 59;
+  --danger-ch:          247 128 128;
+  --text-pri-ch:        205 217 240;
+  --text-sec-ch:        122 142 168;
+  --text-faint-ch:      64 79 102;
+
+  /* Hex vars for direct CSS usage */
   --bg-base:         #161B22;
   --bg-surface:      #1C2230;
   --bg-elevated:     #222A3A;
@@ -67,6 +101,23 @@
 
 /* ─── Midnight theme (pure OLED black) ──────────────────────────────────── */
 [data-theme="midnight"] {
+  --bg-base-ch:         0 0 0;
+  --bg-surface-ch:      9 9 9;
+  --bg-elevated-ch:     17 17 17;
+  --bg-overlay-ch:      22 22 22;
+  --border-subtle-ch:   26 26 26;
+  --border-mid-ch:      36 36 36;
+  --border-strong-ch:   46 46 46;
+  --accent-ch:          129 140 248;
+  --accent-hover-ch:    109 118 245;
+  --success-ch:         74 222 128;
+  --warning-ch:         252 211 77;
+  --danger-ch:          252 129 129;
+  --text-pri-ch:        221 221 230;
+  --text-sec-ch:        120 120 136;
+  --text-faint-ch:      60 60 74;
+
+  /* Hex vars for direct CSS usage */
   --bg-base:         #000000;
   --bg-surface:      #090909;
   --bg-elevated:     #111111;
@@ -94,6 +145,23 @@
 
 /* ─── Light theme ───────────────────────────────────────────────────────── */
 [data-theme="light"] {
+  --bg-base-ch:         248 248 252;
+  --bg-surface-ch:      255 255 255;
+  --bg-elevated-ch:     242 242 247;
+  --bg-overlay-ch:      234 234 242;
+  --border-subtle-ch:   228 228 238;
+  --border-mid-ch:      210 210 224;
+  --border-strong-ch:   184 184 204;
+  --accent-ch:          85 88 227;
+  --accent-hover-ch:    67 71 200;
+  --success-ch:         22 163 74;
+  --warning-ch:         217 119 6;
+  --danger-ch:          220 38 38;
+  --text-pri-ch:        24 24 31;
+  --text-sec-ch:        82 82 95;
+  --text-faint-ch:      160 160 178;
+
+  /* Hex vars for direct CSS usage */
   --bg-base:         #F8F8FC;
   --bg-surface:      #FFFFFF;
   --bg-elevated:     #F2F2F7;

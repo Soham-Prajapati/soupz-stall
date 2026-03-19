@@ -7,22 +7,22 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Reference CSS custom properties so runtime theme-switching works
-        'bg-base':      'var(--bg-base)',
-        'bg-surface':   'var(--bg-surface)',
-        'bg-elevated':  'var(--bg-elevated)',
-        'bg-overlay':   'var(--bg-overlay)',
-        'border-subtle':'var(--border-subtle)',
-        'border-mid':   'var(--border-mid)',
-        'border-strong':'var(--border-strong)',
-        accent:         'var(--accent)',
-        'accent-hover': 'var(--accent-hover)',
-        success:        'var(--success)',
-        warning:        'var(--warning)',
-        danger:         'var(--danger)',
-        'text-pri':     'var(--text-pri)',
-        'text-sec':     'var(--text-sec)',
-        'text-faint':   'var(--text-faint)',
+        // Use RGB channel vars so opacity modifiers (e.g. bg-accent/10) work at runtime
+        'bg-base':       'rgb(var(--bg-base-ch) / <alpha-value>)',
+        'bg-surface':    'rgb(var(--bg-surface-ch) / <alpha-value>)',
+        'bg-elevated':   'rgb(var(--bg-elevated-ch) / <alpha-value>)',
+        'bg-overlay':    'rgb(var(--bg-overlay-ch) / <alpha-value>)',
+        'border-subtle': 'rgb(var(--border-subtle-ch) / <alpha-value>)',
+        'border-mid':    'rgb(var(--border-mid-ch) / <alpha-value>)',
+        'border-strong': 'rgb(var(--border-strong-ch) / <alpha-value>)',
+        accent:          'rgb(var(--accent-ch) / <alpha-value>)',
+        'accent-hover':  'rgb(var(--accent-hover-ch) / <alpha-value>)',
+        success:         'rgb(var(--success-ch) / <alpha-value>)',
+        warning:         'rgb(var(--warning-ch) / <alpha-value>)',
+        danger:          'rgb(var(--danger-ch) / <alpha-value>)',
+        'text-pri':      'rgb(var(--text-pri-ch) / <alpha-value>)',
+        'text-sec':      'rgb(var(--text-sec-ch) / <alpha-value>)',
+        'text-faint':    'rgb(var(--text-faint-ch) / <alpha-value>)',
       },
       fontFamily: {
         ui:   ['Inter', '-apple-system', 'sans-serif'],
