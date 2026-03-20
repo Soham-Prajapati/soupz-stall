@@ -188,6 +188,350 @@
   --scrollbar-hover: #B8B8CC;
 }
 
+/* ─── Monokai theme (classic code editor) ──────────────────────────────── */
+[data-theme="monokai"] {
+  --bg-base-ch:         39 40 34;
+  --bg-surface-ch:      45 46 40;
+  --bg-elevated-ch:     53 54 47;
+  --bg-overlay-ch:      62 63 55;
+  --border-subtle-ch:   64 65 57;
+  --border-mid-ch:      82 83 74;
+  --border-strong-ch:   100 101 90;
+  --accent-ch:          166 226 46;
+  --accent-hover-ch:    140 200 30;
+  --success-ch:         166 226 46;
+  --warning-ch:         230 219 116;
+  --danger-ch:          249 38 114;
+  --text-pri-ch:        248 248 242;
+  --text-sec-ch:        180 180 170;
+  --text-faint-ch:      100 100 90;
+
+  --bg-base:         #272822;
+  --bg-surface:      #2D2E28;
+  --bg-elevated:     #35362F;
+  --bg-overlay:      #3E3F37;
+  --border-subtle:   #404139;
+  --border-mid:      #52534A;
+  --border-strong:   #64655A;
+  --accent:          #A6E22E;
+  --accent-hover:    #8CC81E;
+  --accent-muted:    rgba(166,226,46,0.10);
+  --accent-glow:     rgba(166,226,46,0.20);
+  --success:         #A6E22E;
+  --success-muted:   rgba(166,226,46,0.10);
+  --warning:         #E6DB74;
+  --warning-muted:   rgba(230,219,116,0.10);
+  --danger:          #F92672;
+  --danger-muted:    rgba(249,38,114,0.10);
+  --text-pri:        #F8F8F2;
+  --text-sec:        #B4B4AA;
+  --text-faint:      #64645A;
+  --shadow-soft:     0 4px 24px rgba(0,0,0,0.50);
+  --scrollbar-thumb: #52534A;
+  --scrollbar-hover: #64655A;
+}
+
+/* ─── Nord theme (Arctic, North-bluish) ─────────────────────────────────── */
+[data-theme="nord"] {
+  --bg-base-ch:         46 52 64;
+  --bg-surface-ch:      59 66 82;
+  --bg-elevated-ch:     67 76 94;
+  --bg-overlay-ch:      76 86 106;
+  --border-subtle-ch:   67 76 94;
+  --border-mid-ch:      76 86 106;
+  --border-strong-ch:   94 105 127;
+  --accent-ch:          136 192 208;
+  --accent-hover-ch:    110 168 185;
+  --success-ch:         163 190 140;
+  --warning-ch:         235 203 139;
+  --danger-ch:          191 97 106;
+  --text-pri-ch:        236 239 244;
+  --text-sec-ch:        216 222 233;
+  --text-faint-ch:      129 161 193;
+
+  --bg-base:         #2E3440;
+  --bg-surface:      #3B4252;
+  --bg-elevated:     #434C5E;
+  --bg-overlay:      #4C566A;
+  --border-subtle:   #434C5E;
+  --border-mid:      #4C566A;
+  --border-strong:   #5E6F7F;
+  --accent:          #88C0D0;
+  --accent-hover:    #6EA8B9;
+  --accent-muted:    rgba(136,192,208,0.12);
+  --accent-glow:     rgba(136,192,208,0.20);
+  --success:         #A3BE8C;
+  --success-muted:   rgba(163,190,140,0.12);
+  --warning:         #EBCB8B;
+  --warning-muted:   rgba(235,203,139,0.12);
+  --danger:          #BF616A;
+  --danger-muted:    rgba(191,97,106,0.12);
+  --text-pri:        #ECEFF4;
+  --text-sec:        #D8DEE9;
+  --text-faint:      #81A1C1;
+  --shadow-soft:     0 4px 24px rgba(0,0,0,0.40);
+  --scrollbar-thumb: #4C566A;
+  --scrollbar-hover: #5E6F7F;
+}
+
+/* ─── Dracula theme (the vampire theme) ─────────────────────────────────── */
+[data-theme="dracula"] {
+  --bg-base-ch:         40 42 54;
+  --bg-surface-ch:      48 50 62;
+  --bg-elevated-ch:     58 60 75;
+  --bg-overlay-ch:      68 71 90;
+  --border-subtle-ch:   68 71 90;
+  --border-mid-ch:      80 84 105;
+  --border-strong-ch:   98 103 126;
+  --accent-ch:          189 147 249;
+  --accent-hover-ch:    162 117 225;
+  --success-ch:         80 250 123;
+  --warning-ch:         241 250 140;
+  --danger-ch:          255 85 85;
+  --text-pri-ch:        248 248 242;
+  --text-sec-ch:        191 192 200;
+  --text-faint-ch:      98 102 119;
+
+  --bg-base:         #282A36;
+  --bg-surface:      #30323E;
+  --bg-elevated:     #3A3C4B;
+  --bg-overlay:      #44475A;
+  --border-subtle:   #44475A;
+  --border-mid:      #50546A;
+  --border-strong:   #62677E;
+  --accent:          #BD93F9;
+  --accent-hover:    #A275E1;
+  --accent-muted:    rgba(189,147,249,0.12);
+  --accent-glow:     rgba(189,147,249,0.20);
+  --success:         #50FA7B;
+  --success-muted:   rgba(80,250,123,0.10);
+  --warning:         #F1FA8C;
+  --warning-muted:   rgba(241,250,140,0.10);
+  --danger:          #FF5555;
+  --danger-muted:    rgba(255,85,85,0.10);
+  --text-pri:        #F8F8F2;
+  --text-sec:        #BFBFC8;
+  --text-faint:      #626677;
+  --shadow-soft:     0 4px 24px rgba(0,0,0,0.50);
+  --scrollbar-thumb: #44475A;
+  --scrollbar-hover: #62677E;
+}
+
+/* ─── Catppuccin theme (Mocha — soft dark) ──────────────────────────────── */
+[data-theme="catppuccin"] {
+  --bg-base-ch:         30 30 46;
+  --bg-surface-ch:      36 36 54;
+  --bg-elevated-ch:     42 42 63;
+  --bg-overlay-ch:      49 50 68;
+  --border-subtle-ch:   54 56 75;
+  --border-mid-ch:      69 71 90;
+  --border-strong-ch:   88 91 112;
+  --accent-ch:          203 166 247;
+  --accent-hover-ch:    180 143 226;
+  --success-ch:         166 227 161;
+  --warning-ch:         249 226 175;
+  --danger-ch:          243 139 168;
+  --text-pri-ch:        205 214 244;
+  --text-sec-ch:        166 173 200;
+  --text-faint-ch:      108 112 134;
+
+  --bg-base:         #1E1E2E;
+  --bg-surface:      #242436;
+  --bg-elevated:     #2A2A3F;
+  --bg-overlay:      #313244;
+  --border-subtle:   #36384B;
+  --border-mid:      #45475A;
+  --border-strong:   #585B70;
+  --accent:          #CBA6F7;
+  --accent-hover:    #B48FE2;
+  --accent-muted:    rgba(203,166,247,0.12);
+  --accent-glow:     rgba(203,166,247,0.20);
+  --success:         #A6E3A1;
+  --success-muted:   rgba(166,227,161,0.10);
+  --warning:         #F9E2AF;
+  --warning-muted:   rgba(249,226,175,0.10);
+  --danger:          #F38BA8;
+  --danger-muted:    rgba(243,139,168,0.10);
+  --text-pri:        #CDD6F4;
+  --text-sec:        #A6ADE8;
+  --text-faint:      #6C7086;
+  --shadow-soft:     0 4px 24px rgba(0,0,0,0.45);
+  --scrollbar-thumb: #45475A;
+  --scrollbar-hover: #585B70;
+}
+
+/* ─── Tokyo Night theme (popular code editor theme) ─────────────────────── */
+[data-theme="tokyo-night"] {
+  --bg-base-ch:         26 27 38;
+  --bg-surface-ch:      31 32 45;
+  --bg-elevated-ch:     36 38 55;
+  --bg-overlay-ch:      41 42 64;
+  --border-subtle-ch:   41 42 64;
+  --border-mid-ch:      52 53 78;
+  --border-strong-ch:   65 66 95;
+  --accent-ch:          122 162 247;
+  --accent-hover-ch:    97 137 229;
+  --success-ch:         158 206 106;
+  --warning-ch:         224 175 104;
+  --danger-ch:          247 118 142;
+  --text-pri-ch:        192 202 245;
+  --text-sec-ch:        137 148 184;
+  --text-faint-ch:      69 76 110;
+
+  --bg-base:         #1A1B26;
+  --bg-surface:      #1F202D;
+  --bg-elevated:     #242637;
+  --bg-overlay:      #292A40;
+  --border-subtle:   #292A40;
+  --border-mid:      #34354E;
+  --border-strong:   #41425F;
+  --accent:          #7AA2F7;
+  --accent-hover:    #6189E5;
+  --accent-muted:    rgba(122,162,247,0.12);
+  --accent-glow:     rgba(122,162,247,0.20);
+  --success:         #9ECE6A;
+  --success-muted:   rgba(158,206,106,0.10);
+  --warning:         #E0AF68;
+  --warning-muted:   rgba(224,175,104,0.10);
+  --danger:          #F7768E;
+  --danger-muted:    rgba(247,118,142,0.10);
+  --text-pri:        #C0CAF5;
+  --text-sec:        #8994B8;
+  --text-faint:      #454C6E;
+  --shadow-soft:     0 4px 24px rgba(0,0,0,0.50);
+  --scrollbar-thumb: #34354E;
+  --scrollbar-hover: #41425F;
+}
+
+/* ─── Rosé Pine theme (elegant dark) ───────────────────────────────────── */
+[data-theme="rose-pine"] {
+  --bg-base-ch:         25 23 36;
+  --bg-surface-ch:      31 29 46;
+  --bg-elevated-ch:     38 35 58;
+  --bg-overlay-ch:      47 44 67;
+  --border-subtle-ch:   47 44 67;
+  --border-mid-ch:      57 53 79;
+  --border-strong-ch:   72 69 98;
+  --accent-ch:          196 167 231;
+  --accent-hover-ch:    171 140 210;
+  --success-ch:         156 207 216;
+  --warning-ch:         246 193 119;
+  --danger-ch:          235 111 146;
+  --text-pri-ch:        224 222 244;
+  --text-sec-ch:        144 140 170;
+  --text-faint-ch:      78 75 105;
+
+  --bg-base:         #191724;
+  --bg-surface:      #1F1D2E;
+  --bg-elevated:     #26233A;
+  --bg-overlay:      #2F2C43;
+  --border-subtle:   #2F2C43;
+  --border-mid:      #39354F;
+  --border-strong:   #484562;
+  --accent:          #C4A7E7;
+  --accent-hover:    #AB8CD2;
+  --accent-muted:    rgba(196,167,231,0.12);
+  --accent-glow:     rgba(196,167,231,0.20);
+  --success:         #9CCFD8;
+  --success-muted:   rgba(156,207,216,0.10);
+  --warning:         #F6C177;
+  --warning-muted:   rgba(246,193,119,0.10);
+  --danger:          #EB6F92;
+  --danger-muted:    rgba(235,111,146,0.10);
+  --text-pri:        #E0DEF4;
+  --text-sec:        #908CAA;
+  --text-faint:      #4E4B69;
+  --shadow-soft:     0 4px 24px rgba(0,0,0,0.50);
+  --scrollbar-thumb: #39354F;
+  --scrollbar-hover: #484562;
+}
+
+/* ─── Solarized theme (Solarized Dark) ─────────────────────────────────── */
+[data-theme="solarized"] {
+  --bg-base-ch:         0 43 54;
+  --bg-surface-ch:      7 54 66;
+  --bg-elevated-ch:     0 60 74;
+  --bg-overlay-ch:      0 68 84;
+  --border-subtle-ch:   7 54 66;
+  --border-mid-ch:      38 87 100;
+  --border-strong-ch:   88 110 117;
+  --accent-ch:          38 139 210;
+  --accent-hover-ch:    22 114 185;
+  --success-ch:         133 153 0;
+  --warning-ch:         181 137 0;
+  --danger-ch:          220 50 47;
+  --text-pri-ch:        253 246 227;
+  --text-sec-ch:        238 232 213;
+  --text-faint-ch:      101 123 131;
+
+  --bg-base:         #002B36;
+  --bg-surface:      #073642;
+  --bg-elevated:     #003C4A;
+  --bg-overlay:      #00444A;
+  --border-subtle:   #073642;
+  --border-mid:      #265764;
+  --border-strong:   #586E75;
+  --accent:          #268BD2;
+  --accent-hover:    #1672B9;
+  --accent-muted:    rgba(38,139,210,0.12);
+  --accent-glow:     rgba(38,139,210,0.20);
+  --success:         #859900;
+  --success-muted:   rgba(133,153,0,0.12);
+  --warning:         #B58900;
+  --warning-muted:   rgba(181,137,0,0.12);
+  --danger:          #DC322F;
+  --danger-muted:    rgba(220,50,47,0.12);
+  --text-pri:        #FDF6E3;
+  --text-sec:        #EEE8D5;
+  --text-faint:      #657B83;
+  --shadow-soft:     0 4px 24px rgba(0,0,0,0.50);
+  --scrollbar-thumb: #265764;
+  --scrollbar-hover: #586E75;
+}
+
+/* ─── GitHub Dark theme ─────────────────────────────────────────────────── */
+[data-theme="github-dark"] {
+  --bg-base-ch:         13 17 23;
+  --bg-surface-ch:      22 27 34;
+  --bg-elevated-ch:     30 37 47;
+  --bg-overlay-ch:      36 44 58;
+  --border-subtle-ch:   48 54 61;
+  --border-mid-ch:      48 54 61;
+  --border-strong-ch:   63 69 78;
+  --accent-ch:          88 166 255;
+  --accent-hover-ch:    58 138 230;
+  --success-ch:         63 185 80;
+  --warning-ch:         230 155 43;
+  --danger-ch:          248 81 73;
+  --text-pri-ch:        201 209 217;
+  --text-sec-ch:        139 148 158;
+  --text-faint-ch:      68 75 84;
+
+  --bg-base:         #0D1117;
+  --bg-surface:      #161B22;
+  --bg-elevated:     #1E252F;
+  --bg-overlay:      #242C3A;
+  --border-subtle:   #30363D;
+  --border-mid:      #30363D;
+  --border-strong:   #3F454E;
+  --accent:          #58A6FF;
+  --accent-hover:    #3A8AE6;
+  --accent-muted:    rgba(88,166,255,0.10);
+  --accent-glow:     rgba(88,166,255,0.18);
+  --success:         #3FB950;
+  --success-muted:   rgba(63,185,80,0.10);
+  --warning:         #E69B2B;
+  --warning-muted:   rgba(230,155,43,0.10);
+  --danger:          #F85149;
+  --danger-muted:    rgba(248,81,73,0.10);
+  --text-pri:        #C9D1D9;
+  --text-sec:        #8B949E;
+  --text-faint:      #444B54;
+  --shadow-soft:     0 4px 24px rgba(0,0,0,0.50);
+  --scrollbar-thumb: #30363D;
+  --scrollbar-hover: #3F454E;
+}
+
 /* ─── Reset ─────────────────────────────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Terminal, Wifi, WifiOff, LogOut, Layers, Code2, Loader2, Sun, Moon, Contrast,
+  Leaf, Snowflake, Ghost, Coffee, Landmark, Flower2, SunDim, Github, Check,
 } from 'lucide-react';
 import { useRoute } from './hooks/useRoute';
 import ConnectPage from './components/connect/ConnectPage';
@@ -20,10 +21,18 @@ const MODE_KEY  = 'soupz_ide_mode';
 const THEME_KEY = 'soupz_theme';
 
 const THEMES = [
-  { id: 'dark',     label: 'Dark',     icon: Moon },
-  { id: 'dim',      label: 'Dim',      icon: Contrast },
-  { id: 'midnight', label: 'Midnight', icon: Moon },
-  { id: 'light',    label: 'Light',    icon: Sun },
+  { id: 'dark',        label: 'Dark',        icon: Moon },
+  { id: 'dim',         label: 'Dim',         icon: Contrast },
+  { id: 'midnight',    label: 'Midnight',    icon: Moon },
+  { id: 'light',       label: 'Light',       icon: Sun },
+  { id: 'monokai',     label: 'Monokai',     icon: Leaf },
+  { id: 'nord',        label: 'Nord',        icon: Snowflake },
+  { id: 'dracula',     label: 'Dracula',     icon: Ghost },
+  { id: 'catppuccin',  label: 'Catppuccin',  icon: Coffee },
+  { id: 'tokyo-night', label: 'Tokyo Night', icon: Landmark },
+  { id: 'rose-pine',   label: 'Rosé Pine',   icon: Flower2 },
+  { id: 'solarized',   label: 'Solarized',   icon: SunDim },
+  { id: 'github-dark', label: 'GitHub Dark', icon: Github },
 ];
 
 function applyTheme(theme) {
@@ -202,7 +211,7 @@ export default function App() {
           {themeOpen && (
             <>
               <div className="fixed inset-0 z-30" onClick={() => setThemeOpen(false)} />
-              <div className="absolute right-0 top-8 z-40 bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden py-1 min-w-[120px]">
+              <div className="absolute right-0 top-8 z-40 bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden py-1 min-w-[140px]">
                 {THEMES.map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}
@@ -216,6 +225,7 @@ export default function App() {
                   >
                     <Icon size={12} />
                     {label}
+                    {theme === id && <Check size={10} className="ml-auto text-accent" />}
                   </button>
                 ))}
               </div>
