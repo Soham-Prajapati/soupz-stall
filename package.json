@@ -52,10 +52,10 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/yourusername/soupz-agents.git"
+        "url": "https://github.com/Soham-Prajapati/soupz-stall.git"
     },
     "bugs": {
-        "url": "https://github.com/yourusername/soupz-agents/issues"
+        "url": "https://github.com/Soham-Prajapati/soupz-stall/issues"
     },
-    "homepage": "https://github.com/yourusername/soupz-agents#readme"
+    "homepage": "https://soupz.vercel.app"
 }

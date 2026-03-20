@@ -42,7 +42,12 @@ export default function GitPanel({ daemon }) {
     if (!message.trim()) return;
     setLoading(true);
     try {
-      await daemon?.gitCommit?.(message.trim());
+      // Append Soupz co-author tag (like Claude Code / Copilot do)
+      const coAuthor = '\n\nCo-Authored-By: Soupz <agent@soupz.vercel.app>';
+      const fullMsg = message.trim().includes('Co-Authored-By:')
+        ? message.trim()
+        : message.trim() + coAuthor;
+      await daemon?.gitCommit?.(fullMsg);
       setMessage('');
       refresh();
     } catch { /* no daemon */ }

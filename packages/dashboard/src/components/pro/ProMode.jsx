@@ -3,6 +3,7 @@ import Editor from '@monaco-editor/react';
 import {
   Files, GitBranch, Settings, ChevronLeft, ChevronRight,
   Play, Loader2, PanelRightClose, PanelRightOpen, X, Package,
+  Terminal, Search, Trophy,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import FileTree from '../filetree/FileTree';
@@ -11,6 +12,8 @@ import SimpleMode from '../simple/SimpleMode';
 import StatsPanel from '../shared/StatsPanel';
 import MCPPanel from '../shared/MCPPanel';
 import ExtensionsMarketplace from '../shared/ExtensionsMarketplace';
+import SearchPanel from './SearchPanel';
+import TerminalPanel from './TerminalPanel';
 
 const SIDEBAR_KEY = 'soupz_sidebar_open';
 const CHAT_KEY    = 'soupz_chat_open';
@@ -27,7 +30,7 @@ function getLang(filename) {
   return LANG_MAP[ext] || 'plaintext';
 }
 
-export default function ProMode({ daemon, fileTree, changedPaths }) {
+export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateChange }) {
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
 
   const [sidebarOpen, setSidebarOpen] = useState(() =>
@@ -44,6 +47,10 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
   const [fileContents, setFileContents] = useState({});
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
   const [running, setRunning] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(240);
+  const [chatWidth, setChatWidth] = useState(320);
+  const [terminalHeight, setTerminalHeight] = useState(192);
 
   const editorRef = useRef(null);
 
@@ -121,6 +128,29 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
 
   const lang = getLang(activeFile?.name || '');
 
+  // Cmd+Shift+F to open search panel
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'f') {
+        e.preventDefault();
+        setActiveActivity('search');
+        setSidebarOpen(true);
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Lift editor state to parent (for StatusBar)
+  useEffect(() => {
+    onEditorStateChange?.({
+      cursorPos,
+      activeFile,
+      lang,
+      tabSize: 2,
+    });
+  }, [cursorPos, activeFile, lang, onEditorStateChange]);
+
   // Mobile: show only chat
   if (isMobile) {
     return (
@@ -136,8 +166,10 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
       <div className="w-12 bg-bg-surface border-r border-border-subtle flex flex-col items-center py-2 gap-1 shrink-0 z-10">
         {[
           { id: 'files',      Icon: Files,     title: 'Explorer' },
+          { id: 'search',     Icon: Search,    title: 'Search' },
           { id: 'git',        Icon: GitBranch, title: 'Source Control' },
           { id: 'extensions', Icon: Package,   title: 'Extensions' },
+          { id: 'stats',      Icon: Trophy,    title: 'Stats & Leaderboard' },
           { id: 'settings',   Icon: Settings,  title: 'Settings' },
         ].map(({ id, Icon, title }) => (
           <button
@@ -163,12 +195,12 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
         ))}
       </div>
 
-      {/* Sidebar */}
+      {/* Sidebar — resizable */}
       {sidebarOpen && (
-        <div className="w-60 bg-bg-surface border-r border-border-subtle flex flex-col shrink-0 overflow-hidden">
+        <div style={{ width: sidebarWidth }} className="bg-bg-surface border-r border-border-subtle flex flex-col shrink-0 overflow-hidden">
           <div className="px-3 py-2 border-b border-border-subtle shrink-0">
             <span className="text-text-faint text-[11px] font-ui uppercase tracking-wider font-medium">
-              {activeActivity === 'files' ? 'Explorer' : activeActivity === 'git' ? 'Source Control' : activeActivity === 'extensions' ? 'Extensions' : 'Settings'}
+              {activeActivity === 'files' ? 'Explorer' : activeActivity === 'search' ? 'Search' : activeActivity === 'git' ? 'Source Control' : activeActivity === 'extensions' ? 'Extensions' : activeActivity === 'stats' ? 'Stats & Leaderboard' : 'Settings'}
             </span>
           </div>
           <div className="flex-1 overflow-hidden min-h-0">
@@ -180,11 +212,33 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
                 selectedPath={activeFile?.path}
               />
             )}
+            {activeActivity === 'search' && (
+              <SearchPanel
+                daemon={daemon}
+                fileTree={fileTree}
+                onOpenFile={(node) => {
+                  openFile(node);
+                  // If lineNum provided, scroll editor to that line
+                  if (node.lineNum && editorRef.current) {
+                    setTimeout(() => {
+                      editorRef.current.revealLineInCenter(node.lineNum);
+                      editorRef.current.setPosition({ lineNumber: node.lineNum, column: 1 });
+                      editorRef.current.focus();
+                    }, 100);
+                  }
+                }}
+              />
+            )}
             {activeActivity === 'git' && (
               <GitPanel daemon={daemon} />
             )}
             {activeActivity === 'extensions' && (
               <ExtensionsMarketplace />
+            )}
+            {activeActivity === 'stats' && (
+              <div className="flex-1 overflow-y-auto min-h-0">
+                <StatsPanel />
+              </div>
             )}
             {activeActivity === 'settings' && (
               <div className="flex-1 overflow-y-auto min-h-0">
@@ -193,18 +247,13 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
                   <div>
                     <p className="text-[11px] text-text-faint font-ui uppercase tracking-wider font-medium mb-2">Editor</p>
                     <div className="space-y-2">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" className="accent-[var(--accent)]" defaultChecked />
-                        <span className="text-xs text-text-sec font-ui">Font ligatures</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" className="accent-[var(--accent)]" defaultChecked />
-                        <span className="text-xs text-text-sec font-ui">Smooth scrolling</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" className="accent-[var(--accent)]" />
-                        <span className="text-xs text-text-sec font-ui">Word wrap</span>
-                      </label>
+                      {[
+                        { label: 'Font ligatures', defaultOn: true },
+                        { label: 'Smooth scrolling', defaultOn: true },
+                        { label: 'Word wrap', defaultOn: false },
+                      ].map(opt => (
+                        <SettingsCheckbox key={opt.label} label={opt.label} defaultChecked={opt.defaultOn} />
+                      ))}
                     </div>
                   </div>
                   <div className="border-t border-border-subtle pt-3">
@@ -231,6 +280,14 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
             )}
           </div>
         </div>
+      )}
+
+      {/* Sidebar resize handle */}
+      {sidebarOpen && (
+        <ResizeHandle
+          direction="horizontal"
+          onResize={(delta) => setSidebarWidth(prev => Math.max(180, Math.min(400, prev + delta)))}
+        />
       )}
 
       {/* Editor area */}
@@ -283,6 +340,18 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
             </button>
           )}
 
+          {/* Terminal toggle */}
+          <button
+            onClick={() => setTerminalOpen(v => !v)}
+            className={cn(
+              'text-text-faint hover:text-text-sec transition-colors',
+              terminalOpen && 'text-text-pri',
+            )}
+            title={terminalOpen ? 'Close terminal' : 'Open terminal'}
+          >
+            <Terminal size={15} />
+          </button>
+
           {/* Chat toggle */}
           <button
             onClick={() => setChatOpen(v => !v)}
@@ -292,6 +361,23 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
             {chatOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
           </button>
         </div>
+
+        {/* Breadcrumbs */}
+        {activeFile && (
+          <div className="h-6 flex items-center px-3 bg-bg-base border-b border-border-subtle shrink-0 overflow-x-auto">
+            {activeFile.path.split('/').filter(Boolean).map((seg, i, arr) => (
+              <span key={i} className="flex items-center shrink-0">
+                {i > 0 && <span className="text-text-faint text-[10px] mx-1">/</span>}
+                <span className={cn(
+                  'text-[11px] font-ui',
+                  i === arr.length - 1 ? 'text-text-pri' : 'text-text-faint hover:text-text-sec cursor-pointer',
+                )}>
+                  {seg}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Editor */}
         <div className="flex-1 min-h-0 overflow-hidden">
@@ -335,7 +421,7 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
                 fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
                 fontLigatures: true,
                 lineHeight: 1.7,
-                minimap: { enabled: false },
+                minimap: { enabled: true, scale: 1, showSlider: 'mouseover' },
                 scrollBeyondLastLine: false,
                 padding: { top: 12, bottom: 12 },
                 renderLineHighlight: 'line',
@@ -355,38 +441,100 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
           )}
         </div>
 
-        {/* Status bar */}
-        <div className="h-[22px] bg-bg-surface border-t border-border-subtle flex items-center px-3 gap-4 shrink-0">
-          <span className="text-text-faint text-[11px] font-ui flex items-center gap-1">
-            <GitBranch size={10} /> main
-          </span>
-          {activeFile && (
-            <>
-              <span className="text-text-faint text-[11px] font-mono">
-                Ln {cursorPos.line}, Col {cursorPos.col}
-              </span>
-              <span className="text-text-faint text-[11px] font-ui uppercase">
-                {lang}
-              </span>
-            </>
-          )}
-          <button
-            onClick={saveFile}
-            disabled={!activeFile}
-            className="ml-auto text-text-faint hover:text-text-sec text-[11px] font-ui transition-colors disabled:opacity-30"
-            title="Save (Cmd+S)"
-          >
-            Save
-          </button>
-        </div>
+        {/* Terminal panel — resizable */}
+        {terminalOpen && (
+          <>
+            <ResizeHandle
+              direction="vertical"
+              onResize={(delta) => setTerminalHeight(prev => Math.max(100, Math.min(500, prev - delta)))}
+            />
+            <div style={{ height: terminalHeight }}>
+              <TerminalPanel daemon={daemon} onClose={() => setTerminalOpen(false)} />
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Chat panel */}
+      {/* Chat panel — resizable */}
       {chatOpen && (
-        <div className="w-80 border-l border-border-subtle flex flex-col shrink-0 min-h-0 overflow-hidden">
-          <SimpleMode daemon={daemon} />
-        </div>
+        <>
+          <ResizeHandle
+            direction="horizontal"
+            onResize={(delta) => setChatWidth(prev => Math.max(260, Math.min(600, prev - delta)))}
+          />
+          <div style={{ width: chatWidth }} className="border-l border-border-subtle flex flex-col shrink-0 min-h-0">
+            <SimpleMode daemon={daemon} compact={chatWidth < 360} />
+          </div>
+        </>
       )}
     </div>
+  );
+}
+
+function ResizeHandle({ direction = 'horizontal', onResize }) {
+  const handleRef = useRef(null);
+  const startRef = useRef(null);
+
+  function onMouseDown(e) {
+    e.preventDefault();
+    startRef.current = direction === 'horizontal' ? e.clientX : e.clientY;
+    document.body.style.cursor = direction === 'horizontal' ? 'col-resize' : 'row-resize';
+    document.body.style.userSelect = 'none';
+
+    function onMouseMove(e) {
+      const current = direction === 'horizontal' ? e.clientX : e.clientY;
+      const delta = current - startRef.current;
+      startRef.current = current;
+      onResize(delta);
+    }
+
+    function onMouseUp() {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
+  const isH = direction === 'horizontal';
+  return (
+    <div
+      ref={handleRef}
+      onMouseDown={onMouseDown}
+      className={cn(
+        'shrink-0 bg-transparent hover:bg-accent/30 active:bg-accent/50 transition-colors z-10',
+        isH ? 'w-1 cursor-col-resize hover:w-1' : 'h-1 cursor-row-resize hover:h-1',
+      )}
+    />
+  );
+}
+
+function SettingsCheckbox({ label, defaultChecked = false }) {
+  const [checked, setChecked] = useState(defaultChecked);
+  return (
+    <label className="flex items-center gap-2.5 cursor-pointer group">
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={checked}
+        onClick={() => setChecked(v => !v)}
+        className={cn(
+          'w-4 h-4 rounded border flex items-center justify-center transition-all shrink-0',
+          checked
+            ? 'bg-accent border-accent'
+            : 'bg-bg-elevated border-border-mid group-hover:border-border-strong',
+        )}
+      >
+        {checked && (
+          <svg width="10" height="8" viewBox="0 0 10 8" fill="none" className="text-white">
+            <path d="M1 4L3.5 6.5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </button>
+      <span className="text-xs text-text-sec font-ui">{label}</span>
+    </label>
   );
 }

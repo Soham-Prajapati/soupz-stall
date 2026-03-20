@@ -2,9 +2,10 @@ import { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   Trophy, Zap, TrendingUp, MessageSquare, Bot, Flame,
-  Star, Check, Lock, ChevronDown, ChevronUp,
+  Star, Check, Lock, ChevronDown, ChevronUp, Crown,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import LeaderboardPanel from './LeaderboardPanel';
 
 const STORAGE_KEY = 'soupz_chat_history';
 const USAGE_KEY   = 'soupz_agent_usage';
@@ -70,6 +71,7 @@ function getDailyActivity(messages) {
 
 export default function StatsPanel() {
   const [collapsed, setCollapsed] = useState(false);
+  const [lbCollapsed, setLbCollapsed] = useState(false);
 
   const messages   = readJSON(STORAGE_KEY, []);
   const usage      = readJSON(USAGE_KEY, {});
@@ -190,6 +192,24 @@ export default function StatsPanel() {
                 </p>
               )}
             </div>
+          </div>
+
+          {/* Leaderboard — collapsible subsection */}
+          <div className="border-t border-border-subtle pt-3">
+            <button
+              onClick={() => setLbCollapsed(v => !v)}
+              className="w-full flex items-center justify-between mb-2"
+            >
+              <div className="flex items-center gap-2">
+                <Crown size={12} className="text-warning" />
+                <span className="text-[11px] font-ui font-medium text-text-sec">Leaderboard</span>
+              </div>
+              {lbCollapsed
+                ? <ChevronDown size={11} className="text-text-faint" />
+                : <ChevronUp   size={11} className="text-text-faint" />
+              }
+            </button>
+            {!lbCollapsed && <LeaderboardPanel />}
           </div>
         </div>
       )}

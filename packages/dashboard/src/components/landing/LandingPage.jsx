@@ -672,7 +672,7 @@ export default function LandingPage({ navigate }) {
               <HowStep
                 number="02"
                 title="Scan from phone"
-                desc="Open soupz.app on your phone, enter the pairing code. You're connected to your machine instantly."
+                desc="Open soupz.vercel.app on your phone, enter the pairing code. You're connected to your machine instantly."
                 code="4 7 B 2 - 9 X 1 K"
               />
               <HowStep

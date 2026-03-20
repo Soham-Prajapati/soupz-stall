@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Terminal, Wifi, WifiOff, LogOut, Layers, Code2, Loader2, Sun, Moon, Contrast,
-  Leaf, Snowflake, Ghost, Coffee, Landmark, Flower2, SunDim, Github, Check,
+  Leaf, Snowflake, Ghost, Coffee, Landmark, Flower2, SunDim, Github, Check, Search,
 } from 'lucide-react';
 import { useRoute } from './hooks/useRoute';
 import ConnectPage from './components/connect/ConnectPage';
@@ -9,6 +9,9 @@ import AuthScreen from './components/auth/AuthScreen';
 import SimpleMode from './components/simple/SimpleMode';
 import ProMode from './components/pro/ProMode';
 import LandingPage from './components/landing/LandingPage';
+import ProfilePage from './components/profile/ProfilePage';
+import StatusBar from './components/shared/StatusBar';
+import CommandPalette from './components/shared/CommandPalette';
 import { supabase, isSupabaseConfigured } from './lib/supabase.js';
 import {
   checkDaemonHealth, subscribeToDaemon, sendAgentPrompt,
@@ -57,6 +60,9 @@ export default function App() {
   // File/git state for ProMode
   const [fileTree, setFileTree]   = useState(null);
   const [changedFiles, setChangedFiles] = useState([]);
+  // Editor state lifted from ProMode for StatusBar
+  const [editorState, setEditorState] = useState(null);
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
 
   useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
 
@@ -65,10 +71,27 @@ export default function App() {
       // Cmd+1: Chat mode, Cmd+2: IDE mode
       if ((e.metaKey || e.ctrlKey) && e.key === '1') { e.preventDefault(); setMode('simple'); }
       if ((e.metaKey || e.ctrlKey) && e.key === '2') { e.preventDefault(); setMode('pro'); }
+      // Cmd+Shift+P: Command Palette
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'p') { e.preventDefault(); setCmdPaletteOpen(v => !v); }
+      // Cmd+K: also opens palette (common shortcut)
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && !e.shiftKey) { e.preventDefault(); setCmdPaletteOpen(v => !v); }
     }
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, []);
+
+  function handleCommand(actionId) {
+    if (actionId === 'toggle-mode') setMode(m => m === 'simple' ? 'pro' : 'simple');
+    else if (actionId.startsWith('theme-')) {
+      const t = actionId.replace('theme-', '');
+      setTheme(t); localStorage.setItem(THEME_KEY, t); applyTheme(t);
+    }
+    else if (actionId.startsWith('agent-')) {
+      const a = actionId.replace('agent-', '');
+      localStorage.setItem('soupz_agent', a);
+      window.dispatchEvent(new StorageEvent('storage', { key: 'soupz_agent', newValue: a }));
+    }
+  }
 
   function changeTheme(t) {
     setTheme(t);
@@ -159,6 +182,17 @@ export default function App() {
     return <LandingPage navigate={navigate} />;
   }
 
+  // /profile route — user profile page
+  if (path === '/profile') {
+    return (
+      <ProfilePage
+        user={user}
+        navigate={navigate}
+        onSignOut={isSupabaseConfigured() && user?.id !== 'local' ? () => supabase.auth.signOut() : null}
+      />
+    );
+  }
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-bg-base flex items-center justify-center">
@@ -199,6 +233,19 @@ export default function App() {
         {/* Spacer */}
         <div className="flex-1" />
 
+        {/* Command Palette trigger */}
+        <button
+          onClick={() => setCmdPaletteOpen(true)}
+          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-text-faint hover:text-text-sec hover:bg-bg-elevated transition-all border border-transparent hover:border-border-subtle"
+          title="Command Palette (Cmd+Shift+P)"
+        >
+          <Search size={13} />
+          <span className="text-[11px] font-ui hidden md:inline">Search</span>
+          <kbd className="text-[9px] font-mono text-text-faint bg-bg-elevated px-1 py-0.5 rounded border border-border-subtle hidden lg:inline">
+            {navigator.platform?.includes('Mac') ? '⌘K' : 'Ctrl+K'}
+          </kbd>
+        </button>
+
         {/* Theme picker */}
         <div className="relative">
           <button
@@ -236,9 +283,24 @@ export default function App() {
         {/* Workspace status */}
         <WorkspaceStatus online={workspaceOnline} machine={workspaceMachine} navigate={navigate} />
 
-        {/* User email */}
-        {user?.email && user.id !== 'local' && (
-          <span className="text-text-faint text-xs font-ui hidden md:block truncate max-w-36">{user.email}</span>
+        {/* User identity — click to open profile */}
+        {user?.id && user.id !== 'local' && (
+          <button
+            onClick={() => navigate('/profile')}
+            className="flex items-center gap-2 hidden md:flex hover:bg-bg-elevated rounded-md px-1.5 py-1 transition-all cursor-pointer"
+            title="View profile"
+          >
+            {user.user_metadata?.avatar_url ? (
+              <img
+                src={user.user_metadata.avatar_url}
+                alt=""
+                className="w-5 h-5 rounded-full border border-border-subtle"
+              />
+            ) : null}
+            <span className="text-text-faint text-xs font-ui truncate max-w-36">
+              {user.user_metadata?.full_name || user.user_metadata?.name || user.email}
+            </span>
+          </button>
         )}
 
         {/* Sign out */}
@@ -262,9 +324,24 @@ export default function App() {
         {mode === 'simple' ? (
           <SimpleMode daemon={workspace} />
         ) : (
-          <ProMode daemon={workspace} fileTree={fileTree} changedPaths={changedFiles} />
+          <ProMode daemon={workspace} fileTree={fileTree} changedPaths={changedFiles} onEditorStateChange={setEditorState} />
         )}
       </div>
+
+      {/* Command Palette */}
+      <CommandPalette
+        open={cmdPaletteOpen}
+        onClose={() => setCmdPaletteOpen(false)}
+        onAction={handleCommand}
+      />
+
+      {/* VS Code-style Status Bar */}
+      <StatusBar
+        workspaceOnline={workspaceOnline}
+        machine={workspaceMachine}
+        mode={mode}
+        editorState={editorState}
+      />
     </div>
   );
 }

@@ -97,6 +97,10 @@ export function useKokoroTTS() {
   /** Integer 0-100 reflecting download / initialisation progress. */
   const [loadProgress, setLoadProgress] = useState(0);
   const [speaking, setSpeaking] = useState(false);
+  /** Error message if TTS fails, cleared on next attempt. */
+  const [ttsError, setTtsError] = useState(null);
+  /** Which engine is active: 'neural' | 'browser' | null */
+  const [ttsEngine, setTtsEngine] = useState(null);
 
   /** Web Audio API context — reused across utterances. */
   const audioCtxRef = useRef(null);
@@ -132,40 +136,75 @@ export function useKokoroTTS() {
    *
    * @param {string} text - Raw text (may contain Markdown).
    */
+  /**
+   * Falls back to the browser's built-in SpeechSynthesis API.
+   */
+  const speakBrowser = useCallback(
+    (plain) => {
+      if (typeof window === 'undefined' || !window.speechSynthesis) {
+        setTtsError('Browser speech synthesis not available');
+        return;
+      }
+      // Cancel any queued native utterances first.
+      window.speechSynthesis.cancel();
+
+      const utt = new SpeechSynthesisUtterance(plain);
+      utt.rate = 1.0;
+      utt.pitch = 1.0;
+      const handleEnd = () => setSpeaking(false);
+      utt.onend = handleEnd;
+      utt.onerror = (e) => {
+        console.warn('[Browser TTS] error:', e);
+        setSpeaking(false);
+      };
+      setSpeaking(true);
+      setTtsEngine('browser');
+      window.speechSynthesis.speak(utt);
+    },
+    [],
+  );
+
   const speak = useCallback(
     async (text) => {
       // Always cancel whatever is currently playing before starting a new utterance.
       stop();
+      setTtsError(null);
 
       const plain = stripMarkdown(text);
       if (!plain) return;
+
+      // Check user preference — allow opting out of neural TTS
+      const preferBrowser = localStorage.getItem('soupz_tts_engine') === 'browser';
+      if (preferBrowser) {
+        speakBrowser(plain);
+        return;
+      }
 
       // Signal that we are about to load / are loading the model.
       setModelLoading(true);
       setLoadProgress(0);
 
-      const model = await ensureModel((p) => setLoadProgress(p));
+      let model;
+      try {
+        model = await ensureModel((p) => setLoadProgress(p));
+      } catch (err) {
+        console.warn('[Kokoro TTS] Load error:', err);
+        model = null;
+      }
 
       setModelLoading(false);
       setLoadProgress(0);
 
       if (!model) {
         // Graceful fallback to native speech synthesis.
-        if (typeof window !== 'undefined' && window.speechSynthesis) {
-          const utt = new SpeechSynthesisUtterance(plain);
-          utt.rate = 1.0;
-          utt.pitch = 1.0;
-          const handleEnd = () => setSpeaking(false);
-          utt.onend = handleEnd;
-          utt.onerror = handleEnd;
-          setSpeaking(true);
-          window.speechSynthesis.speak(utt);
-        }
+        console.warn('[Kokoro TTS] Model unavailable, falling back to browser TTS');
+        speakBrowser(plain);
         return;
       }
 
       try {
         setSpeaking(true);
+        setTtsEngine('neural');
 
         const result = await model.generate(plain, { voice: 'af_sky' });
 
@@ -201,12 +240,13 @@ export function useKokoroTTS() {
         source.start();
         sourceRef.current = source;
       } catch (err) {
-        console.warn('[Kokoro TTS] Playback error:', err);
-        setSpeaking(false);
+        console.warn('[Kokoro TTS] Playback error, falling back to browser TTS:', err);
+        // Auto-fallback to browser TTS on neural failure
+        speakBrowser(plain);
       }
     },
-    [stop],
+    [stop, speakBrowser],
   );
 
-  return { speak, stop, speaking, modelLoading, loadProgress };
+  return { speak, stop, speaking, modelLoading, loadProgress, ttsError, ttsEngine };
 }

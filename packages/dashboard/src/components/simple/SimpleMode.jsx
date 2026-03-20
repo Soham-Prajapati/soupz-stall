@@ -13,7 +13,10 @@ import OllamaStatus from '../shared/OllamaStatus';
 import InteractiveQuestions, { parseSoupzQ, formatAnswers } from '../shared/InteractiveQuestions';
 import LearnedAgents, { SuggestionDot } from '../shared/LearnedAgents';
 import { trackUsage, getCustomAgents } from '../../lib/learning';
+import { getMemoryContext, saveMemoryShard } from '../../lib/memory';
 import { useKokoroTTS } from '../../hooks/useKokoroTTS';
+// Sarvam STT available as optional upgrade - import only if needed
+// import { useSarvamSTT } from '../../hooks/useSarvamSTT';
 
 const STORAGE_KEY = 'soupz_chat_history';
 const AGENT_KEY   = 'soupz_agent';
@@ -72,7 +75,7 @@ function renderMarkdown(text) {
   });
 }
 
-export default function SimpleMode({ daemon }) {
+export default function SimpleMode({ daemon, compact = false }) {
   const [messages, setMessages] = useState(() => {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
   });
@@ -96,7 +99,8 @@ export default function SimpleMode({ daemon }) {
   // abortRef lets pauseStreaming() stop mid-flight chunk processing
   const abortRef = useRef(false);
 
-  const { speak: kokoroSpeak, stop: kokoroStop, speaking: kokoroSpeaking, modelLoading, loadProgress } = useKokoroTTS();
+  const { speak: kokoroSpeak, stop: kokoroStop, speaking: kokoroSpeaking, modelLoading, loadProgress, ttsError, ttsEngine } = useKokoroTTS();
+  const [sttError, setSttError] = useState(null);
 
   // Persist messages
   useEffect(() => {
@@ -139,6 +143,10 @@ export default function SimpleMode({ daemon }) {
       }
     }
 
+    // Prepend relevant memory context to the prompt sent to the daemon
+    const memoryCtx  = getMemoryContext(text);
+    const promptForDaemon = memoryCtx ? memoryCtx + text : text;
+
     const userMsg = { id: Date.now(), role: 'user', content: text };
     const aiMsg   = {
       id: Date.now() + 1,
@@ -154,7 +162,7 @@ export default function SimpleMode({ daemon }) {
 
     try {
       if (daemon?.sendPrompt) {
-        await daemon.sendPrompt({ prompt: text, agentId: effectiveAgentId, buildMode }, chunk => {
+        await daemon.sendPrompt({ prompt: promptForDaemon, agentId: effectiveAgentId, buildMode }, chunk => {
           if (abortRef.current) return;
           setMessages(prev => prev.map(m =>
             m.id === aiMsg.id ? { ...m, content: m.content + chunk } : m
@@ -181,6 +189,27 @@ export default function SimpleMode({ daemon }) {
       abortRef.current = false;
       // Track usage for learning system — runs after stream completes
       trackUsage(text, effectiveAgentId, 'auto', buildMode, 'sent');
+
+      // Auto-save a memory shard from the last exchange
+      try {
+        setMessages(prev => {
+          const recent = prev.slice(-4); // last few messages for context
+          const aiContent = prev.find(m => m.id === aiMsg.id)?.content || '';
+          if (aiContent && aiContent.length > 20 && !aiContent.startsWith('Error:') && !aiContent.startsWith('**Not connected')) {
+            const summary = text.slice(0, 120) + (aiContent.length > 80 ? ' — ' + aiContent.slice(0, 80) : '');
+            const keywords = text
+              .toLowerCase()
+              .replace(/[^a-z0-9\s]/g, ' ')
+              .split(/\s+/)
+              .filter(w => w.length > 3)
+              .slice(0, 6);
+            saveMemoryShard(summary, keywords, effectiveAgentId, 'general', recent.length);
+          }
+          return prev; // no mutation
+        });
+      } catch {
+        // Memory save is non-critical — fail silently
+      }
     }
   }
 
@@ -199,7 +228,15 @@ export default function SimpleMode({ daemon }) {
 
   function startVoice() {
     const SpeechRecog = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecog) return;
+    if (!SpeechRecog) {
+      const isMac = navigator.platform?.includes('Mac');
+      setSttError(isMac
+        ? 'Press Fn twice to use Mac dictation (works in any browser).'
+        : 'Voice input requires Chrome or Edge. Use your OS dictation instead.'
+      );
+      setTimeout(() => setSttError(null), 6000);
+      return;
+    }
 
     // If already listening, stop
     if (listening) {
@@ -207,6 +244,9 @@ export default function SimpleMode({ daemon }) {
       setListening(false);
       return;
     }
+
+    // Clear any previous errors
+    setSttError(null);
 
     const r = new SpeechRecog();
     r.continuous = true;        // Keep listening until stopped
@@ -229,7 +269,23 @@ export default function SimpleMode({ daemon }) {
       setInput((finalTranscript + interim).trim());
     };
 
-    r.onerror = () => setListening(false);
+    r.onerror = (e) => {
+      setListening(false);
+      const errorMessages = {
+        'not-allowed': 'Microphone access denied. Allow microphone in browser settings.',
+        'no-speech': 'No speech detected. Try again.',
+        'audio-capture': 'No microphone found. Check your audio device.',
+        'network': 'Network error. Speech recognition requires internet.',
+        'aborted': null, // User cancelled, no error
+        'service-not-allowed': 'Speech service not allowed. Try using Chrome.',
+      };
+      const msg = errorMessages[e.error] ?? `Speech error: ${e.error}`;
+      if (msg) {
+        setSttError(msg);
+        setTimeout(() => setSttError(null), 5000);
+      }
+    };
+
     r.onend = () => {
       setListening(false);
       // Trim final result
@@ -237,8 +293,14 @@ export default function SimpleMode({ daemon }) {
     };
 
     recogRef.current = r;
-    r.start();
-    setListening(true);
+
+    try {
+      r.start();
+      setListening(true);
+    } catch (err) {
+      setSttError(`Failed to start: ${err.message}`);
+      setTimeout(() => setSttError(null), 4000);
+    }
   }
 
   function copyMessage(content, id) {
@@ -283,16 +345,16 @@ export default function SimpleMode({ daemon }) {
   return (
     <div className="flex flex-col h-full bg-bg-base">
       {/* Top bar */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border-subtle bg-bg-surface shrink-0 flex-wrap gap-y-2">
+      <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border-subtle bg-bg-surface shrink-0 overflow-x-auto">
         {/* Agent selector */}
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             onClick={() => { setAgentOpen(v => !v); setModeOpen(false); }}
-            className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-bg-elevated border border-border-subtle hover:border-border-mid text-text-pri text-xs font-ui transition-all"
+            className="relative flex items-center gap-1 px-2 py-1 rounded-md bg-bg-elevated border border-border-subtle hover:border-border-mid text-text-pri text-xs font-ui transition-all whitespace-nowrap"
           >
-            <AgentIcon size={12} style={{ color: currentAgent.color }} />
+            <AgentIcon size={11} style={{ color: currentAgent.color }} />
             <span>{currentAgent.name}</span>
-            <ChevronDown size={10} className="text-text-faint ml-0.5" />
+            <ChevronDown size={9} className="text-text-faint" />
             <SuggestionDot />
           </button>
           {agentOpen && (
@@ -305,13 +367,13 @@ export default function SimpleMode({ daemon }) {
         </div>
 
         {/* Build mode */}
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             onClick={() => { setModeOpen(v => !v); setAgentOpen(false); }}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-bg-elevated border border-border-subtle hover:border-border-mid text-text-sec text-xs font-ui transition-all"
+            className="flex items-center gap-1 px-2 py-1 rounded-md bg-bg-elevated border border-border-subtle hover:border-border-mid text-text-sec text-xs font-ui transition-all whitespace-nowrap"
           >
-            <span>{BUILD_MODES.find(m => m.id === buildMode)?.label || 'Quick Build'}</span>
-            <ChevronDown size={10} className="text-text-faint ml-0.5" />
+            <span>{compact ? (BUILD_MODES.find(m => m.id === buildMode)?.label || 'Quick').split(' ')[0] : BUILD_MODES.find(m => m.id === buildMode)?.label || 'Quick Build'}</span>
+            <ChevronDown size={9} className="text-text-faint" />
           </button>
           {modeOpen && (
             <div className="absolute top-full left-0 mt-1 w-44 bg-bg-elevated border border-border-mid rounded-lg shadow-soft z-50 overflow-hidden">
@@ -332,16 +394,15 @@ export default function SimpleMode({ daemon }) {
           )}
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1 shrink-0">
           {/* Pause button — only visible while streaming */}
           {isStreaming && (
             <button
               onClick={pauseStreaming}
               title="Pause generation"
-              className="flex items-center gap-1 px-2 py-1 rounded border border-transparent text-text-faint hover:text-warning hover:bg-warning/10 hover:border-warning/20 text-xs font-ui transition-all"
+              className="flex items-center gap-1 px-1.5 py-1 rounded border border-transparent text-text-faint hover:text-warning hover:bg-warning/10 hover:border-warning/20 text-xs font-ui transition-all"
             >
               <Square size={11} />
-              <span className="hidden sm:inline">Pause</span>
             </button>
           )}
           <OllamaStatus
@@ -350,6 +411,7 @@ export default function SimpleMode({ daemon }) {
               setUseOllama(v);
               localStorage.setItem('soupz_use_ollama', String(v));
             }}
+            compact={compact}
           />
           <button
             onClick={clearHistory}
@@ -393,7 +455,10 @@ export default function SimpleMode({ daemon }) {
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-4 min-h-0 space-y-4">
+      <div className={cn(
+        "flex-1 overflow-y-auto px-3 min-h-0",
+        messages.length === 0 ? "flex flex-col items-center justify-center" : "space-y-4 py-4",
+      )}>
         {messages.length === 0 && (
           <EmptyState agentName={currentAgent.name} AgentIcon={AgentIcon} agentColor={currentAgent.color} />
         )}
@@ -415,72 +480,63 @@ export default function SimpleMode({ daemon }) {
         <div ref={bottomRef} />
       </div>
 
+      {/* Speech error banner */}
+      {(sttError || ttsError) && (
+        <div className="mx-3 mb-0 px-3 py-1.5 bg-danger/10 border border-danger/20 rounded-lg flex items-center gap-2">
+          <span className="text-danger text-[11px] font-ui flex-1">{sttError || ttsError}</span>
+          <button
+            onClick={() => { setSttError(null); }}
+            className="text-danger/60 hover:text-danger transition-colors shrink-0"
+          >
+            <X size={11} />
+          </button>
+        </div>
+      )}
+
       {/* Input area */}
-      <div className="border-t border-border-subtle bg-bg-surface px-3 py-3 shrink-0">
-        <div className="flex items-end gap-2">
-          <div className="flex-1 relative">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={e => {
-                setInput(e.target.value);
-                e.target.style.height = 'auto';
-                e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
-              }}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  if (listening) {
-                    recogRef.current?.stop();
-                    setListening(false);
-                  }
-                  sendMessage();
-                }
-              }}
-              placeholder="Ask anything, build something…"
-              rows={1}
-              className="w-full bg-bg-elevated border border-border-subtle rounded-lg px-3 py-2.5 text-sm font-ui text-text-pri placeholder:text-text-faint focus:outline-none focus:border-accent transition-colors resize-none pr-2 max-h-40"
-              style={{ lineHeight: '1.5' }}
-            />
-          </div>
-
-          {/* Voice button */}
-          {(window.SpeechRecognition || window.webkitSpeechRecognition) && (
-            <button
-              onClick={startVoice}
-              className={cn(
-                'flex-shrink-0 p-2.5 rounded-lg border transition-all relative',
-                listening
-                  ? 'bg-danger/10 border-danger text-danger animate-pulse'
-                  : 'bg-bg-elevated border-border-subtle text-text-faint hover:text-text-sec hover:border-border-mid',
-              )}
-              title={listening ? 'Tap to stop listening' : 'Tap to speak'}
-            >
-              {listening ? <MicOff size={16} /> : <Mic size={16} />}
-              {listening && (
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-danger animate-ping" />
-              )}
-            </button>
-          )}
-
-          {/* Send button */}
+      <div className="border-t border-border-subtle bg-bg-surface px-3 py-2.5 shrink-0">
+        <div className="flex items-center gap-1.5 bg-bg-elevated border border-border-subtle rounded-xl px-3 py-1 focus-within:border-accent transition-colors">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={e => {
+              setInput(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (listening) { recogRef.current?.stop(); setListening(false); }
+                sendMessage();
+              }
+            }}
+            placeholder={compact ? "Ask anything..." : "What would you like to build?"}
+            rows={1}
+            className="flex-1 bg-transparent text-sm font-ui text-text-pri placeholder:text-text-faint focus:outline-none resize-none max-h-28 py-2 min-w-0"
+            style={{ lineHeight: '1.5' }}
+          />
+          <button
+            onClick={startVoice}
+            className={cn(
+              'shrink-0 p-1.5 rounded-lg transition-all relative',
+              listening ? 'text-danger animate-pulse' : 'text-text-faint hover:text-text-sec',
+            )}
+            title={listening ? 'Stop' : 'Speak'}
+          >
+            {listening ? <MicOff size={16} /> : <Mic size={16} />}
+          </button>
           <button
             onClick={sendMessage}
             disabled={!input.trim() || isStreaming}
             className={cn(
-              'flex-shrink-0 p-2.5 rounded-lg transition-all',
-              input.trim() && !isStreaming
-                ? 'bg-accent hover:bg-accent-hover text-white'
-                : 'bg-bg-elevated border border-border-subtle text-text-faint cursor-not-allowed',
+              'shrink-0 p-1.5 rounded-lg transition-all',
+              input.trim() && !isStreaming ? 'text-accent hover:text-accent-hover' : 'text-text-faint/30',
             )}
           >
             <Send size={16} />
           </button>
         </div>
-        <p className="text-text-faint text-[11px] font-ui mt-1.5 ml-1">
-          Enter to send · Shift+Enter for newline{(window.SpeechRecognition || window.webkitSpeechRecognition) ? ' · Tap mic to speak' : ''}
-          {' · Tap speaker for neural TTS (on-device)'}
-        </p>
       </div>
     </div>
   );
@@ -577,13 +633,29 @@ function Message({ msg, onCopy, copied, onSpeak, speaking, modelLoading, loadPro
 
 function EmptyState({ agentName, AgentIcon, agentColor }) {
   return (
-    <div className="flex flex-col items-center justify-center h-full min-h-48 text-center gap-3 py-8">
-      <div className="w-12 h-12 rounded-xl bg-bg-elevated border border-border-subtle flex items-center justify-center">
-        <AgentIcon size={20} style={{ color: agentColor }} />
+    <div className="flex flex-col items-center text-center gap-4 max-w-sm mx-auto">
+      <div className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+        <AgentIcon size={24} style={{ color: agentColor }} className="opacity-80" />
       </div>
       <div>
-        <p className="text-text-pri text-sm font-ui font-medium">{agentName} ready</p>
-        <p className="text-text-faint text-xs mt-1">Send a message to start building</p>
+        <p className="text-text-pri text-base font-ui font-semibold">What would you like to build?</p>
+        <p className="text-text-faint text-xs mt-1.5 leading-relaxed">
+          Describe your idea and {agentName} will help you build it.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2 justify-center">
+        {['Build a landing page', 'Fix a bug', 'Refactor code', 'Write tests'].map(suggestion => (
+          <button
+            key={suggestion}
+            onClick={() => {
+              setInput(suggestion);
+              setTimeout(() => sendMessage(suggestion), 100);
+            }}
+            className="px-3 py-1.5 text-[11px] font-ui text-text-sec bg-bg-elevated border border-border-subtle rounded-lg hover:border-accent/30 hover:text-text-pri transition-all"
+          >
+            {suggestion}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -614,7 +686,7 @@ function AgentDropdown({ selected, onSelect, onClose }) {
   return (
     <div
       data-agent-dropdown
-      className="absolute top-full left-0 mt-1 w-72 bg-bg-elevated border border-border-mid rounded-xl shadow-soft z-50 overflow-hidden"
+      className="absolute top-full left-0 mt-1 w-72 bg-bg-elevated border border-border-mid rounded-xl shadow-soft z-[100] overflow-hidden"
     >
       <div className="flex border-b border-border-subtle">
         {['cli', 'specialist'].map(t => (

@@ -1,163 +1,92 @@
 import { useState } from 'react';
-import { Terminal, Mail, Lock, Eye, EyeOff, Github, ArrowRight, Loader2 } from 'lucide-react';
+import { Terminal, Github, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 
 export default function AuthScreen({ supabase, onAuth }) {
-  const [tab, setTab]         = useState('login');
-  const [email, setEmail]     = useState('');
-  const [password, setPassword] = useState('');
-  const [showPw, setShowPw]   = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState('');
+  const [loading, setLoading] = useState(null); // 'google' | 'github' | 'apple' | null
+  const [error, setError] = useState('');
 
-  const hasSupabase = !!supabase;
-
-  async function handleEmailAuth(e) {
-    e.preventDefault();
+  async function handleOAuth(provider) {
     if (!supabase) return;
-    setLoading(true);
+    setLoading(provider);
     setError('');
     try {
-      const fn = tab === 'login' ? supabase.auth.signInWithPassword : supabase.auth.signUp;
-      const { error: err } = await fn.call(supabase.auth, { email, password });
+      const { error: err } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: window.location.origin },
+      });
       if (err) setError(err.message);
-      else onAuth?.();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+    } catch (e) {
+      setError(e.message);
     }
-  }
-
-  async function handleGitHub() {
-    if (!supabase) return;
-    setLoading(true);
-    await supabase.auth.signInWithOAuth({
-      provider: 'github',
-      options: { redirectTo: window.location.origin },
-    });
-    setLoading(false);
+    setLoading(null);
   }
 
   return (
     <div className="min-h-screen bg-bg-base flex flex-col items-center justify-center p-6">
       {/* Logo */}
-      <div className="flex items-center gap-2.5 mb-10">
-        <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
-          <Terminal size={16} className="text-white" />
+      <div className="flex items-center gap-2.5 mb-8">
+        <div className="w-9 h-9 rounded-xl bg-accent flex items-center justify-center">
+          <Terminal size={18} className="text-white" />
         </div>
-        <span className="text-text-pri font-ui font-semibold text-lg tracking-tight">Soupz</span>
+        <span className="text-text-pri font-ui font-bold text-xl tracking-tight">Soupz</span>
       </div>
 
       <div className="w-full max-w-sm">
-        {/* Card */}
-        <div className="bg-bg-surface border border-border-subtle rounded-xl overflow-hidden shadow-soft">
-          {/* Tabs */}
-          <div className="flex border-b border-border-subtle">
-            {['login', 'signup'].map(t => (
-              <button
-                key={t}
-                onClick={() => { setTab(t); setError(''); }}
-                className={cn(
-                  'flex-1 py-3.5 text-sm font-medium font-ui transition-colors',
-                  tab === t
-                    ? 'text-text-pri border-b-2 border-accent -mb-px'
-                    : 'text-text-sec hover:text-text-pri',
-                )}
-              >
-                {t === 'login' ? 'Sign in' : 'Create account'}
-              </button>
-            ))}
-          </div>
+        <div className="bg-bg-surface border border-border-subtle rounded-2xl overflow-hidden shadow-soft p-7">
+          <h1 className="text-text-pri font-ui text-lg font-semibold text-center mb-1">Welcome to Soupz</h1>
+          <p className="text-text-faint text-sm font-ui text-center mb-6">Sign in to start building</p>
 
-          <div className="p-6">
-            {/* GitHub OAuth */}
-            {hasSupabase && (
-              <>
-                <button
-                  onClick={handleGitHub}
-                  disabled={loading}
-                  className="w-full flex items-center justify-center gap-2.5 py-2.5 rounded-md bg-bg-elevated border border-border-mid hover:border-border-strong text-text-pri text-sm font-medium font-ui transition-all disabled:opacity-50"
-                >
-                  <Github size={15} />
-                  Continue with GitHub
-                </button>
-
-                <div className="flex items-center gap-3 my-5">
-                  <div className="flex-1 h-px bg-border-subtle" />
-                  <span className="text-text-faint text-xs font-ui">or</span>
-                  <div className="flex-1 h-px bg-border-subtle" />
-                </div>
-              </>
-            )}
-
-            {/* Email form */}
-            {hasSupabase && (
-              <form onSubmit={handleEmailAuth} className="space-y-3">
-                <div className="relative">
-                  <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-faint" />
-                  <input
-                    type="email"
-                    placeholder="Email address"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    required
-                    className="w-full pl-9 pr-3 py-2.5 bg-bg-elevated border border-border-subtle rounded-md text-text-pri text-sm font-ui placeholder:text-text-faint focus:border-accent focus:outline-none transition-colors"
-                  />
-                </div>
-
-                <div className="relative">
-                  <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-faint" />
-                  <input
-                    type={showPw ? 'text' : 'password'}
-                    placeholder="Password"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    required
-                    className="w-full pl-9 pr-9 py-2.5 bg-bg-elevated border border-border-subtle rounded-md text-text-pri text-sm font-ui placeholder:text-text-faint focus:border-accent focus:outline-none transition-colors"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPw(v => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-faint hover:text-text-sec transition-colors"
-                  >
-                    {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-
-                {error && (
-                  <p className="text-danger text-xs font-ui py-2 px-3 bg-danger/5 border border-danger/20 rounded-md">{error}</p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-md bg-accent hover:bg-accent-hover text-white text-sm font-medium font-ui transition-colors disabled:opacity-60"
-                >
-                  {loading ? <Loader2 size={14} className="animate-spin" /> : (
-                    <>{tab === 'login' ? 'Sign in' : 'Create account'} <ArrowRight size={14} /></>
-                  )}
-                </button>
-              </form>
-            )}
-
-            {/* Local-only option */}
-            <div className={cn('text-center', hasSupabase ? 'mt-5 pt-5 border-t border-border-subtle' : '')}>
-              {!hasSupabase && (
-                <p className="text-text-sec text-sm mb-4">No cloud account configured.</p>
+          <div className="space-y-3">
+            {/* Google */}
+            <button
+              onClick={() => handleOAuth('google')}
+              disabled={!!loading}
+              className="w-full flex items-center justify-center gap-2.5 py-2.5 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-medium font-ui transition-all disabled:opacity-50"
+            >
+              {loading === 'google' ? <Loader2 size={15} className="animate-spin" /> : (
+                <svg width="16" height="16" viewBox="0 0 48 48">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                  <path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.0 24.0 0 0 0 0 21.56l7.98-6.19z"/>
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                </svg>
               )}
-              <button
-                onClick={() => onAuth?.('local')}
-                className="text-text-sec hover:text-text-pri text-sm font-ui transition-colors underline underline-offset-2 decoration-border-mid"
-              >
-                Skip — use locally
-              </button>
-            </div>
+              Continue with Google
+            </button>
+
+            {/* GitHub */}
+            <button
+              onClick={() => handleOAuth('github')}
+              disabled={!!loading}
+              className="w-full flex items-center justify-center gap-2.5 py-2.5 rounded-lg bg-bg-elevated border border-border-mid hover:border-border-strong text-text-pri text-sm font-medium font-ui transition-all disabled:opacity-50"
+            >
+              {loading === 'github' ? <Loader2 size={15} className="animate-spin" /> : <Github size={15} />}
+              Continue with GitHub
+            </button>
+
+            {/* Apple */}
+            <button
+              onClick={() => handleOAuth('apple')}
+              disabled={!!loading}
+              className="w-full flex items-center justify-center gap-2.5 py-2.5 rounded-lg bg-bg-elevated border border-border-mid hover:border-border-strong text-text-pri text-sm font-medium font-ui transition-all disabled:opacity-50"
+            >
+              {loading === 'apple' ? <Loader2 size={15} className="animate-spin" /> : (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+                </svg>
+              )}
+              Continue with Apple
+            </button>
           </div>
+
+          {error && (
+            <p className="text-danger text-xs font-ui mt-4 py-2 px-3 bg-danger/5 border border-danger/20 rounded-lg">{error}</p>
+          )}
         </div>
 
-        <p className="text-center text-text-faint text-xs mt-5 font-ui">
-          Your AI coding workspace. Works offline, syncs optionally.
+        <p className="text-center text-text-faint text-[11px] mt-5 font-ui leading-relaxed">
+          Your AI coding workspace. Free to use with your own AI agents.
         </p>
       </div>
     </div>

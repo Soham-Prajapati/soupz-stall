@@ -1,14 +1,18 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const DAEMON_PORT = process.env.SOUPZ_REMOTE_PORT || '7533';
+const DAEMON_TARGET = `http://localhost:${DAEMON_PORT}`;
+
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 7534,
     proxy: {
-      '/api': { target: 'http://localhost:7070', changeOrigin: true },
-      '/health': { target: 'http://localhost:7070', changeOrigin: true },
-      '/command': { target: 'http://localhost:7070', changeOrigin: true },
+      '/api': { target: DAEMON_TARGET, changeOrigin: true },
+      '/health': { target: DAEMON_TARGET, changeOrigin: true },
+      '/command': { target: DAEMON_TARGET, changeOrigin: true },
+      '/pair': { target: DAEMON_TARGET, changeOrigin: true },
     },
   },
   build: {

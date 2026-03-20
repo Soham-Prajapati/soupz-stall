@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Terminal, CheckCircle, XCircle, ArrowRight, RefreshCw } from 'lucide-react';
+import { Terminal, CheckCircle, XCircle, ArrowRight, RefreshCw, QrCode, Keyboard } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { cn } from '../../lib/cn';
 
-const PAIRING_API = 'http://localhost:7070';
+// Connect to daemon - always use localhost since daemon runs on user's machine
+const PAIRING_API = '';
 
 export default function ConnectPage({ getParam, navigate }) {
   const urlCode = getParam?.('code') || '';
@@ -10,6 +12,7 @@ export default function ConnectPage({ getParam, navigate }) {
   const [status, setStatus]   = useState('idle'); // idle | loading | success | error
   const [machine, setMachine] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [connectMode, setConnectMode] = useState(urlCode ? 'code' : 'code'); // code | qr
   const inputRefs = useRef([]);
 
   const code = digits.join('');
@@ -101,13 +104,46 @@ export default function ConnectPage({ getParam, navigate }) {
         ) : (
           <>
             <h1 className="text-text-pri font-ui text-xl font-semibold mb-1.5">Connect your machine</h1>
-            <p className="text-text-sec text-sm mb-7 leading-relaxed">
-              Enter the 8-digit code shown in your terminal after running{' '}
+            <p className="text-text-sec text-sm mb-4 leading-relaxed">
+              Run{' '}
               <code className="font-mono text-accent text-xs bg-bg-elevated px-1.5 py-0.5 rounded">
                 npx soupz
               </code>
+              {' '}in your terminal, then connect below.
             </p>
 
+            {/* Mode tabs: Code / QR */}
+            <div className="flex items-center gap-1 bg-bg-base rounded-md p-0.5 border border-border-subtle mb-5">
+              <button
+                onClick={() => setConnectMode('code')}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-xs font-ui font-medium transition-all',
+                  connectMode === 'code'
+                    ? 'bg-bg-elevated text-text-pri border border-border-subtle'
+                    : 'text-text-faint hover:text-text-sec',
+                )}
+              >
+                <Keyboard size={12} />
+                Enter Code
+              </button>
+              <button
+                onClick={() => setConnectMode('qr')}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-xs font-ui font-medium transition-all',
+                  connectMode === 'qr'
+                    ? 'bg-bg-elevated text-text-pri border border-border-subtle'
+                    : 'text-text-faint hover:text-text-sec',
+                )}
+              >
+                <QrCode size={12} />
+                Scan QR
+              </button>
+            </div>
+
+            {connectMode === 'qr' ? (
+              <QRConnectMode code={code} onManual={() => setConnectMode('code')} />
+            ) : (
+            <>
             {/* Code input: 4+4 groups */}
             <div className="flex items-center gap-3 mb-6 justify-center">
               <div className="flex gap-1.5">
@@ -190,6 +226,8 @@ export default function ConnectPage({ getParam, navigate }) {
                 ))}
               </ol>
             </div>
+            </>
+            )}
           </>
         )}
       </div>
@@ -210,6 +248,53 @@ function SuccessState({ machine }) {
         </p>
       )}
       <p className="text-text-faint text-xs">Redirecting you to the dashboard…</p>
+    </div>
+  );
+}
+
+function QRConnectMode({ code, onManual }) {
+  // Generate the connect URL that the QR code will encode
+  const connectUrl = code.length === 8
+    ? `${window.location.origin}/connect?code=${code}`
+    : null;
+
+  return (
+    <div className="flex flex-col items-center gap-4 py-2">
+      {connectUrl ? (
+        <>
+          <div className="bg-white p-3 rounded-xl">
+            <QRCodeSVG
+              value={connectUrl}
+              size={180}
+              level="M"
+              bgColor="#ffffff"
+              fgColor="#0F0F13"
+            />
+          </div>
+          <p className="text-text-sec text-xs font-ui text-center leading-relaxed">
+            Scan this QR code with your phone camera<br />
+            to connect instantly
+          </p>
+          <div className="flex items-center gap-2 text-text-faint text-[11px] font-mono bg-bg-elevated px-3 py-1.5 rounded-md border border-border-subtle">
+            Code: {code.slice(0, 4)}-{code.slice(4)}
+          </div>
+        </>
+      ) : (
+        <div className="text-center py-6">
+          <QrCode size={32} className="text-text-faint mx-auto mb-3 opacity-30" />
+          <p className="text-text-sec text-sm font-ui mb-1">No code available yet</p>
+          <p className="text-text-faint text-xs font-ui">
+            Run <code className="font-mono text-accent bg-bg-elevated px-1 rounded">npx soupz</code> first,
+            then enter the code manually to generate a QR.
+          </p>
+          <button
+            onClick={onManual}
+            className="mt-3 text-accent hover:text-accent-hover text-xs font-ui transition-colors"
+          >
+            Enter code manually
+          </button>
+        </div>
+      )}
     </div>
   );
 }

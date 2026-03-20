@@ -4,11 +4,16 @@ import { spawn, spawnSync } from 'child_process';
 import { setTimeout as wait } from 'timers/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { config } from 'dotenv';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Load .env so SOUPZ_REMOTE_PORT and other vars are available
+config({ path: join(__dirname, '..', '.env') });
 
 const REMOTE_PORT = process.env.SOUPZ_REMOTE_PORT || '7533';
 const REMOTE_URL = process.env.SOUPZ_REMOTE_URL || `http://localhost:${REMOTE_PORT}`;
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 const REPO_ROOT = join(__dirname, '..');
 const DASHBOARD_DIR = join(REPO_ROOT, 'packages/dashboard');
 const REMOTE_ENTRY = join(REPO_ROOT, 'packages/remote-server/src/index.js');
@@ -90,7 +95,7 @@ async function startBackend() {
   log('Starting backend...');
   backendProc = spawn(process.execPath, [REMOTE_ENTRY], {
     cwd: REPO_ROOT,
-    env: process.env,
+    env: { ...process.env, SOUPZ_REMOTE_PORT: REMOTE_PORT },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   prefixedPipe(backendProc, '[backend]');

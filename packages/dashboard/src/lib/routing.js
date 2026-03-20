@@ -359,7 +359,7 @@ export async function selectAgentWithOllama(prompt, availableAgents) {
 // 6. selectAgentWithDaemon + getAutoSelection
 // ---------------------------------------------------------------------------
 
-const DAEMON_URL = 'http://localhost:7070';
+const DAEMON_URL = 'http://localhost:7533';
 
 /**
  * Use daemon's /api/classify endpoint (tries Copilot -> Gemini -> Ollama -> local).

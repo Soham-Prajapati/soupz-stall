@@ -7,7 +7,7 @@ import { ensureDirectories } from '../src/config.js';
 import { autoImport } from '../src/auto-import.js';
 
 const VERSION = '0.1.0-alpha';
-const WEBAPP_URL = process.env.SOUPZ_APP_URL || 'https://soupz.app';
+const WEBAPP_URL = process.env.SOUPZ_APP_URL || 'https://soupz.vercel.app';
 const DAEMON_PORT = parseInt(process.env.SOUPZ_REMOTE_PORT || '7070', 10);
 
 // Auto-import agents on startup (silent)

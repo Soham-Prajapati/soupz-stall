@@ -9,7 +9,7 @@ import { cn } from '../../lib/cn';
  *   useOllama {boolean}            — controlled state from parent (kept for API compat)
  *   onToggle  {(v: boolean)=>void} — kept for API compat, no longer exposed in UI
  */
-export default function OllamaStatus({ useOllama, onToggle }) {
+export default function OllamaStatus({ useOllama, onToggle, compact = false }) {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -37,8 +37,8 @@ export default function OllamaStatus({ useOllama, onToggle }) {
         )}
       >
         <Cpu size={11} className="text-accent" />
-        <span className="hidden sm:inline">Auto routing</span>
-        <ChevronDown size={9} className="text-text-faint hidden sm:inline" />
+        {!compact && <span className="hidden sm:inline">Auto routing</span>}
+        {!compact && <ChevronDown size={9} className="text-text-faint hidden sm:inline" />}
       </button>
 
       {/* Dropdown */}
