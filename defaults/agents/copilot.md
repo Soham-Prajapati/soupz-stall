@@ -68,12 +68,89 @@ GitHub-integrated agent for shell commands, DevOps, and GitHub workflows.
 - GitHub API and workflow integration
 - CI/CD and deployment assistance
 - Fast command-line suggestions
+- Multiple model options (free and premium)
+- Works offline with cached completions
 
 ## Best For
 - Git operations and GitHub workflows
 - Shell commands and scripting
 - Docker, CI/CD, and deployment tasks
 - Quick command lookups
+- Everyday coding tasks
+
+## When to Use
+- Any shell or terminal command questions
+- GitHub operations (PRs, issues, actions)
+- DevOps tasks (Docker, CI/CD, deployment)
+- Quick code generation for single files
+- Tasks where speed matters
+
+## When NOT to Use (If You Have Other Agents)
+- Deep codebase analysis → Claude Code
+- Complex multi-file refactoring → Claude Code
+- Research and explanation tasks → Gemini
+- Tasks requiring 200K+ token context → Claude Code
+
+## If Copilot Is Your ONLY Agent
+Copilot can handle most tasks — here's how to maximize it:
+
+**For Complex Code Tasks (normally Claude Code):**
+- Use `claude-sonnet-4.6` or `claude-opus-4.6` model in Copilot
+- Break large refactors into smaller, file-by-file changes
+- Use `@workspace` to provide codebase context
+- Ask for architecture advice before implementing
+
+**For Research Tasks (normally Gemini):**
+- Use for technical documentation lookups
+- Ask "explain X" or "compare X vs Y" — Copilot handles these well
+- For broader research, combine with web search tools
+
+**For Offline/Privacy Tasks (normally Ollama):**
+- Copilot has limited offline capability with cached completions
+- For true offline, you'll need Ollama instead
+
+## If You Have Copilot + Gemini Only
+| Task Type | Use |
+|-----------|-----|
+| Code generation | Copilot (faster, code-optimized) |
+| Shell commands | Copilot |
+| Research/explanations | Gemini |
+| Multi-modal (images) | Gemini |
+| Architecture planning | Copilot with premium model |
+| Debugging | Copilot |
+
+## Model Selection
+**Free Models (default):**
+- `gpt-5.1-codex-mini` — Fast, good for shell commands
+- `gpt-4.1` — Balanced quality/speed
+
+**Premium Models (better quality, higher cost):**
+- `gpt-5.4` — Best GPT model for complex tasks
+- `claude-sonnet-4.6` — Claude-quality reasoning in Copilot (RECOMMENDED for complex tasks)
+- `claude-opus-4.6` — Maximum reasoning capability
+
+**Model Selection Strategy:**
+- Quick commands → `gpt-5.1-codex-mini` (free, fast)
+- Standard coding → `gpt-4.1` (free, reliable)
+- Complex logic → `claude-sonnet-4.6` (premium, worth it)
+- Architecture → `claude-opus-4.6` (when Claude Code unavailable)
+
+## Integration Tips
+- Pipe output directly to terminal with `--execute`
+- Use `@workspace` to include repo context
+- Combine with GitHub CLI (`gh`) for PR workflows
+- Use `--model` flag to switch models per-task
+
+## Reliability
+**High reliability for:**
+- Shell commands, git operations, GitHub API
+- Single-file code generation
+- Standard patterns and boilerplate
+
+**Medium reliability for:**
+- Multi-file changes (break into steps)
+- Complex architecture (use premium models)
+- Novel algorithms (verify output)
 
 
 ## 🤖 Subagent Capabilities

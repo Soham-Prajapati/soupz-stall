@@ -1,199 +1,199 @@
-# Soupz Agents - Future Implementation Prompts
+# Soupz - What's Done & What's Next
 
-Use these prompts with any AI coding assistant (Claude, Gemini, Copilot) to continue building Soupz. Each prompt is self-contained with enough context to work independently.
+## Current State (as of 2026-03-20)
 
----
+### Working Features
+- Chat mode (Lovable-style centered prompt with suggestion chips that send on click)
+- IDE mode (Monaco editor, file tree, git panel, extensions, search, terminal)
+- 12 color themes
+- Command palette (Cmd+K / Cmd+Shift+P)
+- Search across files (Cmd+Shift+F) in IDE sidebar
+- Resizable panels (sidebar, chat, terminal)
+- Breadcrumbs above editor
+- Minimap in editor
+- VS Code-style status bar (subtle, not bold)
+- Terminal panel (resizable)
+- Profile page (/profile) with avatar, stats, edit name, sign out
+- Leaderboard with XP, levels, rank badges, milestones (in sidebar Trophy icon)
+- RAG memory system (auto-saves conversation shards, retrieves relevant context)
+- QR code on connect page
+- Google/GitHub/Apple OAuth (AuthScreen - only social login, no email/password)
+- Git co-author tag (Soupz agent in commits)
+- Neural TTS (Kokoro) with browser fallback
+- Smart agent routing (keyword + Ollama + daemon cascade)
+- Extensions marketplace (10 hardcoded packs)
+- Gamification/achievements
+- MCP server configuration
+- Stats panel accessible from sidebar (Trophy icon)
 
-## Priority 1: Auth (Google/GitHub Login)
-
-```
-I have a Soupz web app at packages/dashboard/ using React + Vite + Supabase.
-
-Supabase is already configured in packages/dashboard/src/lib/supabase.js and there's an AuthScreen component at packages/dashboard/src/components/auth/AuthScreen.jsx.
-
-The .env has SOUPZ_SUPABASE_URL and SOUPZ_SUPABASE_KEY set.
-
-Tasks:
-1. In my Supabase dashboard, I've enabled Google and GitHub OAuth providers
-2. Update AuthScreen.jsx to show "Sign in with Google" and "Sign in with GitHub" buttons using supabase.auth.signInWithOAuth({ provider: 'google' }) and { provider: 'github' }
-3. Add the VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to a .env.local file in packages/dashboard/ so the dashboard can connect to Supabase
-4. Make sure the redirect URL after OAuth goes back to the app
-5. Show user avatar and name in the nav bar after login
-
-Read AuthScreen.jsx, supabase.js, and App.jsx first.
-```
-
----
-
-## Priority 2: Wispr Flow STT Integration
-
-```
-I'm building Soupz (packages/dashboard/) and want to integrate Wispr Flow for speech-to-text. Wispr has a local API that runs on the user's machine.
-
-Current STT uses webkitSpeechRecognition which only works in Chrome. I need cross-browser STT.
-
-Check my other project at ~/Developer/hackathon-template (or similar folder in ~/Developer/) for how I previously integrated Wispr. Look for any Wispr-related code, API calls, or configuration.
-
-Tasks:
-1. Find the Wispr integration in my hackathon project
-2. Port the Wispr STT functionality to packages/dashboard/src/hooks/useWisprSTT.js
-3. In SimpleMode.jsx, add Wispr as the preferred STT provider, falling back to webkitSpeechRecognition
-4. Add a settings option in ProMode settings panel to configure Wispr API key
-5. Store the API key in localStorage under 'soupz_wispr_key'
-
-The mic button is in SimpleMode.jsx around the startVoice() function.
-```
+### Deployed At
+- Vercel: soupz.vercel.app
+- Repo: github.com/Soham-Prajapati/soupz-stall
+- Daemon port: 7533 (SOUPZ_REMOTE_PORT in .env)
 
 ---
 
-## Priority 3: RAG Memory System
+## PENDING - Priority Order
 
+### 1. Finish GitHub OAuth Setup (Manual - not code)
+Go to github.com > Settings > Developer settings > OAuth Apps > New OAuth App.
+- Application name: Soupz
+- Homepage URL: https://soupz.vercel.app
+- Authorization callback URL: https://apxlxvijazebukrykovk.supabase.co/auth/v1/callback
+- Don't check "Enable Device Flow"
+- Register, copy Client ID + generate Client Secret
+- Go to Supabase dashboard > Auth > Sign In / Providers > GitHub > paste both > Save
+- Supabase > Auth > URL Configuration > set Site URL to https://soupz.vercel.app
+- Add redirect URLs: http://localhost:5173, http://localhost:5174, http://localhost:7534
+
+### 2. Google OAuth Setup (Manual)
+- Google Cloud Console > APIs & Credentials > Create OAuth 2.0 Client
+- Authorized redirect URI: https://apxlxvijazebukrykovk.supabase.co/auth/v1/callback
+- Copy Client ID + Secret to Supabase > Auth > Providers > Google
+
+### 3. Make Chat Mode More Lovable-like
 ```
-I'm building a memory system for Soupz (packages/dashboard/). The concept:
+The chat mode in SimpleMode.jsx needs UX improvements to feel less like a dev tool and more like Lovable:
 
-1. Store conversation summaries as "memory shards" in localStorage (for now, later migrate to a proper vector DB)
-2. Each shard is a JSON object: { id, summary, keywords, timestamp, agentId, category }
-3. When a new conversation starts, retrieve relevant shards by keyword matching against the prompt
-4. Inject retrieved context into the prompt sent to the daemon
-
-Create these files:
-- packages/dashboard/src/lib/memory.js - Memory shard CRUD, search by keywords, auto-summarize (using the daemon's AI to generate summaries of conversations)
-- packages/dashboard/src/components/shared/MemoryPanel.jsx - UI to browse/search/delete memory shards
-
-Integration points:
-- In SimpleMode.jsx sendMessage(), before sending to daemon, call getRelevantMemory(prompt) and prepend context
-- After each conversation (when streaming ends), call summarizeAndStore(messages) to save a shard
-- Add a "Memory" tab in the settings sidebar in ProMode
-
-Keep it simple - localStorage-based, keyword search (not vector embeddings). Max 200 shards, auto-prune oldest.
-```
-
----
-
-## Priority 4: Search Across Files (Ctrl+Shift+F)
-
-```
-In Soupz IDE mode (packages/dashboard/src/components/pro/ProMode.jsx), add a file search panel.
-
-The daemon at localhost:7533 has a file system API:
-- GET /api/fs/tree - returns the file tree
-- GET /api/fs/file?path=... - reads a file
-
-Tasks:
-1. Create packages/dashboard/src/components/pro/SearchPanel.jsx
-2. Add a "Search" activity in the ProMode sidebar (magnifying glass icon, between Files and Git)
-3. When user types in search, send the query to a new daemon endpoint (or iterate client-side over the file tree and read each file)
-4. Show results grouped by file with line numbers
-5. Clicking a result opens the file in the editor at that line
-6. Add Cmd+Shift+F keyboard shortcut to focus the search panel
-
-Use the same styling as the existing FileTree and GitPanel components.
+1. When no messages, show a greeting with the user's name (from Supabase user_metadata or localStorage profile)
+2. Add more suggestion chips - categorized: "Build" (landing page, portfolio, dashboard), "Fix" (debug error, fix CSS), "Learn" (explain this code, teach me React)
+3. Make suggestion chips animated - fade in with stagger
+4. Add a subtle gradient or pattern background behind the empty state (not as extreme as Lovable's gradient, but warmer than plain dark)
+5. The top bar with Auto/Quick/routing should be hidden when no messages exist - show it only after first message or in IDE mode
+6. Add typing indicator animation when AI is responding (three bouncing dots, already exists but verify it shows)
 ```
 
----
-
-## Priority 5: Split Editor
-
+### 4. Supabase Tables for User Data
 ```
-In ProMode.jsx (packages/dashboard/src/components/pro/), add split editor support.
+Create Supabase tables to persist user data server-side instead of just localStorage:
 
-Currently there's one Monaco editor instance. Add the ability to split horizontally (side-by-side).
+1. Create table 'soupz_profiles': id (uuid, FK to auth.users), display_name, avatar_url, xp, level, streak, created_at
+2. Create table 'soupz_projects': id, user_id, name, description, agent_id, created_at, last_active
+3. Create table 'soupz_usage': id, user_id, agent_id, message_count, date, category
 
-Tasks:
-1. Add a "Split Editor" button in the top bar (next to the Run button)
-2. When split, show two editor panes side by side, each with their own active file
-3. The left pane keeps the current file, the right pane starts empty (user opens a file from the tree)
-4. Add a close button on each split pane
-5. Track cursor position for the focused pane and update the StatusBar accordingly
-6. Store split state in localStorage
+In the dashboard:
+- After OAuth login, upsert the user's profile
+- Sync XP/level/streak to Supabase so leaderboard can be real (not mock)
+- Create a real leaderboard by querying soupz_profiles ordered by XP
 
-Keep the implementation simple - just duplicate the Editor component with independent file state.
+Files to modify: lib/learning.js (add Supabase sync), LeaderboardPanel.jsx (fetch real data), App.jsx (profile sync on login)
 ```
 
----
-
-## Priority 6: Extensions as Real Agent Configurations
-
+### 5. Split Editor
 ```
-The extensions marketplace in packages/dashboard/src/components/shared/ExtensionsMarketplace.jsx currently has 10 hardcoded extension packs.
-
-Make them functional:
-1. When an extension is installed, it should create custom agents with specific system prompts
-2. Each extension pack should define: agents (with IDs, names, system prompts), and default build mode
-3. Store installed extensions and their agent configs in localStorage
-4. Installed agents should appear in the agent selector dropdown
-5. Add an "Uninstall" confirmation dialog
-6. Add a way to create custom extension packs (user defines name, description, agents)
-
-Read ExtensionsMarketplace.jsx and learning.js (createCustomAgent) first - the auto-agent creation already works, just needs better system prompts per extension.
+In ProMode.jsx, add split editor support:
+- Add a split button in the toolbar
+- When split, render two Monaco Editor instances side by side
+- Each pane has independent file state
+- Track which pane is focused for StatusBar cursor info
+- Close button on each pane
 ```
 
----
-
-## Priority 7: Keyboard Shortcuts Customization
-
+### 6. Extensions as Real Agent Configs
 ```
-Add keyboard shortcut customization to Soupz.
-
-1. Create packages/dashboard/src/lib/shortcuts.js with default shortcuts:
-   - Cmd+1: Chat mode
-   - Cmd+2: IDE mode
-   - Cmd+Shift+P: Command palette
-   - Cmd+K: Command palette
-   - Cmd+S: Save file
-   - Cmd+Shift+F: Search files
-   - Enter: Send message
-   - Shift+Enter: New line
-2. Store custom shortcuts in localStorage 'soupz_shortcuts'
-3. In ProMode settings panel, add a "Keyboard Shortcuts" section where users can click a shortcut and press a new key combo to rebind
-4. Update App.jsx and ProMode.jsx to read shortcuts from the config instead of hardcoding
+ExtensionsMarketplace.jsx has 10 hardcoded packs. Make them functional:
+- Each pack should define agents with system prompts
+- When installed, agents appear in the agent selector
+- createCustomAgent() in learning.js already works - just needs proper system prompts per extension
+- Add ability to create custom extension packs
 ```
 
----
-
-## Priority 8: Project .soupz Config
-
+### 7. Keyboard Shortcut Customization
 ```
-Add project-level configuration for Soupz.
-
-When the daemon starts, it reads a .soupz.json file from the project root (if it exists):
-{
-  "defaultAgent": "claude-code",
-  "defaultBuildMode": "planned",
-  "customAgents": [...],
-  "mcpServers": [...],
-  "theme": "tokyo-night"
-}
-
-Tasks:
-1. In packages/remote-server/src/index.js, read .soupz.json from REPO_ROOT on startup
-2. Expose it via GET /api/config endpoint
-3. In the dashboard, fetch this config on load and apply defaults
-4. Add a UI in settings to edit the config (writes back via POST /api/config)
+Create lib/shortcuts.js with configurable key bindings.
+Add a "Keyboard Shortcuts" editor in settings where users can click a shortcut and press new keys to rebind.
+Store in localStorage 'soupz_shortcuts'.
+Update App.jsx and ProMode.jsx to read from config instead of hardcoded keys.
 ```
 
----
-
-## Quick Fixes Backlog
-
+### 8. Project .soupz Config
 ```
-Fix these small issues in packages/dashboard/:
+Read .soupz.json from project root when daemon starts:
+{ "defaultAgent": "claude-code", "defaultBuildMode": "planned", "theme": "tokyo-night" }
+Expose via GET /api/config endpoint.
+Dashboard fetches and applies on load.
+```
 
-1. Monaco minimap: In ProMode.jsx, change minimap: { enabled: false } to { enabled: true } and add a toggle in settings
-2. Workspace trust indicator: Show a lock/shield icon in the status bar when connected, with the machine hostname
-3. Real git branch: In StatusBar.jsx, fetch the actual branch from daemon.gitStatus() instead of hardcoding "main"
-4. File execution: Add POST /api/exec endpoint to the daemon (packages/remote-server/src/index.js) that runs a file and returns stdout/stderr. Wire up the Run button in ProMode.
-5. Settings persistence: Make the editor settings (font ligatures, smooth scrolling, word wrap) actually apply to Monaco and persist in localStorage
+### 9. File Execution (Run Button)
+```
+The Run button in ProMode exists but runFile() is stubbed.
+Add POST /api/exec to daemon (packages/remote-server/src/index.js):
+- Accepts { path, command? }
+- Spawns the file with appropriate runtime (node for .js, python for .py, etc.)
+- Streams stdout/stderr back
+Wire up ProMode's runFile() to call this endpoint.
+```
+
+### 10. Real Git Branch in Status Bar
+```
+StatusBar.jsx hardcodes "main". Fix:
+- Add a gitBranch prop
+- In App.jsx, fetch branch from daemon.gitStatus() on connect
+- Pass to StatusBar
+- Update when git operations happen
+```
+
+### 11. Settings Persistence
+```
+The editor checkboxes (font ligatures, smooth scrolling, word wrap) don't actually apply.
+- Store settings in localStorage 'soupz_editor_settings'
+- Apply them to Monaco Editor options in ProMode
+- Read on mount, update on change
+```
+
+### 12. Proper Landing Page
+```
+LandingPage.jsx exists but needs work to compete with Lovable:
+- Hero section with gradient background
+- Feature grid
+- How it works steps
+- Pricing comparison (free vs competitors)
+- CTA buttons
+Make it feel premium, not AI-generated.
+```
+
+### 13. Make Users Use Their Own Supabase
+```
+Instead of hardcoding your Supabase keys, let users bring their own:
+- During npx soupz setup, prompt for Supabase URL + key (or skip for local-only)
+- Store in .soupz.json config
+- Daemon reads and uses their Supabase for persistence
+- This way users' data stays in their own Supabase project
+```
+
+### 14. Mobile Responsiveness
+```
+Currently mobile just shows SimpleMode (chat only).
+Improve:
+- Swipe gestures to open/close panels
+- Bottom navigation bar on mobile
+- Touch-friendly button sizes
+- File tree as a full-screen modal on mobile
+```
+
+### 15. Notifications System
+```
+The StatusBar has a notifications bell but it's mostly empty.
+Add real notifications:
+- Agent completed task
+- Git push success/failure
+- Achievement unlocked
+- Streak milestone
+Toast notifications + bell dropdown
 ```
 
 ---
 
-## Architecture Notes
+## Architecture Notes for Future AI Assistants
 
 - Frontend: React 18 + Vite at packages/dashboard/
 - Backend: Node.js ESM at packages/remote-server/
-- Auth: Supabase (optional, falls back to local mode)
-- Daemon port: 7533 (set in .env SOUPZ_REMOTE_PORT)
-- All UI state in localStorage (no server-side state)
+- Auth: Supabase (optional, falls back to local)
+- Daemon port: 7533 (SOUPZ_REMOTE_PORT in .env)
+- All UI state in localStorage
 - CSS themes via custom properties in index.css
-- 12 themes available, all use --*-ch channel vars for Tailwind opacity
+- Tailwind classes use CSS variable channels (--*-ch vars)
+- Use font-ui for UI text, font-mono for code
+- Use Lucide icons only
+- No emojis in code
+- Git commits include Co-Authored-By: Soupz <agent@soupz.vercel.app>
