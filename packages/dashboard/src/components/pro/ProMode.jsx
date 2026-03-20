@@ -8,6 +8,8 @@ import { cn } from '../../lib/cn';
 import FileTree from '../filetree/FileTree';
 import GitPanel from '../git/GitPanel';
 import SimpleMode from '../simple/SimpleMode';
+import StatsPanel from '../shared/StatsPanel';
+import MCPPanel from '../shared/MCPPanel';
 
 const SIDEBAR_KEY = 'soupz_sidebar_open';
 const CHAT_KEY    = 'soupz_chat_open';
@@ -180,39 +182,46 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
               <GitPanel daemon={daemon} />
             )}
             {activeActivity === 'settings' && (
-              <div className="p-4 space-y-4">
-                <div>
-                  <p className="text-[11px] text-text-faint font-ui uppercase tracking-wider font-medium mb-2">Editor</p>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" className="accent-[var(--accent)]" defaultChecked />
-                      <span className="text-xs text-text-sec font-ui">Font ligatures</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" className="accent-[var(--accent)]" defaultChecked />
-                      <span className="text-xs text-text-sec font-ui">Smooth scrolling</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" className="accent-[var(--accent)]" />
-                      <span className="text-xs text-text-sec font-ui">Word wrap</span>
-                    </label>
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {/* Editor & keyboard settings */}
+                <div className="p-4 space-y-4">
+                  <div>
+                    <p className="text-[11px] text-text-faint font-ui uppercase tracking-wider font-medium mb-2">Editor</p>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" className="accent-[var(--accent)]" defaultChecked />
+                        <span className="text-xs text-text-sec font-ui">Font ligatures</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" className="accent-[var(--accent)]" defaultChecked />
+                        <span className="text-xs text-text-sec font-ui">Smooth scrolling</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" className="accent-[var(--accent)]" />
+                        <span className="text-xs text-text-sec font-ui">Word wrap</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="border-t border-border-subtle pt-3">
+                    <p className="text-[11px] text-text-faint font-ui uppercase tracking-wider font-medium mb-2">Keyboard</p>
+                    <div className="space-y-1">
+                      {[
+                        ['Send message', 'Enter'],
+                        ['New line', 'Shift+Enter'],
+                        ['Save file', '⌘S'],
+                      ].map(([action, key]) => (
+                        <div key={action} className="flex items-center justify-between">
+                          <span className="text-xs text-text-sec font-ui">{action}</span>
+                          <code className="text-[10px] font-mono text-text-faint bg-bg-elevated px-1.5 py-0.5 rounded border border-border-subtle">{key}</code>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-                <div className="border-t border-border-subtle pt-3">
-                  <p className="text-[11px] text-text-faint font-ui uppercase tracking-wider font-medium mb-2">Keyboard</p>
-                  <div className="space-y-1">
-                    {[
-                      ['Send message', 'Enter'],
-                      ['New line', 'Shift+Enter'],
-                      ['Save file', '⌘S'],
-                    ].map(([action, key]) => (
-                      <div key={action} className="flex items-center justify-between">
-                        <span className="text-xs text-text-sec font-ui">{action}</span>
-                        <code className="text-[10px] font-mono text-text-faint bg-bg-elevated px-1.5 py-0.5 rounded border border-border-subtle">{key}</code>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                {/* Stats & Achievements */}
+                <StatsPanel />
+                {/* MCP Servers */}
+                <MCPPanel />
               </div>
             )}
           </div>
