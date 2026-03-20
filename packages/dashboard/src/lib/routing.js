@@ -501,7 +501,7 @@ export function getAgentSummary(availability) {
 
   let suggestion = '';
   if (available.length === 0) {
-    suggestion = 'No agents detected. Install Gemini CLI (free) with: npm install -g @anthropic-ai/gemini-cli';
+    suggestion = 'No agents detected. Install Gemini CLI (free) with: npm install -g @google/gemini-cli';
   } else if (available.length === 1) {
     suggestion = `Only ${available[0]} is available. Install more agents for smarter routing.`;
   }

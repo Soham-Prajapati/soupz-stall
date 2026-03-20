@@ -1,97 +1,154 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Terminal, X, ChevronUp, ChevronDown, Plus, Trash2,
-  Loader2, CornerDownLeft,
+  Terminal, X, ChevronUp, ChevronDown, Trash2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 
-const HISTORY_KEY = 'soupz_terminal_history';
-
-function readHistory() {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
-}
+const DAEMON_WS_URL = (import.meta.env.VITE_DAEMON_URL || 'http://localhost:7533').replace(/^http/, 'ws');
 
 export default function TerminalPanel({ daemon, onClose }) {
-  const [lines, setLines] = useState([
-    { type: 'system', text: 'Soupz Terminal — Connected to workspace' },
-  ]);
-  const [input, setInput] = useState('');
-  const [running, setRunning] = useState(false);
-  const [history] = useState(() => readHistory());
-  const [histIdx, setHistIdx] = useState(-1);
   const [minimized, setMinimized] = useState(false);
-  const bottomRef = useRef(null);
-  const inputRef = useRef(null);
+  const [connected, setConnected] = useState(false);
+  const [terminalId, setTerminalId] = useState(null);
+  const outputRef = useRef(null);
+  const wsRef = useRef(null);
+  const inputBufferRef = useRef('');
 
+  // Connect to daemon WS and create a real terminal
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [lines]);
+    const token = localStorage.getItem('soupz_daemon_token');
+    if (!token) return;
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, [minimized]);
+    const ws = new WebSocket(DAEMON_WS_URL);
+    wsRef.current = ws;
 
-  async function runCommand() {
-    const cmd = input.trim();
-    if (!cmd || running) return;
+    ws.onopen = () => {
+      // Authenticate first
+      ws.send(JSON.stringify({ type: 'auth', token, clientType: 'terminal' }));
+    };
 
-    setInput('');
-    setLines(prev => [...prev, { type: 'input', text: `$ ${cmd}` }]);
-    setRunning(true);
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
 
-    // Save to history
-    const newHistory = [cmd, ...history.filter(h => h !== cmd)].slice(0, 50);
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
-    setHistIdx(-1);
+        if (msg.type === 'auth_success') {
+          // Auth successful — create terminal
+          ws.send(JSON.stringify({
+            type: 'create_terminal',
+            cols: 80,
+            rows: 24,
+            cwd: undefined, // use daemon cwd
+          }));
+        }
 
-    try {
-      if (daemon?.sendPrompt) {
-        // Use the daemon's agent prompt to run shell commands
-        // Wrap it as a direct command execution
-        let output = '';
-        await daemon.sendPrompt(
-          { prompt: `Run this shell command and show the output. Only output the raw result, no explanation: \`${cmd}\``, agentId: 'gemini', buildMode: 'quick' },
-          (chunk) => {
-            output += chunk;
-            setLines(prev => {
-              const last = prev[prev.length - 1];
-              if (last?.type === 'output') {
-                return [...prev.slice(0, -1), { type: 'output', text: output }];
-              }
-              return [...prev, { type: 'output', text: output }];
-            });
-          }
-        );
-      } else {
-        setLines(prev => [...prev, { type: 'error', text: 'Not connected to workspace. Run npx soupz first.' }]);
-      }
-    } catch (err) {
-      setLines(prev => [...prev, { type: 'error', text: `Error: ${err.message}` }]);
-    } finally {
-      setRunning(false);
+        if (msg.type === 'terminal_created') {
+          setTerminalId(msg.terminalId);
+          setConnected(true);
+        }
+
+        if (msg.type === 'output' && outputRef.current) {
+          // Append raw terminal output
+          appendOutput(msg.data);
+        }
+
+        if (msg.type === 'exit') {
+          appendOutput('\r\n[Process exited]\r\n');
+          setConnected(false);
+        }
+
+        if (msg.type === 'auth_failed') {
+          appendOutput('[Auth failed — re-pair your device]\r\n');
+        }
+
+        if (msg.type === 'error') {
+          appendOutput(`[Error: ${msg.message}]\r\n`);
+        }
+      } catch { /* ignore parse errors */ }
+    };
+
+    ws.onerror = () => {
+      appendOutput('[WebSocket error — is the daemon running?]\r\n');
+    };
+
+    ws.onclose = () => {
+      setConnected(false);
+    };
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, []);
+
+  // Append text to the terminal output div
+  const appendOutput = useCallback((text) => {
+    if (!outputRef.current) return;
+    // Convert ANSI sequences to minimal HTML (strip complex ones, keep colors basic)
+    const cleaned = stripAnsi(text);
+    const node = document.createTextNode(cleaned);
+    outputRef.current.appendChild(node);
+    outputRef.current.scrollTop = outputRef.current.scrollHeight;
+  }, []);
+
+  // Send keystrokes to the real PTY
+  function handleKeyDown(e) {
+    if (!wsRef.current || wsRef.current.readyState !== 1 || !terminalId) return;
+
+    // Map keyboard events to terminal input
+    let data = '';
+
+    if (e.key === 'Enter') {
+      data = '\r';
+    } else if (e.key === 'Backspace') {
+      data = '\x7f';
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      data = '\t';
+    } else if (e.key === 'ArrowUp') {
+      data = '\x1b[A';
+    } else if (e.key === 'ArrowDown') {
+      data = '\x1b[B';
+    } else if (e.key === 'ArrowRight') {
+      data = '\x1b[C';
+    } else if (e.key === 'ArrowLeft') {
+      data = '\x1b[D';
+    } else if (e.key === 'Escape') {
+      data = '\x1b';
+    } else if (e.ctrlKey && e.key === 'c') {
+      data = '\x03';
+    } else if (e.ctrlKey && e.key === 'd') {
+      data = '\x04';
+    } else if (e.ctrlKey && e.key === 'l') {
+      data = '\x0c'; // clear
+    } else if (e.ctrlKey && e.key === 'z') {
+      data = '\x1a';
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+      data = e.key;
+    }
+
+    if (data) {
+      e.preventDefault();
+      wsRef.current.send(JSON.stringify({
+        type: 'input',
+        terminalId,
+        data,
+      }));
     }
   }
 
-  function handleKeyDown(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      runCommand();
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      const newIdx = Math.min(histIdx + 1, history.length - 1);
-      if (history[newIdx]) {
-        setHistIdx(newIdx);
-        setInput(history[newIdx]);
-      }
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      const newIdx = Math.max(histIdx - 1, -1);
-      setHistIdx(newIdx);
-      setInput(newIdx >= 0 ? history[newIdx] : '');
-    } else if (e.key === 'l' && e.ctrlKey) {
-      e.preventDefault();
-      setLines([{ type: 'system', text: 'Terminal cleared' }]);
+  function clearTerminal() {
+    if (outputRef.current) {
+      outputRef.current.textContent = '';
     }
+    // Also send Ctrl+L to the PTY
+    if (wsRef.current?.readyState === 1 && terminalId) {
+      wsRef.current.send(JSON.stringify({ type: 'input', terminalId, data: '\x0c' }));
+    }
+  }
+
+  // Focus the terminal area for keyboard input
+  function focusTerminal() {
+    outputRef.current?.focus();
   }
 
   if (minimized) {
@@ -99,19 +156,12 @@ export default function TerminalPanel({ daemon, onClose }) {
       <div className="h-8 bg-bg-surface border-t border-border-subtle flex items-center px-3 gap-2">
         <Terminal size={12} className="text-text-faint" />
         <span className="text-[11px] text-text-faint font-ui">Terminal</span>
+        {connected && <span className="w-1.5 h-1.5 rounded-full bg-success" />}
         <div className="flex-1" />
-        <button
-          onClick={() => setMinimized(false)}
-          className="text-text-faint hover:text-text-sec transition-colors"
-          title="Maximize"
-        >
+        <button onClick={() => setMinimized(false)} className="text-text-faint hover:text-text-sec transition-colors" title="Maximize">
           <ChevronUp size={12} />
         </button>
-        <button
-          onClick={onClose}
-          className="text-text-faint hover:text-text-sec transition-colors"
-          title="Close"
-        >
+        <button onClick={onClose} className="text-text-faint hover:text-text-sec transition-colors" title="Close">
           <X size={12} />
         </button>
       </div>
@@ -124,76 +174,46 @@ export default function TerminalPanel({ daemon, onClose }) {
       <div className="h-8 bg-bg-surface border-b border-border-subtle flex items-center px-3 gap-2 shrink-0">
         <Terminal size={12} className="text-text-faint" />
         <span className="text-[11px] text-text-sec font-ui font-medium">Terminal</span>
+        {connected ? (
+          <span className="flex items-center gap-1 text-[10px] font-mono text-success">
+            <span className="w-1.5 h-1.5 rounded-full bg-success" /> PTY
+          </span>
+        ) : (
+          <span className="text-[10px] font-mono text-text-faint">connecting...</span>
+        )}
         <div className="flex-1" />
-        <button
-          onClick={() => setLines([{ type: 'system', text: 'Terminal cleared' }])}
-          className="text-text-faint hover:text-text-sec transition-colors"
-          title="Clear (Ctrl+L)"
-        >
+        <button onClick={clearTerminal} className="text-text-faint hover:text-text-sec transition-colors" title="Clear">
           <Trash2 size={11} />
         </button>
-        <button
-          onClick={() => setMinimized(true)}
-          className="text-text-faint hover:text-text-sec transition-colors"
-          title="Minimize"
-        >
+        <button onClick={() => setMinimized(true)} className="text-text-faint hover:text-text-sec transition-colors" title="Minimize">
           <ChevronDown size={12} />
         </button>
-        <button
-          onClick={onClose}
-          className="text-text-faint hover:text-text-sec transition-colors"
-          title="Close"
-        >
+        <button onClick={onClose} className="text-text-faint hover:text-text-sec transition-colors" title="Close">
           <X size={12} />
         </button>
       </div>
 
-      {/* Output */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 font-mono text-xs min-h-0">
-        {lines.map((line, i) => (
-          <div
-            key={i}
-            className={cn(
-              'leading-relaxed whitespace-pre-wrap',
-              line.type === 'input' ? 'text-accent font-medium' :
-              line.type === 'error' ? 'text-danger' :
-              line.type === 'system' ? 'text-text-faint italic' :
-              'text-text-sec',
-            )}
-          >
-            {line.text}
-          </div>
-        ))}
-        {running && (
-          <div className="flex items-center gap-1.5 text-text-faint">
-            <Loader2 size={10} className="animate-spin" />
-            <span>Running...</span>
-          </div>
+      {/* Terminal output — real PTY output goes here */}
+      <div
+        ref={outputRef}
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
+        onClick={focusTerminal}
+        className="flex-1 overflow-y-auto px-3 py-2 font-mono text-xs text-text-sec leading-relaxed whitespace-pre-wrap min-h-0 focus:outline-none cursor-text"
+        style={{ caretColor: 'var(--accent)' }}
+      >
+        {!connected && !localStorage.getItem('soupz_daemon_token') && (
+          <span className="text-text-faint italic">Not connected — run npx soupz and pair your device first.</span>
         )}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-t border-border-subtle bg-bg-surface shrink-0">
-        <span className="text-accent text-xs font-mono">$</span>
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Enter command..."
-          disabled={running}
-          className="flex-1 bg-transparent text-xs font-mono text-text-pri placeholder:text-text-faint focus:outline-none disabled:opacity-50"
-        />
-        <button
-          onClick={runCommand}
-          disabled={!input.trim() || running}
-          className="text-text-faint hover:text-accent transition-colors disabled:opacity-30"
-          title="Run (Enter)"
-        >
-          <CornerDownLeft size={12} />
-        </button>
       </div>
     </div>
   );
+}
+
+// Strip ANSI escape sequences for plain text display
+// A full xterm.js integration would be better, but this works for basic use
+function stripAnsi(str) {
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+            .replace(/\x1b\][^\x07]*\x07/g, '')
+            .replace(/\x1b[()][A-Z0-9]/g, '');
 }

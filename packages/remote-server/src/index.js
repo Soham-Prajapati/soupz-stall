@@ -787,7 +787,12 @@ app.get('/api/changes', requireAuth, (req, res) => {
             else if (statusCode.includes('?')) status = 'untracked';
             return { file: path, status };
         });
-        res.json({ changes });
+        // Get current branch name
+        let branch = 'main';
+        try {
+            branch = execSync('git -C "$PWD" branch --show-current', { cwd: REPO_ROOT, timeout: 2000 }).toString().trim() || 'main';
+        } catch { /* fallback to main */ }
+        res.json({ changes, branch });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -885,6 +890,48 @@ async function buildFileTree(dirPath, rootPath, depth = 0) {
     });
     return { name: dirPath, path: relative(rootPath, dirPath) || '.', type: 'directory', children };
 }
+
+// GET /api/dev-server — detect running dev server for live preview (authenticated)
+app.get('/api/dev-server', requireAuth, async (req, res) => {
+    const ports = [3000, 3001, 4200, 5173, 5174, 7534, 8000, 8080, 8888];
+    const checks = ports.map(async (port) => {
+        try {
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), 800);
+            const r = await fetch(`http://localhost:${port}`, { signal: controller.signal });
+            if (r.ok || r.status === 304) return { port, url: `http://localhost:${port}`, detected: true };
+        } catch { /* not running */ }
+        return null;
+    });
+    const results = (await Promise.all(checks)).filter(Boolean);
+    if (results.length > 0) {
+        res.json(results[0]); // Return the first detected server
+    } else {
+        res.json({ detected: false, url: null });
+    }
+});
+
+// GET /api/fs/dirs?path=/home — list directories for folder picker (authenticated)
+app.get('/api/fs/dirs', requireAuth, async (req, res) => {
+    const dirPath = resolve(req.query.path || os.homedir());
+    if (!existsSync(dirPath)) return res.status(404).json({ error: 'Path not found' });
+    try {
+        const entries = await readdir(dirPath, { withFileTypes: true });
+        const dirs = entries
+            .filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
+            .map(e => ({
+                name: e.name,
+                path: join(dirPath, e.name),
+                isGitRepo: existsSync(join(dirPath, e.name, '.git')),
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        // Check if the current path itself is a git repo
+        const isGitRepo = existsSync(join(dirPath, '.git'));
+        res.json({ current: dirPath, parent: dirname(dirPath), dirs, isGitRepo });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // GET /api/fs/tree?root=/path (authenticated)
 app.get('/api/fs/tree', requireAuth, async (req, res) => {

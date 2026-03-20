@@ -7,11 +7,16 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS, SPECIALISTS, BUILD_MODES, getAgentById } from '../../lib/agents';
+import { SKILLS, detectSkill, applySkill, getSkillById } from '../../lib/skills';
 import { getAutoSelection } from '../../lib/routing';
 import { checkAgentAvailability } from '../../lib/daemon';
+import { detectTeamTrigger, getTeamById } from '../../lib/teams';
 import OllamaStatus from '../shared/OllamaStatus';
 import InteractiveQuestions, { parseSoupzQ, formatAnswers } from '../shared/InteractiveQuestions';
 import LearnedAgents, { SuggestionDot } from '../shared/LearnedAgents';
+import PreviewPanel from '../shared/PreviewPanel';
+import { usePreviewExtractor } from '../../hooks/usePreviewExtractor';
+import { getDevServerUrl } from '../../lib/daemon';
 import { trackUsage, getCustomAgents } from '../../lib/learning';
 import { getMemoryContext, saveMemoryShard } from '../../lib/memory';
 import { useKokoroTTS } from '../../hooks/useKokoroTTS';
@@ -92,6 +97,9 @@ export default function SimpleMode({ daemon, compact = false }) {
     () => localStorage.getItem('soupz_use_ollama') !== 'false',
   );
   const [speakingId, setSpeakingId] = useState(null); // id of message being read aloud
+  const [activeSkill, setActiveSkill] = useState(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [devServerUrl, setDevServerUrl] = useState(null);
 
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
@@ -121,6 +129,12 @@ export default function SimpleMode({ daemon, compact = false }) {
     return daemon.onFileChange(changes => setFileChanges(prev => [...prev, ...changes]));
   }, [daemon]);
 
+  // Detect dev server on mount
+  useEffect(() => {
+    if (compact) return; // No preview in compact mode
+    getDevServerUrl().then(d => d?.url && setDevServerUrl(d.url));
+  }, [compact]);
+
   async function sendMessage(overrideText) {
     const text = (overrideText !== undefined ? overrideText : input).trim();
     if (!text || isStreaming) return;
@@ -146,9 +160,25 @@ export default function SimpleMode({ daemon, compact = false }) {
       }
     }
 
+    // Check if this prompt triggers a team workflow
+    const teamTrigger = agentId === 'auto' ? detectTeamTrigger(text) : null;
+    const teamInfo = teamTrigger ? getTeamById(teamTrigger.teamId) : null;
+
     // Prepend relevant memory context to the prompt sent to the daemon
     const memoryCtx  = getMemoryContext(text);
-    const promptForDaemon = memoryCtx ? memoryCtx + text : text;
+    let promptForDaemon = memoryCtx ? memoryCtx + text : text;
+
+    // Apply skill if explicitly selected, else try auto-detection
+    let appliedSkill = activeSkill;
+    if (!appliedSkill) {
+      const detected = detectSkill(text);
+      if (detected && detected.confidence > 0.6) {
+        appliedSkill = detected.skillId;
+      }
+    }
+    if (appliedSkill) {
+      promptForDaemon = applySkill(appliedSkill, promptForDaemon);
+    }
 
     const userMsg = { id: Date.now(), role: 'user', content: text };
     const aiMsg   = {
@@ -156,7 +186,9 @@ export default function SimpleMode({ daemon, compact = false }) {
       role: 'ai',
       content: '',
       agentId: effectiveAgentId,
-      autoLabel,
+      autoLabel: appliedSkill
+        ? (teamInfo ? `Team: ${teamInfo.name}` : `${autoLabel || ''} [${getSkillById(appliedSkill)?.name || appliedSkill}]`).trim()
+        : teamInfo ? `Team: ${teamInfo.name}` : autoLabel,
       streaming: true,
     };
     setMessages(prev => [...prev, userMsg, aiMsg]);
@@ -165,7 +197,12 @@ export default function SimpleMode({ daemon, compact = false }) {
 
     try {
       if (daemon?.sendPrompt) {
-        await daemon.sendPrompt({ prompt: promptForDaemon, agentId: effectiveAgentId, buildMode }, chunk => {
+        // If a team was triggered, enhance the prompt with team context
+        const finalPrompt = teamInfo
+          ? `[Team Workflow: ${teamInfo.name}]\n${teamInfo.description}\nMembers: ${teamInfo.members.join(', ')}\n\nUser request: ${promptForDaemon}\n\nExecute this as a coordinated team effort. Run each member's analysis, then synthesize results.`
+          : promptForDaemon;
+
+        await daemon.sendPrompt({ prompt: finalPrompt, agentId: effectiveAgentId, buildMode }, chunk => {
           if (abortRef.current) return;
           setMessages(prev => prev.map(m =>
             m.id === aiMsg.id ? { ...m, content: m.content + chunk } : m
@@ -379,21 +416,24 @@ export default function SimpleMode({ daemon, compact = false }) {
             <ChevronDown size={9} className="text-text-faint" />
           </button>
           {modeOpen && (
-            <div className="absolute top-full left-0 mt-1 w-44 bg-bg-elevated border border-border-mid rounded-lg shadow-soft z-50 overflow-hidden">
-              {BUILD_MODES.map(m => (
-                <button
-                  key={m.id}
-                  onClick={() => { setBuildMode(m.id); setModeOpen(false); }}
-                  className={cn(
-                    'w-full text-left px-3 py-2 text-xs font-ui hover:bg-bg-overlay transition-colors',
-                    buildMode === m.id ? 'text-accent' : 'text-text-sec hover:text-text-pri',
-                  )}
-                >
-                  <div className="font-medium">{m.label}</div>
-                  <div className="text-text-faint text-[11px]">{m.desc}</div>
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="fixed inset-0 z-[99]" onClick={() => setModeOpen(false)} />
+              <div className="absolute bottom-full left-0 mb-1 w-44 bg-bg-elevated border border-border-mid rounded-lg shadow-soft z-[100] overflow-hidden">
+                {BUILD_MODES.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => { setBuildMode(m.id); setModeOpen(false); }}
+                    className={cn(
+                      'w-full text-left px-3 py-2 text-xs font-ui hover:bg-bg-overlay transition-colors',
+                      buildMode === m.id ? 'text-accent' : 'text-text-sec hover:text-text-pri',
+                    )}
+                  >
+                    <div className="font-medium">{m.label}</div>
+                    <div className="text-text-faint text-[11px]">{m.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </>
           )}
         </div>
 
@@ -406,6 +446,21 @@ export default function SimpleMode({ daemon, compact = false }) {
               className="flex items-center gap-1 px-1.5 py-1 rounded border border-transparent text-text-faint hover:text-warning hover:bg-warning/10 hover:border-warning/20 text-xs font-ui transition-all"
             >
               <Square size={11} />
+            </button>
+          )}
+          {/* Preview toggle — only on desktop and when not compact */}
+          {!compact && devServerUrl && (
+            <button
+              onClick={() => setPreviewOpen(v => !v)}
+              className={cn(
+                'px-2 py-1 rounded-md text-xs font-ui transition-all border',
+                previewOpen
+                  ? 'bg-accent/15 border-accent/30 text-accent'
+                  : 'bg-bg-elevated border-border-subtle text-text-sec hover:border-border-mid'
+              )}
+              title="Toggle preview"
+            >
+              Preview
             </button>
           )}
           <OllamaStatus
@@ -457,30 +512,47 @@ export default function SimpleMode({ daemon, compact = false }) {
         </div>
       )}
 
-      {/* Messages */}
+      {/* Main chat/preview split container */}
       <div className={cn(
-        "flex-1 overflow-y-auto px-3 min-h-0",
-        messages.length === 0 ? "flex flex-col items-center justify-center" : "space-y-4 py-4",
+        "flex-1 flex min-h-0",
+        previewOpen && !compact && 'gap-0'
       )}>
-        {messages.length === 0 && (
-          <EmptyState agentName={currentAgent.name} AgentIcon={AgentIcon} agentColor={currentAgent.color} />
+        {/* Chat panel */}
+        <div className={cn(
+          "flex flex-col min-h-0",
+          previewOpen && !compact ? "flex-1 border-r border-border-subtle" : "w-full"
+        )}>
+          {/* Messages */}
+          <div className={cn(
+            "flex-1 overflow-y-auto px-3 min-h-0",
+            messages.length === 0 ? "flex flex-col items-center justify-center" : "space-y-4 py-4",
+          )}>
+            {messages.length === 0 && (
+              <EmptyState agentName={currentAgent.name} AgentIcon={AgentIcon} agentColor={currentAgent.color} />
+            )}
+            {messages.map(msg => (
+              <Message
+                key={msg.id}
+                msg={msg}
+                onCopy={copyMessage}
+                copied={copiedId === msg.id}
+                onSpeak={speakMessage}
+                speaking={speakingId === msg.id}
+                modelLoading={modelLoading && speakingId === msg.id}
+                loadProgress={loadProgress}
+                getIcon={getIcon}
+                autoLabel={msg.autoLabel}
+                onQuestionSubmit={handleQuestionSubmit}
+              />
+            ))}
+            <div ref={bottomRef} />
+          </div>
+        </div>
+
+        {/* Preview panel — only on desktop */}
+        {previewOpen && !compact && devServerUrl && (
+          <PreviewPanel url={devServerUrl} />
         )}
-        {messages.map(msg => (
-          <Message
-            key={msg.id}
-            msg={msg}
-            onCopy={copyMessage}
-            copied={copiedId === msg.id}
-            onSpeak={speakMessage}
-            speaking={speakingId === msg.id}
-            modelLoading={modelLoading && speakingId === msg.id}
-            loadProgress={loadProgress}
-            getIcon={getIcon}
-            autoLabel={msg.autoLabel}
-            onQuestionSubmit={handleQuestionSubmit}
-          />
-        ))}
-        <div ref={bottomRef} />
       </div>
 
       {/* Speech error banner */}
@@ -493,6 +565,30 @@ export default function SimpleMode({ daemon, compact = false }) {
           >
             <X size={11} />
           </button>
+        </div>
+      )}
+
+      {/* Skill pills bar */}
+      {SKILLS.length > 0 && (
+        <div className="px-3 py-2 border-b border-border-subtle bg-bg-surface shrink-0 overflow-x-auto">
+          <div className="flex gap-2">
+            {SKILLS.map(skill => (
+              <button
+                key={skill.id}
+                onClick={() => setActiveSkill(activeSkill === skill.id ? null : skill.id)}
+                className={cn(
+                  'px-2.5 py-1 rounded-full text-xs font-ui whitespace-nowrap transition-all flex items-center gap-1.5 border',
+                  activeSkill === skill.id
+                    ? 'bg-accent/15 border-accent/30 text-accent'
+                    : 'bg-bg-elevated border-border-subtle text-text-sec hover:border-border-mid'
+                )}
+                title={skill.description}
+              >
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: skill.color || '#8B5CF6' }} />
+                {skill.name}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

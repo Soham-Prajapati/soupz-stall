@@ -53,6 +53,7 @@ export default function StatusBar({
   const [agentPopupOpen, setAgentPopupOpen] = useState(false);
   const [notifPopupOpen, setNotifPopupOpen] = useState(false);
   const [availability, setAvailability] = useState({});
+  const [gitBranch, setGitBranch] = useState('main');
   const popupRef = useRef(null);
   const notifRef = useRef(null);
 
@@ -72,6 +73,17 @@ export default function StatusBar({
   useEffect(() => {
     if (workspaceOnline) {
       checkAgentAvailability().then(a => setAvailability(a || {}));
+      // Fetch git branch from daemon
+      const token = localStorage.getItem('soupz_daemon_token');
+      if (token) {
+        fetch('http://localhost:7533/api/changes', {
+          headers: { 'X-Soupz-Token': token },
+          signal: AbortSignal.timeout(3000),
+        })
+          .then(r => r.ok ? r.json() : null)
+          .then(d => { if (d?.branch) setGitBranch(d.branch); })
+          .catch(() => {});
+      }
     }
   }, [workspaceOnline]);
 
@@ -125,7 +137,7 @@ export default function StatusBar({
         {/* Git branch */}
         <StatusItem title="Source Control">
           <GitBranch size={11} />
-          <span>main</span>
+          <span>{gitBranch}</span>
         </StatusItem>
 
         {/* Errors & Warnings */}
@@ -263,29 +275,34 @@ function AgentPopup({
         </div>
       </div>
 
-      {/* Most-used agents */}
+      {/* Per-agent usage with estimated tokens */}
       {sortedUsage.length > 0 && (
         <div className="px-3 py-2.5 border-b border-border-subtle">
-          <p className="text-[10px] text-text-faint font-ui uppercase tracking-wider mb-2">Usage</p>
-          <div className="space-y-1">
+          <p className="text-[10px] text-text-faint font-ui uppercase tracking-wider mb-2">Agent Usage</p>
+          <div className="space-y-2">
             {sortedUsage.map(([id, count]) => {
               const a = getAgentById(id);
               const Icon = AGENT_ICONS[id] || Bot;
               const maxCount = sortedUsage[0]?.[1] || 1;
               const pct = Math.round((count / maxCount) * 100);
+              // Rough token estimate: ~800 tokens per message exchange (prompt + response)
+              const estTokens = count * 800;
+              const tokenStr = estTokens >= 1000 ? `~${(estTokens / 1000).toFixed(1)}k` : `~${estTokens}`;
               return (
-                <div key={id} className="flex items-center gap-2">
-                  <Icon size={10} style={{ color: a?.color }} className="shrink-0" />
-                  <span className="text-[11px] font-ui text-text-sec flex-1 min-w-0 truncate">
-                    {a?.name || id}
-                  </span>
-                  <div className="w-16 h-1.5 bg-bg-overlay rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-accent rounded-full transition-all"
-                      style={{ width: `${pct}%` }}
-                    />
+                <div key={id}>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Icon size={10} style={{ color: a?.color }} className="shrink-0" />
+                    <span className="text-[11px] font-ui text-text-sec flex-1 min-w-0 truncate">
+                      {a?.name || id}
+                    </span>
+                    <span className="text-[10px] font-mono text-text-faint">{count} msg</span>
                   </div>
-                  <span className="text-[10px] font-mono text-text-faint w-6 text-right">{count}</span>
+                  <div className="flex items-center gap-2 pl-[18px]">
+                    <div className="flex-1 h-1.5 bg-bg-overlay rounded-full overflow-hidden">
+                      <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-[9px] font-mono text-text-faint w-10 text-right">{tokenStr} tok</span>
+                  </div>
                 </div>
               );
             })}
@@ -299,7 +316,7 @@ function AgentPopup({
         <div className="space-y-1">
           {CLI_AGENTS.map(a => {
             const Icon = AGENT_ICONS[a.id] || Bot;
-            const installed = availability[a.binary] || false;
+            const installed = availability[a.id] || false;
             return (
               <div key={a.id} className="flex items-center gap-2">
                 <Icon size={10} style={{ color: a.color }} className="shrink-0" />

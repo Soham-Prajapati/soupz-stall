@@ -3,7 +3,7 @@ import Editor from '@monaco-editor/react';
 import {
   Files, GitBranch, Settings, ChevronLeft, ChevronRight,
   Play, Loader2, PanelRightClose, PanelRightOpen, X, Package,
-  Terminal, Search, Trophy,
+  Terminal, Search, Trophy, Code2, Bot,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import FileTree from '../filetree/FileTree';
@@ -16,6 +16,7 @@ const MCPPanel = lazy(() => import('../shared/MCPPanel'));
 const ExtensionsMarketplace = lazy(() => import('../shared/ExtensionsMarketplace'));
 const SearchPanel = lazy(() => import('./SearchPanel'));
 const TerminalPanel = lazy(() => import('./TerminalPanel'));
+const AgentDashboard = lazy(() => import('./AgentDashboard'));
 
 const SIDEBAR_KEY = 'soupz_sidebar_open';
 const CHAT_KEY    = 'soupz_chat_open';
@@ -153,11 +154,80 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
     });
   }, [cursorPos, activeFile, lang, onEditorStateChange]);
 
-  // Mobile: show only chat
+  // Mobile: tab-based layout with bottom navigation
   if (isMobile) {
+    const [mobileTab, setMobileTab] = useState('chat');
     return (
-      <div className="h-full">
-        <SimpleMode daemon={daemon} />
+      <div className="h-full flex flex-col">
+        <div className="flex-1 overflow-hidden min-h-0">
+          {mobileTab === 'chat' && <SimpleMode daemon={daemon} />}
+          {mobileTab === 'files' && (
+            <div className="h-full bg-bg-surface">
+              <FileTree tree={fileTree} changedPaths={changedPaths} onSelect={(node) => { openFile(node); setMobileTab('editor'); }} selectedPath={activeFile?.path} />
+            </div>
+          )}
+          {mobileTab === 'editor' && activeFile && (
+            <div className="h-full flex flex-col">
+              <div className="h-8 bg-bg-surface border-b border-border-subtle flex items-center px-3 shrink-0">
+                <span className="text-xs font-mono text-text-sec truncate">{activeFile.name}</span>
+                <button onClick={() => saveFile()} className="ml-auto text-[10px] font-ui text-accent px-2 py-0.5 rounded border border-accent/20">Save</button>
+              </div>
+              <div className="flex-1 min-h-0">
+                <Editor
+                  theme="vs-dark"
+                  language={lang}
+                  value={fileContents[activeFile.path] || ''}
+                  onChange={handleEditorChange}
+                  onMount={handleEditorMount}
+                  options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', lineNumbers: 'on', scrollBeyondLastLine: false, padding: { top: 8 } }}
+                />
+              </div>
+            </div>
+          )}
+          {mobileTab === 'editor' && !activeFile && (
+            <div className="h-full flex items-center justify-center bg-bg-base">
+              <p className="text-text-faint text-sm font-ui">Select a file to edit</p>
+            </div>
+          )}
+          {mobileTab === 'git' && (
+            <Suspense fallback={<PanelLoader />}>
+              <div className="h-full overflow-y-auto"><GitPanel daemon={daemon} /></div>
+            </Suspense>
+          )}
+          {mobileTab === 'settings' && (
+            <div className="h-full overflow-y-auto">
+              <Suspense fallback={<PanelLoader />}>
+                <StatsPanel />
+                <MCPPanel />
+                <ExtensionsMarketplace />
+              </Suspense>
+            </div>
+          )}
+        </div>
+        {/* Bottom tab bar */}
+        <div className="h-12 bg-bg-surface border-t border-border-subtle flex items-center justify-around shrink-0 px-1">
+          {[
+            { id: 'chat', Icon: Terminal, label: 'Chat' },
+            { id: 'files', Icon: Files, label: 'Files' },
+            { id: 'editor', Icon: Code2, label: 'Editor' },
+            { id: 'git', Icon: GitBranch, label: 'Git' },
+            { id: 'settings', Icon: Settings, label: 'More' },
+          ].map(({ id, Icon, label }) => (
+            <button
+              key={id}
+              onClick={() => setMobileTab(id)}
+              className={cn(
+                'flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-md transition-all min-w-[48px]',
+                mobileTab === id
+                  ? 'text-accent'
+                  : 'text-text-faint',
+              )}
+            >
+              <Icon size={18} />
+              <span className="text-[9px] font-ui">{label}</span>
+            </button>
+          ))}
+        </div>
       </div>
     );
   }
@@ -170,6 +240,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           { id: 'files',      Icon: Files,     title: 'Explorer' },
           { id: 'search',     Icon: Search,    title: 'Search' },
           { id: 'git',        Icon: GitBranch, title: 'Source Control' },
+          { id: 'agents',     Icon: Bot,       title: 'Agent Tasks' },
           { id: 'extensions', Icon: Package,   title: 'Extensions' },
           { id: 'stats',      Icon: Trophy,    title: 'Stats & Leaderboard' },
           { id: 'settings',   Icon: Settings,  title: 'Settings' },
@@ -202,10 +273,10 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
         <div style={{ width: sidebarWidth }} className="bg-bg-surface border-r border-border-subtle flex flex-col shrink-0 overflow-hidden">
           <div className="px-3 py-2 border-b border-border-subtle shrink-0">
             <span className="text-text-faint text-[11px] font-ui uppercase tracking-wider font-medium">
-              {activeActivity === 'files' ? 'Explorer' : activeActivity === 'search' ? 'Search' : activeActivity === 'git' ? 'Source Control' : activeActivity === 'extensions' ? 'Extensions' : activeActivity === 'stats' ? 'Stats & Leaderboard' : 'Settings'}
+              {activeActivity === 'files' ? 'Explorer' : activeActivity === 'search' ? 'Search' : activeActivity === 'git' ? 'Source Control' : activeActivity === 'agents' ? 'Agent Tasks' : activeActivity === 'extensions' ? 'Extensions' : activeActivity === 'stats' ? 'Stats & Leaderboard' : 'Settings'}
             </span>
           </div>
-          <div className="flex-1 overflow-hidden min-h-0">
+          <div className="flex-1 overflow-y-auto min-h-0">
             {activeActivity === 'files' && (
               <FileTree
                 tree={fileTree}
@@ -237,20 +308,23 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                 <GitPanel daemon={daemon} />
               </Suspense>
             )}
+            {activeActivity === 'agents' && (
+              <Suspense fallback={<PanelLoader />}>
+                <AgentDashboard daemon={daemon} />
+              </Suspense>
+            )}
             {activeActivity === 'extensions' && (
               <Suspense fallback={<PanelLoader />}>
                 <ExtensionsMarketplace />
               </Suspense>
             )}
             {activeActivity === 'stats' && (
-              <div className="flex-1 overflow-y-auto min-h-0">
-                <Suspense fallback={<PanelLoader />}>
-                  <StatsPanel />
-                </Suspense>
-              </div>
+              <Suspense fallback={<PanelLoader />}>
+                <StatsPanel />
+              </Suspense>
             )}
             {activeActivity === 'settings' && (
-              <div className="flex-1 overflow-y-auto min-h-0">
+              <div className="space-y-0">
                 <div className="p-4 space-y-4">
                   <div>
                     <p className="text-[11px] text-text-faint font-ui uppercase tracking-wider font-medium mb-2">Editor</p>
@@ -281,7 +355,6 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                   </div>
                 </div>
                 <Suspense fallback={<PanelLoader />}>
-                  <StatsPanel />
                   <MCPPanel />
                 </Suspense>
               </div>

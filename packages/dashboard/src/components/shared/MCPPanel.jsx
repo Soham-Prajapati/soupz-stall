@@ -3,53 +3,41 @@ import { Plus, Trash2, Plug, ChevronDown, ChevronUp, Zap } from 'lucide-react';
 
 const MCP_KEY = 'soupz_mcp_servers';
 
-// Preset MCP servers for quick-add (verified real npm packages)
+// Preset MCP servers for quick-add (verified package names)
 const MCP_PRESETS = [
   {
     name: 'Google Stitch',
     url: 'npx @_davideast/stitch-mcp',
-    description: 'AI-powered UI design from Google Labs. Generate mockups, wireframes, and production-ready HTML/CSS from prompts. Requires gcloud auth.',
+    description: 'AI-powered UI design from Google Labs. Generate mockups and production-ready HTML/CSS. Requires gcloud auth.',
     category: 'design',
   },
   {
     name: 'Nano Banana',
     url: 'npx nano-banana-mcp',
-    description: 'Google DeepMind image generation via Gemini API. Create illustrations, hero images, and design assets from text. Requires GEMINI_API_KEY.',
+    description: 'Google DeepMind image generation via Gemini API. Create illustrations and design assets. Requires GEMINI_API_KEY.',
     category: 'design',
   },
   {
     name: 'Stitch Universal',
     url: 'npx stitch-mcp',
-    description: 'Universal Google Stitch MCP — works with Cursor, Claude, and any MCP-compatible editor. Tools: build_site, get_screen_code, get_screen_image.',
-    category: 'design',
-  },
-  {
-    name: 'Excalidraw',
-    url: 'npx @anthropic-ai/mcp-excalidraw',
-    description: 'Whiteboard and diagram creation for architecture, flows, and wireframes.',
-    category: 'design',
-  },
-  {
-    name: 'Canva',
-    url: 'npx @anthropic-ai/mcp-canva',
-    description: 'Create and edit designs, presentations, and social media content.',
+    description: 'Universal Stitch MCP for any editor. Tools: build_site, get_screen_code, get_screen_image.',
     category: 'design',
   },
   {
     name: 'Filesystem',
-    url: 'npx @anthropic-ai/mcp-filesystem',
+    url: 'npx @modelcontextprotocol/server-filesystem',
     description: 'Read, write, and manage files on your local machine.',
     category: 'tools',
   },
   {
     name: 'GitHub',
-    url: 'npx @anthropic-ai/mcp-github',
+    url: 'npx @modelcontextprotocol/server-github',
     description: 'Access GitHub repos, issues, PRs, and code search.',
     category: 'tools',
   },
   {
-    name: 'Puppeteer',
-    url: 'npx @anthropic-ai/mcp-puppeteer',
+    name: 'Playwright',
+    url: 'npx @anthropic-ai/mcp-playwright',
     description: 'Browser automation for screenshots, testing, and web scraping.',
     category: 'tools',
   },

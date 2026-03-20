@@ -51,18 +51,7 @@ const MILESTONES = [
   { xp: 10000, label: 'Legendary',            desc: 'Earn 10,000 XP'  },
 ];
 
-// ---------------------------------------------------------------------------
-// Mock leaderboard entries (placeholder community data)
-// ---------------------------------------------------------------------------
-
-const MOCK_ENTRIES = [
-  { name: 'NightOwlDev',   xp: 8420 },
-  { name: 'PixelArchitect', xp: 6150 },
-  { name: 'TerminalNinja',  xp: 4800 },
-  { name: 'AsyncAlice',     xp: 3200 },
-  { name: 'ByteSmith',      xp: 1900 },
-  { name: 'CodeCadet',      xp: 750  },
-];
+// No mock data — only real user stats are shown
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -119,14 +108,9 @@ export default function LeaderboardPanel() {
   const rank           = getRank(level);
   const { progress, needed, pct } = getLevelProgress(xp);
 
-  // Build combined leaderboard (user + mocks), sorted descending
+  // Show only the real user — no fake community data
   const leaderboard = useMemo(() => {
-    const entries = [
-      ...MOCK_ENTRIES.map(e => ({ ...e, isUser: false })),
-      { name: 'You', xp, isUser: true },
-    ];
-    entries.sort((a, b) => b.xp - a.xp);
-    return entries.map((e, i) => ({ ...e, position: i + 1 }));
+    return [{ name: 'You', xp, isUser: true, position: 1 }];
   }, [xp]);
 
   const RankIcon = rank.icon;

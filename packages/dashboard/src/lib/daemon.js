@@ -38,9 +38,12 @@ export function connectDaemonWS(token) {
       if (msg.type === 'agent_chunk') {
         const handler = wsChunkHandlers.get(msg.orderId) || wsChunkHandlers.get('*');
         handler?.(msg.chunk, false);
-      } else if (msg.type === 'order_update' && msg.data?.status === 'completed') {
+      } else if (msg.type === 'order_update' && (msg.data?.status === 'completed' || msg.data?.status === 'failed')) {
         const handler = wsChunkHandlers.get(msg.data.id) || wsChunkHandlers.get('*');
         handler?.('', true); // signal done
+        // Clean up handlers for this order
+        wsChunkHandlers.delete(msg.data.id);
+        wsChunkHandlers.delete('*');
       }
     } catch { /* ignore parse errors */ }
   };
@@ -56,7 +59,50 @@ export function disconnectDaemonWS() {
   wsInstance = null;
 }
 
+// ─── Dev server detection ────────────────────────────────────────────────────
+
+/**
+ * Detect a running dev server on the connected machine for live preview.
+ * @returns {Promise<{ url: string, detected: boolean } | null>}
+ */
+export async function getDevServerUrl() {
+  const t = getStoredToken();
+  if (!t) return null;
+  try {
+    const res = await fetch(`${LOCAL_DAEMON_URL}/api/dev-server`, {
+      headers: { 'X-Soupz-Token': t },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.detected ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Agent availability ───────────────────────────────────────────────────────
+
+/**
+ * List directories on the connected machine for folder picker (Cmd+O).
+ * @param {string} [path] - directory to list (defaults to home dir)
+ * @returns {Promise<{ current: string, parent: string, dirs: Array, isGitRepo: boolean }>}
+ */
+export async function listDirectories(path) {
+  const t = getStoredToken();
+  if (!t) return null;
+  try {
+    const url = `${LOCAL_DAEMON_URL}/api/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ''}`;
+    const res = await fetch(url, {
+      headers: { 'X-Soupz-Token': t },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Check which CLI agents are installed on the host machine.
@@ -138,8 +184,11 @@ export async function sendAgentPrompt(prompt, agentId, mode, userId, onChunk) {
         // Register chunk handler for this order
         wsChunkHandlers.set(order.id, onChunk);
         wsChunkHandlers.set('*', onChunk); // fallback for unkeyed messages
-        // Auto-cleanup after 10 minutes
-        setTimeout(() => wsChunkHandlers.delete(order.id), 600000);
+        // Safety cleanup after 5 minutes (handlers should be removed on completion/failure)
+        setTimeout(() => {
+          wsChunkHandlers.delete(order.id);
+          if (wsChunkHandlers.get('*') === onChunk) wsChunkHandlers.delete('*');
+        }, 300000);
       }
 
       return order?.id;
@@ -206,6 +255,40 @@ export function subscribeToDaemon(userId, onMessage) {
   return () => {
     if (daemonChannel) supabase.removeChannel(daemonChannel);
   };
+}
+
+// ─── Order history (for Agent Dashboard) ─────────────────────────────────────
+
+export async function getOrders() {
+  const t = getStoredToken();
+  if (!t) return [];
+  try {
+    const res = await fetch(`${LOCAL_DAEMON_URL}/api/orders`, {
+      headers: { 'X-Soupz-Token': t },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.orders || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getOrderDetail(orderId) {
+  const t = getStoredToken();
+  if (!t) return null;
+  try {
+    const res = await fetch(`${LOCAL_DAEMON_URL}/api/orders/${orderId}`, {
+      headers: { 'X-Soupz-Token': t },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.order || null;
+  } catch {
+    return null;
+  }
 }
 
 // ─── FS & Git helpers ─────────────────────────────────────────────────────────

@@ -70,9 +70,9 @@ export function getAgentById(id) {
 
 // Agent capability descriptions for the UI
 export const AGENT_INSTALL_GUIDES = {
-  'gemini':      { cmd: 'npm install -g @anthropic-ai/gemini-cli', note: 'Free tier available', url: 'https://github.com/anthropics/gemini-cli' },
-  'claude-code': { cmd: 'npm install -g @anthropic-ai/claude-code', note: 'Requires API key', url: 'https://claude.ai/claude-code' },
-  'copilot':     { cmd: 'gh extension install github/gh-copilot', note: 'Requires GitHub Copilot subscription', url: 'https://github.com/features/copilot' },
-  'kiro':        { cmd: 'npm install -g kiro-cli', note: 'AWS-focused, requires AWS credentials', url: 'https://kiro.dev' },
-  'ollama':      { cmd: 'brew install ollama && ollama pull qwen2.5:7b', note: 'Free, runs locally', url: 'https://ollama.com' },
+  'gemini':      { cmd: 'npm install -g @google/gemini-cli', note: 'Free tier: 60 req/min, 1k req/day with Google account', url: 'https://github.com/google-gemini/gemini-cli' },
+  'claude-code': { cmd: 'npm install -g @anthropic-ai/claude-code', note: 'Requires Anthropic API key', url: 'https://github.com/anthropics/claude-code' },
+  'copilot':     { cmd: 'npm install -g @github/copilot', note: 'Requires GitHub Copilot subscription', url: 'https://github.com/github/copilot-cli' },
+  'kiro':        { cmd: 'brew install --cask kiro-cli', note: 'macOS/Linux — or: curl -fsSL https://cli.kiro.dev/install | bash', url: 'https://kiro.dev/cli/' },
+  'ollama':      { cmd: 'curl -fsSL https://ollama.com/install.sh | sh', note: 'Free, runs locally. macOS: brew install ollama', url: 'https://ollama.com' },
 };

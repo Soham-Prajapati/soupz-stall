@@ -94,7 +94,7 @@ npx soupz                                # Starts daemon + opens soupz.vercel.ap
 - Breadcrumbs above editor
 - Terminal panel
 - Gamification / achievements
-- MCP server configuration with preset library (Google Stitch, Nano Banana, Excalidraw, Canva, etc.)
+- MCP server configuration with preset library (Google Stitch, Nano Banana, Filesystem, GitHub, Playwright)
 - 12 color themes
 - Smart agent fallback chain (handles users with limited agent access — only Gemini, only Copilot, etc.)
 - Agent availability detection with detailed status (installed vs ready vs running)

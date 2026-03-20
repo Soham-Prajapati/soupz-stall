@@ -1,11 +1,10 @@
 {
-    "name": "soupz-stall",
+    "name": "soupz",
     "version": "0.1.0",
-    "description": "Jarvis-like multi-agent orchestrator CLI with smart routing, memory shards, and self-improvement",
+    "description": "Code from anywhere — AI coding IDE that bridges your phone to your laptop",
     "type": "module",
     "bin": {
-        "soupz": "./bin/soupz.js",
-        "soupz-stall": "./bin/soupz.js"
+        "soupz": "./bin/soupz.js"
     },
     "scripts": {
         "setup": "node scripts/setup.js",

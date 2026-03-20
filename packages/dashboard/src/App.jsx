@@ -14,6 +14,7 @@ const ProMode = lazy(() => import('./components/pro/ProMode'));
 const LandingPage = lazy(() => import('./components/landing/LandingPage'));
 const ProfilePage = lazy(() => import('./components/profile/ProfilePage'));
 const CommandPalette = lazy(() => import('./components/shared/CommandPalette'));
+const FolderPicker = lazy(() => import('./components/shared/FolderPicker'));
 import { supabase, isSupabaseConfigured } from './lib/supabase.js';
 import {
   checkDaemonHealth, subscribeToDaemon, sendAgentPrompt,
@@ -65,6 +66,8 @@ export default function App() {
   // Editor state lifted from ProMode for StatusBar
   const [editorState, setEditorState] = useState(null);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  const [workspaceRoot, setWorkspaceRoot] = useState(null);
 
   useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
 
@@ -77,10 +80,27 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'p') { e.preventDefault(); setCmdPaletteOpen(v => !v); }
       // Cmd+K: also opens palette (common shortcut)
       if ((e.metaKey || e.ctrlKey) && e.key === 'k' && !e.shiftKey) { e.preventDefault(); setCmdPaletteOpen(v => !v); }
+      // Cmd+O: Open folder on connected machine
+      if ((e.metaKey || e.ctrlKey) && e.key === 'o' && !e.shiftKey) { e.preventDefault(); setFolderPickerOpen(v => !v); }
     }
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, []);
+
+  async function handleOpenFolder(folderPath) {
+    setWorkspaceRoot(folderPath);
+    localStorage.setItem('soupz_workspace_root', folderPath);
+    try {
+      const treeData = await getFileTree(folderPath);
+      if (treeData?.tree) {
+        const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
+        setFileTree(children);
+        setChangedFiles(treeData.changedFiles || []);
+      }
+    } catch { /* failed to load */ }
+    // Switch to IDE mode to show the files
+    setMode('pro');
+  }
 
   function handleCommand(actionId) {
     if (actionId === 'toggle-mode') setMode(m => m === 'simple' ? 'pro' : 'simple');
@@ -126,14 +146,20 @@ export default function App() {
       setWorkspaceOnline(h.online);
       if (h.online) {
         setWorkspaceMachine(h.machine);
-        // Auto-fetch file tree when locally connected
-        try {
-          const treeData = await getFileTree();
-          if (treeData?.tree) {
-            setFileTree(treeData.tree?.children || treeData.tree);
-            setChangedFiles(treeData.changedFiles || []);
-          }
-        } catch { /* daemon may not support fs yet */ }
+        // Auto-fetch file tree when locally connected (requires pairing token)
+        if (localStorage.getItem('soupz_daemon_token')) {
+          try {
+            const root = workspaceRoot || localStorage.getItem('soupz_workspace_root') || undefined;
+            const treeData = await getFileTree(root);
+            if (treeData?.tree) {
+              const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
+              if (children.length > 0) {
+                setFileTree(children);
+                setChangedFiles(treeData.changedFiles || []);
+              }
+            }
+          } catch { /* daemon may not support fs yet */ }
+        }
       }
     }
     check();
@@ -246,8 +272,8 @@ export default function App() {
 
         {/* Mode toggle */}
         <div className="flex items-center gap-0.5 bg-bg-base rounded-md p-0.5 border border-border-subtle">
-          <ModeBtn active={mode === 'simple'} onClick={() => setMode('simple')} icon={<Layers size={12} />} label="Chat" />
-          <ModeBtn active={mode === 'pro'}    onClick={() => setMode('pro')}    icon={<Code2 size={12} />}  label="IDE" />
+          <ModeBtn active={mode === 'simple'} onClick={() => setMode('simple')} icon={<Layers size={12} />} label="Build" />
+          <ModeBtn active={mode === 'pro'}    onClick={() => setMode('pro')}    icon={<Code2 size={12} />}  label="Code" />
         </div>
 
         {/* Spacer */}
@@ -307,7 +333,7 @@ export default function App() {
         {user?.id && user.id !== 'local' && (
           <button
             onClick={() => navigate('/profile')}
-            className="flex items-center gap-2 hidden md:flex hover:bg-bg-elevated rounded-md px-1.5 py-1 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 hover:bg-bg-elevated rounded-md px-1.5 py-1 transition-all cursor-pointer"
             title="View profile"
           >
             {user.user_metadata?.avatar_url ? (
@@ -317,7 +343,7 @@ export default function App() {
                 className="w-5 h-5 rounded-full border border-border-subtle"
               />
             ) : null}
-            <span className="text-text-faint text-xs font-ui truncate max-w-36">
+            <span className="text-text-faint text-xs font-ui truncate max-w-24 hidden sm:block">
               {user.user_metadata?.full_name || user.user_metadata?.name || user.email}
             </span>
           </button>
@@ -357,6 +383,17 @@ export default function App() {
             open={cmdPaletteOpen}
             onClose={() => setCmdPaletteOpen(false)}
             onAction={handleCommand}
+          />
+        </Suspense>
+      )}
+
+      {/* Folder Picker (Cmd+O) */}
+      {folderPickerOpen && (
+        <Suspense fallback={null}>
+          <FolderPicker
+            open={folderPickerOpen}
+            onClose={() => setFolderPickerOpen(false)}
+            onSelect={handleOpenFolder}
           />
         </Suspense>
       )}
