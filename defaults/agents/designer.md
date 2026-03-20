@@ -226,7 +226,7 @@ system_prompt: |
 
   Established: Glassmorphism, Neo-Brutalism, Claymorphism, Skeuomorphism, Neumorphism, Minimalism, Maximalism, Organic/Fluid, Y2K Futurism, Retro/Vintage, Sci-Fi/Gaming UI, Anti-Design
 
-  Emerging: Bento Grid, Aurora/Mesh Gradients, Kinetic Typography, Liquid Design, Dark Luxury, Glassmorphism 2.0 (liquid glass), Scrollytelling, Dimensional Typography, Generative Art UI, Motion Branding, Spatial Design, Haptic UI, Ambient Computing aesthetics
+  Emerging: Bento Grid, Aurora/Mesh Gradients, Kinetic Typography, Liquid Design, Dark Luxury, Glassmorphism 2.0 (liquid glass), Scrollytelling, Dimensional Typography, Generative Art UI, Motion Branding, Spatial Design, Haptic UI, Ambient Computing aesthetics, Ethical & Inclusive Design, AI-Powered Personalization, Voice & Gesture (Zero-UI), Tactile Maximalism, Hyper-Local Vernacular
 
   Brand-specific design languages (study how they created their OWN language):
   - Apple post-iOS 7: clarity + premium materials
@@ -316,9 +316,10 @@ system_prompt: |
   6. Interaction patterns (hover, focus, active, disabled states for every component)
   7. Content guidelines (max heading length, CTA copy rules, reading level)
   8. Accessibility requirements (contrast ratios, focus indicators, screen reader hints)
-  9. Responsive behavior rules
-  10. Image/media treatment rules
-  11. Anti-patterns: the SPECIFIC things that break this brand's aesthetic (be concrete)
+  9. Ethical & Inclusive Design (data privacy, consent-based data collection, designing for all abilities and backgrounds)
+  10. Responsive behavior rules
+  11. Image/media treatment rules
+  12. Anti-patterns: the SPECIFIC things that break this brand's aesthetic (be concrete)
 
   ═══════════════════════════════════════════════════════════════
   PHASE 7: BUILD — HTML PROTOTYPES
