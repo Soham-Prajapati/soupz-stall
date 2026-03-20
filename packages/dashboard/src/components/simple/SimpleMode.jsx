@@ -3,7 +3,7 @@ import {
   Send, Mic, MicOff, ChevronDown, Check, X, Paperclip,
   Cpu, Palette, Code2, Search, TrendingUp, Server, DollarSign, Bot,
   Zap, BrainCircuit, Sparkles, Github, RotateCcw, Copy, CheckCheck,
-  Square, Volume2, VolumeX,
+  Square, Volume2, VolumeX, Loader2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS, SPECIALISTS, BUILD_MODES, getAgentById } from '../../lib/agents';
@@ -13,6 +13,7 @@ import OllamaStatus from '../shared/OllamaStatus';
 import InteractiveQuestions, { parseSoupzQ, formatAnswers } from '../shared/InteractiveQuestions';
 import LearnedAgents, { SuggestionDot } from '../shared/LearnedAgents';
 import { trackUsage, getCustomAgents } from '../../lib/learning';
+import { useKokoroTTS } from '../../hooks/useKokoroTTS';
 
 const STORAGE_KEY = 'soupz_chat_history';
 const AGENT_KEY   = 'soupz_agent';
@@ -92,9 +93,10 @@ export default function SimpleMode({ daemon }) {
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
   const recogRef = useRef(null);
-  const utteranceRef = useRef(null);
   // abortRef lets pauseStreaming() stop mid-flight chunk processing
   const abortRef = useRef(false);
+
+  const { speak: kokoroSpeak, stop: kokoroStop, speaking: kokoroSpeaking, modelLoading, loadProgress } = useKokoroTTS();
 
   // Persist messages
   useEffect(() => {
@@ -225,32 +227,26 @@ export default function SimpleMode({ daemon }) {
   }
 
   function speakMessage(content, id) {
-    if (!window.speechSynthesis) return;
-    // Stop current utterance if any
-    window.speechSynthesis.cancel();
-    if (speakingId === id) { setSpeakingId(null); return; }
+    // Toggle off if already speaking this message.
+    if (speakingId === id) {
+      kokoroStop();
+      setSpeakingId(null);
+      return;
+    }
 
-    // Strip markdown for cleaner speech
-    const plainText = content
-      .replace(/```[\s\S]*?```/g, 'code block')
-      .replace(/`([^`]+)`/g, '$1')
-      .replace(/\*\*([^*]+)\*\*/g, '$1')
-      .replace(/\*([^*]+)\*/g, '$1')
-      .replace(/#+ /g, '')
-      .trim();
-
-    const utt = new SpeechSynthesisUtterance(plainText);
-    utt.rate = 1.0;
-    utt.pitch = 1.0;
-    utt.onend = () => setSpeakingId(null);
-    utt.onerror = () => setSpeakingId(null);
-    utteranceRef.current = utt;
+    // Stop any previously-playing message before starting a new one.
+    kokoroStop();
     setSpeakingId(id);
-    window.speechSynthesis.speak(utt);
+
+    kokoroSpeak(content).then(() => {
+      // Only clear the speakingId for the message we started — the user may
+      // have already toggled to a different one.
+      setSpeakingId((prev) => (prev === id ? null : prev));
+    });
   }
 
   function stopSpeaking() {
-    window.speechSynthesis?.cancel();
+    kokoroStop();
     setSpeakingId(null);
   }
 
@@ -387,6 +383,8 @@ export default function SimpleMode({ daemon }) {
             copied={copiedId === msg.id}
             onSpeak={speakMessage}
             speaking={speakingId === msg.id}
+            modelLoading={modelLoading && speakingId === msg.id}
+            loadProgress={loadProgress}
             getIcon={getIcon}
             autoLabel={msg.autoLabel}
             onQuestionSubmit={handleQuestionSubmit}
@@ -452,14 +450,14 @@ export default function SimpleMode({ daemon }) {
         </div>
         <p className="text-text-faint text-[11px] font-ui mt-1.5 ml-1">
           Enter to send · Shift+Enter for newline{(window.SpeechRecognition || window.webkitSpeechRecognition) ? ' · Hold mic to speak' : ''}
-          {window.speechSynthesis ? ' · Tap speaker to read aloud' : ''}
+          {' · Tap speaker for neural TTS (on-device)'}
         </p>
       </div>
     </div>
   );
 }
 
-function Message({ msg, onCopy, copied, onSpeak, speaking, getIcon, autoLabel, onQuestionSubmit }) {
+function Message({ msg, onCopy, copied, onSpeak, speaking, modelLoading, loadProgress, getIcon, autoLabel, onQuestionSubmit }) {
   const isUser = msg.role === 'user';
   const Icon = getIcon(msg.agentId || 'auto');
 
@@ -519,18 +517,28 @@ function Message({ msg, onCopy, copied, onSpeak, speaking, getIcon, autoLabel, o
             >
               {copied ? <CheckCheck size={11} className="text-success" /> : <Copy size={11} />}
             </button>
-            {window.speechSynthesis && (
-              <button
-                onClick={() => onSpeak(msg.content, msg.id)}
-                className={cn(
-                  'transition-colors',
-                  speaking ? 'text-accent' : 'text-text-faint hover:text-text-sec',
-                )}
-                title={speaking ? 'Stop reading' : 'Read aloud'}
-              >
-                {speaking ? <VolumeX size={11} /> : <Volume2 size={11} />}
-              </button>
-            )}
+            <button
+              onClick={() => onSpeak(msg.content, msg.id)}
+              className={cn(
+                'transition-colors',
+                speaking ? 'text-accent' : 'text-text-faint hover:text-text-sec',
+              )}
+              title={
+                speaking
+                  ? 'Stop reading'
+                  : modelLoading
+                  ? `Loading neural voice… ${loadProgress > 0 ? `${loadProgress}%` : ''}`
+                  : 'Read aloud (Neural TTS)'
+              }
+            >
+              {modelLoading ? (
+                <Loader2 size={11} className="animate-spin" />
+              ) : speaking ? (
+                <VolumeX size={11} />
+              ) : (
+                <Volume2 size={11} />
+              )}
+            </button>
           </div>
         )}
       </div>
