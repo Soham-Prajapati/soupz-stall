@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import Editor from '@monaco-editor/react';
 import {
   Files, GitBranch, Settings, ChevronLeft, ChevronRight,
@@ -7,13 +7,15 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import FileTree from '../filetree/FileTree';
-import GitPanel from '../git/GitPanel';
 import SimpleMode from '../simple/SimpleMode';
-import StatsPanel from '../shared/StatsPanel';
-import MCPPanel from '../shared/MCPPanel';
-import ExtensionsMarketplace from '../shared/ExtensionsMarketplace';
-import SearchPanel from './SearchPanel';
-import TerminalPanel from './TerminalPanel';
+
+// Lazy-load heavy panels that aren't needed on first render
+const GitPanel = lazy(() => import('../git/GitPanel'));
+const StatsPanel = lazy(() => import('../shared/StatsPanel'));
+const MCPPanel = lazy(() => import('../shared/MCPPanel'));
+const ExtensionsMarketplace = lazy(() => import('../shared/ExtensionsMarketplace'));
+const SearchPanel = lazy(() => import('./SearchPanel'));
+const TerminalPanel = lazy(() => import('./TerminalPanel'));
 
 const SIDEBAR_KEY = 'soupz_sidebar_open';
 const CHAT_KEY    = 'soupz_chat_open';
@@ -213,36 +215,42 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
               />
             )}
             {activeActivity === 'search' && (
-              <SearchPanel
-                daemon={daemon}
-                fileTree={fileTree}
-                onOpenFile={(node) => {
-                  openFile(node);
-                  // If lineNum provided, scroll editor to that line
-                  if (node.lineNum && editorRef.current) {
-                    setTimeout(() => {
-                      editorRef.current.revealLineInCenter(node.lineNum);
-                      editorRef.current.setPosition({ lineNumber: node.lineNum, column: 1 });
-                      editorRef.current.focus();
-                    }, 100);
-                  }
-                }}
-              />
+              <Suspense fallback={<PanelLoader />}>
+                <SearchPanel
+                  daemon={daemon}
+                  fileTree={fileTree}
+                  onOpenFile={(node) => {
+                    openFile(node);
+                    if (node.lineNum && editorRef.current) {
+                      setTimeout(() => {
+                        editorRef.current.revealLineInCenter(node.lineNum);
+                        editorRef.current.setPosition({ lineNumber: node.lineNum, column: 1 });
+                        editorRef.current.focus();
+                      }, 100);
+                    }
+                  }}
+                />
+              </Suspense>
             )}
             {activeActivity === 'git' && (
-              <GitPanel daemon={daemon} />
+              <Suspense fallback={<PanelLoader />}>
+                <GitPanel daemon={daemon} />
+              </Suspense>
             )}
             {activeActivity === 'extensions' && (
-              <ExtensionsMarketplace />
+              <Suspense fallback={<PanelLoader />}>
+                <ExtensionsMarketplace />
+              </Suspense>
             )}
             {activeActivity === 'stats' && (
               <div className="flex-1 overflow-y-auto min-h-0">
-                <StatsPanel />
+                <Suspense fallback={<PanelLoader />}>
+                  <StatsPanel />
+                </Suspense>
               </div>
             )}
             {activeActivity === 'settings' && (
               <div className="flex-1 overflow-y-auto min-h-0">
-                {/* Editor & keyboard settings */}
                 <div className="p-4 space-y-4">
                   <div>
                     <p className="text-[11px] text-text-faint font-ui uppercase tracking-wider font-medium mb-2">Editor</p>
@@ -272,10 +280,10 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                     </div>
                   </div>
                 </div>
-                {/* Stats & Achievements */}
-                <StatsPanel />
-                {/* MCP Servers */}
-                <MCPPanel />
+                <Suspense fallback={<PanelLoader />}>
+                  <StatsPanel />
+                  <MCPPanel />
+                </Suspense>
               </div>
             )}
           </div>
@@ -509,6 +517,14 @@ function ResizeHandle({ direction = 'horizontal', onResize }) {
         isH ? 'w-1 cursor-col-resize hover:w-1' : 'h-1 cursor-row-resize hover:h-1',
       )}
     />
+  );
+}
+
+function PanelLoader() {
+  return (
+    <div className="flex items-center justify-center py-8">
+      <Loader2 size={16} className="text-text-faint animate-spin" />
+    </div>
   );
 }
 

@@ -94,13 +94,32 @@ npx soupz                                # Starts daemon + opens soupz.vercel.ap
 - Breadcrumbs above editor
 - Terminal panel
 - Gamification / achievements
-- MCP server configuration
+- MCP server configuration with preset library (Google Stitch, Nano Banana, Excalidraw, Canva, etc.)
 - 12 color themes
+- Smart agent fallback chain (handles users with limited agent access — only Gemini, only Copilot, etc.)
+- Agent availability detection with detailed status (installed vs ready vs running)
+- Sub-agents system (isolated task contractors: code reviewer, test writer, researcher, etc.)
+- Agent teams (collaborative workflows: full review, feature builder, UX audit, ship readiness)
+- Lazy-loaded heavy components (Monaco, Git, Extensions, Stats, MCP panel)
+- Auth: Google + GitHub only (Apple removed)
+- Auto file tree loading for local connections
+
+## Key Library Files
+- `packages/dashboard/src/lib/teams.js` — Sub-agents and agent teams definitions, orchestration engine
+- `packages/dashboard/src/lib/routing.js` — Smart routing with availability-aware fallback chain
+- `packages/dashboard/src/lib/agents.js` — CLI agent + specialist definitions, install guides
+
+## UI/UX Design Rules
+1. Limited color palette — accent + semantic only, no decorative colors
+2. Fewer font weights — 400, 500, 600 only (no 300/700)
+3. Generous spacing — 8px between items, 16px between groups, 24px between sections
+4. Borders over shadows — borders for structure, shadows only on overlays
+5. No decorative shapes — every element serves a purpose
+6. Consistent radius scale — sm(4), md(6), lg(8), xl(12)
 
 ## What's NOT Implemented (see FUTURE_PROMPTS.md)
 - Real git branch display (hardcoded "main")
 - File execution (runFile)
-- Search across files (Ctrl+Shift+F)
 - Split editor
 - RAG memory system
 - Keyboard shortcut customization

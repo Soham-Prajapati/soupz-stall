@@ -1,17 +1,19 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Terminal, Wifi, WifiOff, LogOut, Layers, Code2, Loader2, Sun, Moon, Contrast,
   Leaf, Snowflake, Ghost, Coffee, Landmark, Flower2, SunDim, Github, Check, Search,
 } from 'lucide-react';
 import { useRoute } from './hooks/useRoute';
-import ConnectPage from './components/connect/ConnectPage';
 import AuthScreen from './components/auth/AuthScreen';
 import SimpleMode from './components/simple/SimpleMode';
-import ProMode from './components/pro/ProMode';
-import LandingPage from './components/landing/LandingPage';
-import ProfilePage from './components/profile/ProfilePage';
 import StatusBar from './components/shared/StatusBar';
-import CommandPalette from './components/shared/CommandPalette';
+
+// Lazy-load routes and heavy components not needed on first paint
+const ConnectPage = lazy(() => import('./components/connect/ConnectPage'));
+const ProMode = lazy(() => import('./components/pro/ProMode'));
+const LandingPage = lazy(() => import('./components/landing/LandingPage'));
+const ProfilePage = lazy(() => import('./components/profile/ProfilePage'));
+const CommandPalette = lazy(() => import('./components/shared/CommandPalette'));
 import { supabase, isSupabaseConfigured } from './lib/supabase.js';
 import {
   checkDaemonHealth, subscribeToDaemon, sendAgentPrompt,
@@ -117,12 +119,22 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Workspace health check
+  // Workspace health check + auto-fetch file tree for local connections
   useEffect(() => {
     async function check() {
       const h = await checkDaemonHealth();
       setWorkspaceOnline(h.online);
-      if (h.online) setWorkspaceMachine(h.machine);
+      if (h.online) {
+        setWorkspaceMachine(h.machine);
+        // Auto-fetch file tree when locally connected
+        try {
+          const treeData = await getFileTree();
+          if (treeData?.tree) {
+            setFileTree(treeData.tree?.children || treeData.tree);
+            setChangedFiles(treeData.changedFiles || []);
+          }
+        } catch { /* daemon may not support fs yet */ }
+      }
     }
     check();
     const id = setInterval(check, 8000);
@@ -172,24 +184,32 @@ export default function App() {
     },
   };
 
+  const routeLoader = (
+    <div className="min-h-screen bg-bg-base flex items-center justify-center">
+      <Loader2 size={16} className="text-text-faint animate-spin" />
+    </div>
+  );
+
   // /connect route — no auth needed
   if (path === '/connect') {
-    return <ConnectPage getParam={getParam} navigate={navigate} />;
+    return <Suspense fallback={routeLoader}><ConnectPage getParam={getParam} navigate={navigate} /></Suspense>;
   }
 
   // /landing route — marketing page, no auth needed
   if (path === '/landing') {
-    return <LandingPage navigate={navigate} />;
+    return <Suspense fallback={routeLoader}><LandingPage navigate={navigate} /></Suspense>;
   }
 
   // /profile route — user profile page
   if (path === '/profile') {
     return (
-      <ProfilePage
-        user={user}
-        navigate={navigate}
-        onSignOut={isSupabaseConfigured() && user?.id !== 'local' ? () => supabase.auth.signOut() : null}
-      />
+      <Suspense fallback={routeLoader}>
+        <ProfilePage
+          user={user}
+          navigate={navigate}
+          onSignOut={isSupabaseConfigured() && user?.id !== 'local' ? () => supabase.auth.signOut() : null}
+        />
+      </Suspense>
     );
   }
 
@@ -324,16 +344,22 @@ export default function App() {
         {mode === 'simple' ? (
           <SimpleMode daemon={workspace} />
         ) : (
-          <ProMode daemon={workspace} fileTree={fileTree} changedPaths={changedFiles} onEditorStateChange={setEditorState} />
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
+            <ProMode daemon={workspace} fileTree={fileTree} changedPaths={changedFiles} onEditorStateChange={setEditorState} />
+          </Suspense>
         )}
       </div>
 
       {/* Command Palette */}
-      <CommandPalette
-        open={cmdPaletteOpen}
-        onClose={() => setCmdPaletteOpen(false)}
-        onAction={handleCommand}
-      />
+      {cmdPaletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette
+            open={cmdPaletteOpen}
+            onClose={() => setCmdPaletteOpen(false)}
+            onAction={handleCommand}
+          />
+        </Suspense>
+      )}
 
       {/* VS Code-style Status Bar */}
       <StatusBar

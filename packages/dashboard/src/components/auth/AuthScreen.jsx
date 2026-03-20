@@ -3,7 +3,7 @@ import { Terminal, Github, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 
 export default function AuthScreen({ supabase, onAuth }) {
-  const [loading, setLoading] = useState(null); // 'google' | 'github' | 'apple' | null
+  const [loading, setLoading] = useState(null); // 'google' | 'github' | null
   const [error, setError] = useState('');
 
   async function handleOAuth(provider) {
@@ -33,7 +33,7 @@ export default function AuthScreen({ supabase, onAuth }) {
       </div>
 
       <div className="w-full max-w-sm">
-        <div className="bg-bg-surface border border-border-subtle rounded-2xl overflow-hidden shadow-soft p-7">
+        <div className="bg-bg-surface border border-border-subtle rounded-2xl overflow-hidden p-7">
           <h1 className="text-text-pri font-ui text-lg font-semibold text-center mb-1">Welcome to Soupz</h1>
           <p className="text-text-faint text-sm font-ui text-center mb-6">Sign in to start building</p>
 
@@ -64,25 +64,17 @@ export default function AuthScreen({ supabase, onAuth }) {
               {loading === 'github' ? <Loader2 size={15} className="animate-spin" /> : <Github size={15} />}
               Continue with GitHub
             </button>
-
-            {/* Apple */}
-            <button
-              onClick={() => handleOAuth('apple')}
-              disabled={!!loading}
-              className="w-full flex items-center justify-center gap-2.5 py-2.5 rounded-lg bg-bg-elevated border border-border-mid hover:border-border-strong text-text-pri text-sm font-medium font-ui transition-all disabled:opacity-50"
-            >
-              {loading === 'apple' ? <Loader2 size={15} className="animate-spin" /> : (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
-                </svg>
-              )}
-              Continue with Apple
-            </button>
           </div>
 
           {error && (
             <p className="text-danger text-xs font-ui mt-4 py-2 px-3 bg-danger/5 border border-danger/20 rounded-lg">{error}</p>
           )}
+
+          <div className="mt-5 pt-4 border-t border-border-subtle">
+            <p className="text-text-faint text-[11px] font-ui text-center leading-relaxed">
+              GitHub login connects your repos for editing. Google login is for account access only.
+            </p>
+          </div>
         </div>
 
         <p className="text-center text-text-faint text-[11px] mt-5 font-ui leading-relaxed">

@@ -1,7 +1,59 @@
 import { useState } from 'react';
-import { Plus, Trash2, Plug, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2, Plug, ChevronDown, ChevronUp, Zap } from 'lucide-react';
 
 const MCP_KEY = 'soupz_mcp_servers';
+
+// Preset MCP servers for quick-add (verified real npm packages)
+const MCP_PRESETS = [
+  {
+    name: 'Google Stitch',
+    url: 'npx @_davideast/stitch-mcp',
+    description: 'AI-powered UI design from Google Labs. Generate mockups, wireframes, and production-ready HTML/CSS from prompts. Requires gcloud auth.',
+    category: 'design',
+  },
+  {
+    name: 'Nano Banana',
+    url: 'npx nano-banana-mcp',
+    description: 'Google DeepMind image generation via Gemini API. Create illustrations, hero images, and design assets from text. Requires GEMINI_API_KEY.',
+    category: 'design',
+  },
+  {
+    name: 'Stitch Universal',
+    url: 'npx stitch-mcp',
+    description: 'Universal Google Stitch MCP — works with Cursor, Claude, and any MCP-compatible editor. Tools: build_site, get_screen_code, get_screen_image.',
+    category: 'design',
+  },
+  {
+    name: 'Excalidraw',
+    url: 'npx @anthropic-ai/mcp-excalidraw',
+    description: 'Whiteboard and diagram creation for architecture, flows, and wireframes.',
+    category: 'design',
+  },
+  {
+    name: 'Canva',
+    url: 'npx @anthropic-ai/mcp-canva',
+    description: 'Create and edit designs, presentations, and social media content.',
+    category: 'design',
+  },
+  {
+    name: 'Filesystem',
+    url: 'npx @anthropic-ai/mcp-filesystem',
+    description: 'Read, write, and manage files on your local machine.',
+    category: 'tools',
+  },
+  {
+    name: 'GitHub',
+    url: 'npx @anthropic-ai/mcp-github',
+    description: 'Access GitHub repos, issues, PRs, and code search.',
+    category: 'tools',
+  },
+  {
+    name: 'Puppeteer',
+    url: 'npx @anthropic-ai/mcp-puppeteer',
+    description: 'Browser automation for screenshots, testing, and web scraping.',
+    category: 'tools',
+  },
+];
 
 function readMCP() {
   try { return JSON.parse(localStorage.getItem(MCP_KEY) || '[]'); } catch { return []; }
@@ -18,6 +70,7 @@ export default function MCPPanel() {
   const [adding,    setAdding]    = useState(false);
   const [form,      setForm]      = useState(EMPTY_FORM);
   const [collapsed, setCollapsed] = useState(true);
+  const [showPresets, setShowPresets] = useState(false);
 
   function addServer() {
     if (!form.name.trim() || !form.url.trim()) return;
@@ -32,6 +85,14 @@ export default function MCPPanel() {
     const next = servers.filter(s => s.id !== id);
     setServers(next);
     saveMCP(next);
+  }
+
+  function addPreset(preset) {
+    // Don't add duplicates
+    if (servers.some(s => s.name === preset.name)) return;
+    const newServers = [...servers, { id: Date.now(), name: preset.name, url: preset.url, description: preset.description, status: 'unknown' }];
+    setServers(newServers);
+    saveMCP(newServers);
   }
 
   function cancelAdding() {
@@ -116,6 +177,30 @@ export default function MCPPanel() {
             </div>
           ))}
 
+          {/* Quick-add presets */}
+          {showPresets && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] text-text-faint font-ui uppercase tracking-wider font-medium">Quick Add</p>
+              {MCP_PRESETS.filter(p => !servers.some(s => s.name === p.name)).map(preset => (
+                <button
+                  key={preset.name}
+                  onClick={() => addPreset(preset)}
+                  className="w-full flex items-start gap-2.5 bg-bg-base border border-border-subtle rounded-lg px-3 py-2 hover:border-accent/30 transition-all text-left group"
+                >
+                  <Zap size={12} className="text-accent mt-0.5 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-ui font-medium text-text-pri">{preset.name}</span>
+                    <p className="text-[10px] text-text-faint mt-0.5 line-clamp-2">{preset.description}</p>
+                  </div>
+                  <Plus size={12} className="text-text-faint group-hover:text-accent shrink-0 mt-0.5 transition-colors" />
+                </button>
+              ))}
+              {MCP_PRESETS.filter(p => !servers.some(s => s.name === p.name)).length === 0 && (
+                <p className="text-[10px] text-text-faint text-center py-2">All presets already added</p>
+              )}
+            </div>
+          )}
+
           {/* Add-server form */}
           {adding ? (
             <div className="space-y-2">
@@ -158,13 +243,22 @@ export default function MCPPanel() {
               </div>
             </div>
           ) : (
-            <button
-              onClick={() => setAdding(true)}
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 border border-dashed border-border-mid rounded-md text-xs font-ui text-text-faint hover:text-text-sec hover:border-border-strong transition-all"
-            >
-              <Plus size={12} />
-              Add MCP Server
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setAdding(true)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-dashed border-border-mid rounded-md text-xs font-ui text-text-faint hover:text-text-sec hover:border-border-strong transition-all"
+              >
+                <Plus size={12} />
+                Custom
+              </button>
+              <button
+                onClick={() => setShowPresets(v => !v)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-dashed border-accent/30 rounded-md text-xs font-ui text-accent/70 hover:text-accent hover:border-accent/50 transition-all"
+              >
+                <Zap size={12} />
+                {showPresets ? 'Hide Presets' : 'Browse Presets'}
+              </button>
+            </div>
           )}
         </div>
       )}

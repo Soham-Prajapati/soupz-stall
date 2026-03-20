@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&family=JetBrains+Mono:wght@400;500&display=swap');
+/* Font loaded via index.html preload for performance — only 400, 500, 600 weights */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -661,4 +661,30 @@ textarea:focus, input:focus { outline: none; }
 /* ─── Smooth theme transition ───────────────────────────────────────────── */
 .theme-transition * {
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI/UX DESIGN RULES
+   1. Limited color palette — accent + semantic only, no extra decorative colors
+   2. Fewer font weights — 400 (regular), 500 (medium), 600 (semibold) only
+   3. Generous spacing — elements breathe, touch targets >= 36px
+   4. Borders over shadows — subtle borders for structure, shadows only on overlays
+   5. No decorative shapes — every element serves a purpose
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Ensure minimum touch targets on interactive elements */
+button, a, [role="button"], [role="tab"] {
+  min-height: 28px;
+}
+
+/* Consistent transition timing across all interactive elements */
+button, a, input, select, textarea {
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  transition-duration: 0.15s;
+}
+
+/* No decorative box-shadows on non-overlay elements — use borders instead */
+.card, .panel {
+  box-shadow: none;
+  border: 1px solid var(--border-subtle);
 }

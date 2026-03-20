@@ -67,3 +67,12 @@ export const BUILD_MODES = [
 export function getAgentById(id) {
   return CLI_AGENTS.find(a => a.id === id) || SPECIALISTS.find(a => a.id === id) || null;
 }
+
+// Agent capability descriptions for the UI
+export const AGENT_INSTALL_GUIDES = {
+  'gemini':      { cmd: 'npm install -g @anthropic-ai/gemini-cli', note: 'Free tier available', url: 'https://github.com/anthropics/gemini-cli' },
+  'claude-code': { cmd: 'npm install -g @anthropic-ai/claude-code', note: 'Requires API key', url: 'https://claude.ai/claude-code' },
+  'copilot':     { cmd: 'gh extension install github/gh-copilot', note: 'Requires GitHub Copilot subscription', url: 'https://github.com/features/copilot' },
+  'kiro':        { cmd: 'npm install -g kiro-cli', note: 'AWS-focused, requires AWS credentials', url: 'https://kiro.dev' },
+  'ollama':      { cmd: 'brew install ollama && ollama pull qwen2.5:7b', note: 'Free, runs locally', url: 'https://ollama.com' },
+};

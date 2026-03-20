@@ -3,7 +3,42 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Soupz — AI coding workspace accessible from any device. Code from your phone, tablet, or browser with CLI agents." />
+    <meta name="theme-color" content="#0F0F13" />
+    <meta name="color-scheme" content="dark light" />
+
+    <!-- Preconnect to font origin for faster loading -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- Preload critical font weights only (400, 500, 600) -->
+    <link
+      rel="preload"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      as="style"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+
     <title>Soupz — Code from anywhere</title>
+
+    <!-- Inline critical CSS for fast first paint -->
+    <style>
+      body {
+        margin: 0;
+        background: #0F0F13;
+        color: #E2E2E8;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      #root {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

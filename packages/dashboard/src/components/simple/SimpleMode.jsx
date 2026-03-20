@@ -133,13 +133,16 @@ export default function SimpleMode({ daemon, compact = false }) {
     if (agentId === 'auto') {
       try {
         const avail = await checkAgentAvailability();
-        const { cliAgent, specialist } = await getAutoSelection(text, avail, useOllama);
+        const { cliAgent, specialist, fallbackReason } = await getAutoSelection(text, avail, useOllama);
         effectiveAgentId = cliAgent;
         const agentEntry = getAgentById(cliAgent);
-        autoLabel = `Auto → ${agentEntry?.name || cliAgent}`;
+        autoLabel = fallbackReason
+          ? `Auto → ${agentEntry?.name || cliAgent} (${fallbackReason})`
+          : `Auto → ${agentEntry?.name || cliAgent}`;
       } catch {
-        effectiveAgentId = 'claude-code'; // safe fallback
-        autoLabel = 'Auto → Claude Code';
+        // Try gemini first (free), then claude-code (premium)
+        effectiveAgentId = 'gemini';
+        autoLabel = 'Auto → Gemini (fallback)';
       }
     }
 

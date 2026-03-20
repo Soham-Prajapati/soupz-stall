@@ -18,12 +18,18 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    target: 'es2020',
+    minify: 'esbuild',
+    cssMinify: true,
     rollupOptions: {
       output: {
         manualChunks: {
           'monaco': ['@monaco-editor/react'],
           'supabase': ['@supabase/supabase-js'],
           'vendor': ['react', 'react-dom'],
+          'charts': ['recharts'],
+          'icons': ['lucide-react'],
+          'motion': ['framer-motion'],
         },
       },
     },

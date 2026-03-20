@@ -396,20 +396,68 @@ app.post('/api/pair', (req, res) => {
     res.json({ success: true, token, hostname: os.hostname(), expiresIn: Math.round(SESSION_EXPIRY_MS / 1000) });
 });
 
-// PUBLIC: List available CLI agents
+// PUBLIC: List available CLI agents with detailed status
 app.get('/api/agents', (req, res) => {
-    const agents = ['gemini', 'claude', 'gh', 'kiro', 'ollama'].reduce((acc, bin) => {
-        try { execSync(`which ${bin}`, { timeout: 1000 }); acc[bin] = true; } catch { acc[bin] = false; }
-        return acc;
-    }, {});
-    // Map binary → agent id
-    res.json({
-        gemini:       agents.gemini,
-        'claude-code': agents.claude,
-        copilot:      agents.gh,
-        kiro:         agents.kiro,
-        ollama:       agents.ollama,
-    });
+    const binaries = {
+        gemini: 'gemini',
+        claude: 'claude',
+        gh: 'gh',
+        kiro: 'kiro-cli',
+        ollama: 'ollama',
+    };
+
+    const results = {};
+    for (const [key, bin] of Object.entries(binaries)) {
+        try {
+            execSync(`which ${bin}`, { timeout: 1000 });
+            results[key] = true;
+        } catch {
+            results[key] = false;
+        }
+    }
+
+    // Check if Ollama is actually running (not just installed)
+    let ollamaRunning = false;
+    if (results.ollama) {
+        try {
+            execSync('curl -s --max-time 1 http://localhost:11434/api/tags > /dev/null 2>&1', { timeout: 2000 });
+            ollamaRunning = true;
+        } catch { /* ollama installed but not running */ }
+    }
+
+    // Check if gh copilot extension is available (gh alone isn't enough)
+    let copilotReady = false;
+    if (results.gh) {
+        try {
+            const exts = execSync('gh extension list 2>/dev/null', { timeout: 3000 }).toString();
+            copilotReady = exts.includes('copilot');
+        } catch { /* gh installed but copilot extension missing */ }
+    }
+
+    // Map binary → agent id with detailed availability
+    const agentStatus = {
+        gemini:        { installed: results.gemini, ready: results.gemini, tier: 'free' },
+        'claude-code': { installed: results.claude, ready: results.claude, tier: 'premium' },
+        copilot:       { installed: results.gh, ready: copilotReady, tier: 'freemium' },
+        kiro:          { installed: results.kiro, ready: results.kiro, tier: 'premium', reliability: 'low' },
+        ollama:        { installed: results.ollama, ready: ollamaRunning, tier: 'free' },
+    };
+
+    // Also return simple boolean map for backwards compat
+    const simple = {
+        gemini:        results.gemini,
+        'claude-code': results.claude,
+        copilot:       copilotReady,
+        kiro:          results.kiro,
+        ollama:        ollamaRunning,
+    };
+
+    // Return detailed if requested, simple otherwise
+    if (req.query.detailed === 'true') {
+        res.json({ agents: agentStatus, available: Object.entries(simple).filter(([,v]) => v).map(([k]) => k) });
+    } else {
+        res.json(simple);
+    }
 });
 
 // PUBLIC: Classify a prompt to best agent (uses best available free model)
@@ -511,6 +559,40 @@ app.get('/terminals', requireAuth, (req, res) => {
     res.json(list);
 });
 
+// Agent binary map for checking availability at order time
+const AGENT_BINARY_MAP = {
+    'gemini': 'gemini',
+    'claude-code': 'claude',
+    'copilot': 'gh',
+    'kiro': 'kiro-cli',
+    'ollama': 'ollama',
+};
+
+// Ordered fallback chain — try free agents first
+const AGENT_FALLBACK_CHAIN = ['gemini', 'copilot', 'claude-code', 'ollama'];
+
+function isAgentInstalled(agentId) {
+    const bin = AGENT_BINARY_MAP[agentId];
+    if (!bin) return false;
+    try { execSync(`which ${bin}`, { timeout: 1000 }); return true; } catch { return false; }
+}
+
+function resolveRunAgent(requestedAgent) {
+    // If requested agent is installed, use it
+    if (requestedAgent !== 'auto' && isAgentInstalled(requestedAgent)) {
+        return { agent: requestedAgent, fallback: false };
+    }
+    // Otherwise, walk the fallback chain
+    for (const candidate of AGENT_FALLBACK_CHAIN) {
+        if (isAgentInstalled(candidate)) {
+            return { agent: candidate, fallback: requestedAgent !== 'auto', originalRequest: requestedAgent };
+        }
+    }
+    // Last resort — try the configured web agent
+    const envAgent = (process.env.SOUPZ_WEB_AGENT || 'gemini').trim();
+    return { agent: envAgent, fallback: true, originalRequest: requestedAgent };
+}
+
 // AUTHENTICATED: Create a new orchestrated order from web dashboard
 app.post('/api/orders', requireAuth, (req, res) => {
     const prompt = (req.body?.prompt || '').toString().trim();
@@ -518,8 +600,8 @@ app.post('/api/orders', requireAuth, (req, res) => {
     const agent = WEB_AGENT_ALIASES.get(requestedAgent) || requestedAgent;
     const modelPolicy = (req.body?.modelPolicy || 'balanced').toString().trim() || 'balanced';
     const mcpServers = Array.isArray(req.body?.mcpServers) ? req.body.mcpServers : [];
-    const fallbackWebAgent = (process.env.SOUPZ_WEB_AGENT || 'copilot').trim();
-    const runAgent = agent === 'auto' ? fallbackWebAgent : agent;
+    const resolved = resolveRunAgent(agent);
+    const runAgent = resolved.agent;
 
     if (!prompt) {
         return res.status(400).json({ error: 'Missing prompt' });
@@ -546,7 +628,13 @@ app.post('/api/orders', requireAuth, (req, res) => {
     };
 
     pushOrderEvent(order, 'order.created', { prompt, agent, modelPolicy });
-    pushOrderEvent(order, 'route.selected', { agent: runAgent, requested: requestedAgent, resolved: agent });
+    pushOrderEvent(order, 'route.selected', {
+        agent: runAgent,
+        requested: requestedAgent,
+        resolved: agent,
+        fallback: resolved.fallback || false,
+        originalRequest: resolved.originalRequest || null,
+    });
     orders.set(id, order);
     void persistOrder(order);
     broadcastOrderUpdate(order);

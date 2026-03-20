@@ -207,15 +207,29 @@ export function detectIntent(prompt) {
 // Default fallback agent ordering (by general capability breadth)
 const DEFAULT_AGENT_ORDER = ['claude-code', 'gemini', 'copilot', 'kiro', 'ollama'];
 
-// Category → preferred CLI agent
-const CATEGORY_PREFERRED_AGENT = {
-  code:     'claude-code',
-  design:   'claude-code',
-  research: 'gemini',
-  strategy: 'gemini',
-  content:  'gemini',
-  business: 'claude-code',
-  general:  'claude-code',
+// Category → preferred CLI agents (ordered by preference, first available wins)
+const CATEGORY_PREFERRED_AGENTS = {
+  code:     ['claude-code', 'gemini', 'copilot', 'ollama'],
+  design:   ['claude-code', 'gemini', 'copilot', 'ollama'],
+  research: ['gemini', 'claude-code', 'copilot', 'ollama'],
+  strategy: ['gemini', 'claude-code', 'copilot', 'ollama'],
+  content:  ['gemini', 'claude-code', 'copilot', 'ollama'],
+  business: ['claude-code', 'gemini', 'copilot', 'ollama'],
+  general:  ['claude-code', 'gemini', 'copilot', 'ollama'],
+};
+
+// Legacy single-agent mapping (for backwards compat)
+const CATEGORY_PREFERRED_AGENT = Object.fromEntries(
+  Object.entries(CATEGORY_PREFERRED_AGENTS).map(([k, v]) => [k, v[0]])
+);
+
+// Agent capability tiers — what each agent is good/bad at
+const AGENT_CAPABILITIES = {
+  'claude-code': { strengths: ['code', 'design', 'architecture', 'refactoring', 'security'], weaknesses: [], tier: 'premium', reliable: true },
+  'gemini':      { strengths: ['research', 'multimodal', 'content', 'analysis', 'search'], weaknesses: [], tier: 'free', reliable: true },
+  'copilot':     { strengths: ['github', 'code-completion', 'pr-reviews', 'scaffolding'], weaknesses: ['architecture'], tier: 'freemium', reliable: true },
+  'kiro':        { strengths: ['aws', 'cloud', 'serverless', 'devops'], weaknesses: ['general-code', 'non-aws'], tier: 'premium', reliable: false },
+  'ollama':      { strengths: ['privacy', 'offline', 'local'], weaknesses: ['complex-reasoning', 'large-context'], tier: 'free', reliable: true },
 };
 
 // Category → preferred specialist id
@@ -230,10 +244,45 @@ const CATEGORY_PREFERRED_SPECIALIST = {
 };
 
 /**
+ * Pick the first available agent from a preference list.
+ * @param {string[]} preferenceList - ordered agent ids
+ * @param {Set<string>} availSet - available agent ids (empty = all available)
+ * @returns {string|null}
+ */
+function pickFirstAvailable(preferenceList, availSet) {
+  if (availSet.size === 0) return preferenceList[0] || null;
+  for (const id of preferenceList) {
+    if (availSet.has(id)) return id;
+  }
+  return null;
+}
+
+/**
+ * Check if an agent should be deprioritized (e.g., Kiro for non-AWS tasks).
+ * @param {string} agentId
+ * @param {string} category
+ * @param {string} prompt
+ * @returns {boolean}
+ */
+function shouldDeprioritize(agentId, category, prompt) {
+  const caps = AGENT_CAPABILITIES[agentId];
+  if (!caps) return false;
+  // Kiro is unreliable for non-AWS tasks — deprioritize unless prompt is AWS-related
+  if (agentId === 'kiro' && !caps.reliable) {
+    const awsKeywords = AGENT_ROUTING_KEYWORDS['kiro'] || [];
+    const lower = prompt.toLowerCase();
+    const hasAwsKeyword = awsKeywords.some(kw => lower.includes(kw));
+    if (!hasAwsKeyword) return true;
+  }
+  return false;
+}
+
+/**
  * Pure JS keyword-based agent selection — no API needed.
+ * Handles edge cases where users only have access to certain agents.
  * @param {string} prompt
  * @param {string[] | Record<string,boolean>} availableAgents - agent ids that are installed/available
- * @returns {{ cliAgent: string, specialist: string }}
+ * @returns {{ cliAgent: string, specialist: string, fallbackReason?: string }}
  */
 export function selectAgentLocally(prompt, availableAgents) {
   const { category } = detectIntent(prompt);
@@ -242,8 +291,10 @@ export function selectAgentLocally(prompt, availableAgents) {
   const availSet = resolveAvailableSet(availableAgents);
 
   // Score all CLI agents — multiply keyword score by learned weight boost
+  // Filter out agents that should be deprioritized
   const agentScores = CLI_AGENTS
     .filter(a => availSet.size === 0 || availSet.has(a.id))
+    .filter(a => !shouldDeprioritize(a.id, category, prompt))
     .map(a => ({
       id: a.id,
       score: scoreAgentForPrompt(prompt, a.id) * (1 + getLearnedWeight(a.id, category)),
@@ -251,17 +302,30 @@ export function selectAgentLocally(prompt, availableAgents) {
     .sort((a, b) => b.score - a.score);
 
   let cliAgent;
+  let fallbackReason = null;
+
   if (agentScores.length === 0) {
-    // Nothing explicitly available — pick preferred by category
-    cliAgent = CATEGORY_PREFERRED_AGENT[category] || 'claude-code';
+    // No agents available after filtering — try without deprioritization
+    const anyAvailable = CLI_AGENTS.filter(a => availSet.size === 0 || availSet.has(a.id));
+    if (anyAvailable.length > 0) {
+      cliAgent = anyAvailable[0].id;
+      fallbackReason = `Only ${anyAvailable[0].name} available`;
+    } else {
+      // Truly nothing — pick from category preference list
+      cliAgent = pickFirstAvailable(
+        CATEGORY_PREFERRED_AGENTS[category] || DEFAULT_AGENT_ORDER,
+        availSet
+      ) || 'gemini'; // gemini is free, most accessible fallback
+      fallbackReason = 'No agents detected — defaulting to Gemini (free)';
+    }
   } else if (agentScores[0].score > 0) {
     cliAgent = agentScores[0].id;
   } else {
-    // No keyword match — use category preference if available, else first available
-    const preferred = CATEGORY_PREFERRED_AGENT[category];
-    cliAgent = (preferred && (availSet.size === 0 || availSet.has(preferred)))
-      ? preferred
-      : agentScores[0]?.id || 'claude-code';
+    // No keyword match — use category preference list, respecting availability
+    cliAgent = pickFirstAvailable(
+      CATEGORY_PREFERRED_AGENTS[category] || DEFAULT_AGENT_ORDER,
+      availSet
+    ) || agentScores[0]?.id || 'gemini';
   }
 
   // Score all non-auto specialists
@@ -277,7 +341,9 @@ export function selectAgentLocally(prompt, availableAgents) {
     specialist = specialistScores[0].id;
   }
 
-  return { cliAgent, specialist };
+  const result = { cliAgent, specialist };
+  if (fallbackReason) result.fallbackReason = fallbackReason;
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -412,9 +478,35 @@ export async function getAutoSelection(prompt, availableAgents, useOllama) {
     }
   }
 
-  // 3. Local keyword matching
+  // 3. Local keyword matching (includes fallback logic for limited agents)
   const result = selectAgentLocally(prompt, availableAgents);
   return { ...result, method: 'local' };
+}
+
+/**
+ * Get a human-readable summary of available agents for display.
+ * @param {Record<string,boolean>} availability
+ * @returns {{ available: string[], missing: string[], suggestion: string }}
+ */
+export function getAgentSummary(availability) {
+  const available = [];
+  const missing = [];
+  for (const agent of CLI_AGENTS) {
+    if (availability[agent.id]) {
+      available.push(agent.name);
+    } else {
+      missing.push(agent.name);
+    }
+  }
+
+  let suggestion = '';
+  if (available.length === 0) {
+    suggestion = 'No agents detected. Install Gemini CLI (free) with: npm install -g @anthropic-ai/gemini-cli';
+  } else if (available.length === 1) {
+    suggestion = `Only ${available[0]} is available. Install more agents for smarter routing.`;
+  }
+
+  return { available, missing, suggestion };
 }
 
 // ---------------------------------------------------------------------------
