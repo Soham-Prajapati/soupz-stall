@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import {
   Files, GitBranch, Settings, ChevronLeft, ChevronRight,
-  Play, Loader2, PanelRightClose, PanelRightOpen, X,
+  Play, Loader2, PanelRightClose, PanelRightOpen, X, Package,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import FileTree from '../filetree/FileTree';
@@ -10,6 +10,7 @@ import GitPanel from '../git/GitPanel';
 import SimpleMode from '../simple/SimpleMode';
 import StatsPanel from '../shared/StatsPanel';
 import MCPPanel from '../shared/MCPPanel';
+import ExtensionsMarketplace from '../shared/ExtensionsMarketplace';
 
 const SIDEBAR_KEY = 'soupz_sidebar_open';
 const CHAT_KEY    = 'soupz_chat_open';
@@ -134,9 +135,10 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
       {/* Activity bar */}
       <div className="w-12 bg-bg-surface border-r border-border-subtle flex flex-col items-center py-2 gap-1 shrink-0 z-10">
         {[
-          { id: 'files', Icon: Files, title: 'Explorer' },
-          { id: 'git',   Icon: GitBranch, title: 'Source Control' },
-          { id: 'settings', Icon: Settings, title: 'Settings' },
+          { id: 'files',      Icon: Files,     title: 'Explorer' },
+          { id: 'git',        Icon: GitBranch, title: 'Source Control' },
+          { id: 'extensions', Icon: Package,   title: 'Extensions' },
+          { id: 'settings',   Icon: Settings,  title: 'Settings' },
         ].map(({ id, Icon, title }) => (
           <button
             key={id}
@@ -166,7 +168,7 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
         <div className="w-60 bg-bg-surface border-r border-border-subtle flex flex-col shrink-0 overflow-hidden">
           <div className="px-3 py-2 border-b border-border-subtle shrink-0">
             <span className="text-text-faint text-[11px] font-ui uppercase tracking-wider font-medium">
-              {activeActivity === 'files' ? 'Explorer' : activeActivity === 'git' ? 'Source Control' : 'Settings'}
+              {activeActivity === 'files' ? 'Explorer' : activeActivity === 'git' ? 'Source Control' : activeActivity === 'extensions' ? 'Extensions' : 'Settings'}
             </span>
           </div>
           <div className="flex-1 overflow-hidden min-h-0">
@@ -180,6 +182,9 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
             )}
             {activeActivity === 'git' && (
               <GitPanel daemon={daemon} />
+            )}
+            {activeActivity === 'extensions' && (
+              <ExtensionsMarketplace />
             )}
             {activeActivity === 'settings' && (
               <div className="flex-1 overflow-y-auto min-h-0">
