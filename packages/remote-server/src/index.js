@@ -517,6 +517,7 @@ app.post('/api/orders', requireAuth, (req, res) => {
     const requestedAgent = (req.body?.agent || 'auto').toString().trim() || 'auto';
     const agent = WEB_AGENT_ALIASES.get(requestedAgent) || requestedAgent;
     const modelPolicy = (req.body?.modelPolicy || 'balanced').toString().trim() || 'balanced';
+    const mcpServers = Array.isArray(req.body?.mcpServers) ? req.body.mcpServers : [];
     const fallbackWebAgent = (process.env.SOUPZ_WEB_AGENT || 'copilot').trim();
     const runAgent = agent === 'auto' ? fallbackWebAgent : agent;
 
@@ -554,9 +555,14 @@ app.post('/api/orders', requireAuth, (req, res) => {
     // Web dashboard path is intentionally single-agent to avoid accidental fan-out.
     args.push('ask', runAgent, prompt);
 
+    const spawnEnv = { ...process.env };
+    if (mcpServers.length > 0) {
+        spawnEnv.SOUPZ_MCP_SERVERS = JSON.stringify(mcpServers);
+    }
+
     const child = spawn(process.execPath, args, {
         cwd: REPO_ROOT,
-        env: process.env,
+        env: spawnEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
     });
 

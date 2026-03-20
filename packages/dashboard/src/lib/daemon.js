@@ -123,7 +123,14 @@ export async function sendAgentPrompt(prompt, agentId, mode, userId, onChunk) {
           'Content-Type': 'application/json',
           'X-Soupz-Token': token,
         },
-        body: JSON.stringify({ prompt, agent: agentId, modelPolicy: mode || 'balanced' }),
+        body: JSON.stringify((() => {
+          const mcpServers = (() => {
+            try { return JSON.parse(localStorage.getItem('soupz_mcp_servers') || '[]'); } catch { return []; }
+          })();
+          const payload = { prompt, agent: agentId, modelPolicy: mode || 'balanced' };
+          if (mcpServers.length > 0) payload.mcpServers = mcpServers;
+          return payload;
+        })()),
       });
       const { order } = await res.json();
 

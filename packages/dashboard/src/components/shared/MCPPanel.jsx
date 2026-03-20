@@ -75,6 +75,12 @@ export default function MCPPanel() {
             Connect MCP (Model Context Protocol) servers to give agents access to tools, databases, and APIs.
           </p>
 
+          {servers.length > 0 && (
+            <p className="text-[11px] text-success/70 font-ui bg-success/5 border border-success/10 rounded-md px-2.5 py-1.5">
+              {servers.length} server{servers.length > 1 ? 's' : ''} active — sent with each AI request
+            </p>
+          )}
+
           {/* Empty state */}
           {servers.length === 0 && !adding && (
             <div className="border border-dashed border-border-mid rounded-lg py-4 flex flex-col items-center gap-2 text-center">
@@ -92,7 +98,7 @@ export default function MCPPanel() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-ui font-medium text-text-pri">{s.name}</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-text-faint animate-pulse shrink-0" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse shrink-0" />
                 </div>
                 <p className="text-[10px] font-mono text-text-faint truncate">{s.url}</p>
                 {s.description && (
