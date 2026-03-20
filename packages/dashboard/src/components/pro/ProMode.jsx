@@ -25,13 +25,13 @@ function getLang(filename) {
 }
 
 export default function ProMode({ daemon, fileTree, changedPaths }) {
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
 
   const [sidebarOpen, setSidebarOpen] = useState(() =>
-    !isMobile && (localStorage.getItem(SIDEBAR_KEY) !== 'false')
+    !(typeof window !== 'undefined' && window.innerWidth < 768) && (localStorage.getItem(SIDEBAR_KEY) !== 'false')
   );
   const [chatOpen, setChatOpen] = useState(() =>
-    !isMobile && (localStorage.getItem(CHAT_KEY) !== 'false')
+    !(typeof window !== 'undefined' && window.innerWidth < 768) && (localStorage.getItem(CHAT_KEY) !== 'false')
   );
   const [activeActivity, setActiveActivity] = useState('files'); // files | git | settings
   const [openFiles, setOpenFiles] = useState(() => {
@@ -50,16 +50,18 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
     localStorage.setItem(OPEN_FILES_KEY, JSON.stringify(openFiles.slice(0, 20)));
   }, [openFiles]);
 
-  // Responsive: on mobile, close sidebar and chat
+  // Responsive: update isMobile and close panels on mobile
   useEffect(() => {
-    function onResize() {
-      if (window.innerWidth < 768) {
+    function handleResize() {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) {
         setSidebarOpen(false);
         setChatOpen(false);
       }
     }
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   async function openFile(node) {
@@ -91,10 +93,14 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
     setFileContents(prev => ({ ...prev, [activeFile.path]: value }));
   }
 
-  function handleEditorMount(editor) {
+  function handleEditorMount(editor, monaco) {
     editorRef.current = editor;
     editor.onDidChangeCursorPosition(e => {
       setCursorPos({ line: e.position.lineNumber, col: e.position.column });
+    });
+    // Cmd/Ctrl+S to save
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      saveFile();
     });
   }
 
@@ -174,7 +180,40 @@ export default function ProMode({ daemon, fileTree, changedPaths }) {
               <GitPanel daemon={daemon} />
             )}
             {activeActivity === 'settings' && (
-              <div className="p-4 text-text-faint text-xs font-ui">Settings coming soon</div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <p className="text-[11px] text-text-faint font-ui uppercase tracking-wider font-medium mb-2">Editor</p>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" className="accent-[var(--accent)]" defaultChecked />
+                      <span className="text-xs text-text-sec font-ui">Font ligatures</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" className="accent-[var(--accent)]" defaultChecked />
+                      <span className="text-xs text-text-sec font-ui">Smooth scrolling</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" className="accent-[var(--accent)]" />
+                      <span className="text-xs text-text-sec font-ui">Word wrap</span>
+                    </label>
+                  </div>
+                </div>
+                <div className="border-t border-border-subtle pt-3">
+                  <p className="text-[11px] text-text-faint font-ui uppercase tracking-wider font-medium mb-2">Keyboard</p>
+                  <div className="space-y-1">
+                    {[
+                      ['Send message', 'Enter'],
+                      ['New line', 'Shift+Enter'],
+                      ['Save file', '⌘S'],
+                    ].map(([action, key]) => (
+                      <div key={action} className="flex items-center justify-between">
+                        <span className="text-xs text-text-sec font-ui">{action}</span>
+                        <code className="text-[10px] font-mono text-text-faint bg-bg-elevated px-1.5 py-0.5 rounded border border-border-subtle">{key}</code>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </div>

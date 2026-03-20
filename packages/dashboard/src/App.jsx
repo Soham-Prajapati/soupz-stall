@@ -51,6 +51,16 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
 
+  useEffect(() => {
+    function handleKey(e) {
+      // Cmd+1: Chat mode, Cmd+2: IDE mode
+      if ((e.metaKey || e.ctrlKey) && e.key === '1') { e.preventDefault(); setMode('simple'); }
+      if ((e.metaKey || e.ctrlKey) && e.key === '2') { e.preventDefault(); setMode('pro'); }
+    }
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, []);
+
   function changeTheme(t) {
     setTheme(t);
     localStorage.setItem(THEME_KEY, t);
@@ -236,7 +246,7 @@ export default function App() {
 
       {/* Main */}
       <div className="flex-1 overflow-hidden min-h-0">
-        {!workspaceOnline && (
+        {!workspaceOnline && !!localStorage.getItem('soupz_daemon_token') && (
           <WorkspaceOfflineBanner navigate={navigate} />
         )}
         {mode === 'simple' ? (
