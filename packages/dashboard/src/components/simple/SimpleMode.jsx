@@ -200,23 +200,45 @@ export default function SimpleMode({ daemon }) {
   function startVoice() {
     const SpeechRecog = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecog) return;
-    const r = new SpeechRecog();
-    r.continuous = false;
-    r.interimResults = false;
-    r.onresult = e => {
-      setInput(e.results[0][0].transcript);
+
+    // If already listening, stop
+    if (listening) {
+      recogRef.current?.stop();
       setListening(false);
+      return;
+    }
+
+    const r = new SpeechRecog();
+    r.continuous = true;        // Keep listening until stopped
+    r.interimResults = true;    // Show partial results as user speaks
+    r.lang = 'en-US';
+
+    let finalTranscript = '';
+
+    r.onresult = e => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) {
+          finalTranscript += t + ' ';
+        } else {
+          interim = t;
+        }
+      }
+      // Show the accumulated final + current interim in the textarea
+      setInput((finalTranscript + interim).trim());
     };
+
     r.onerror = () => setListening(false);
-    r.onend = () => setListening(false);
+    r.onend = () => {
+      setListening(false);
+      // Trim final result
+      setInput(prev => prev.trim());
+    };
+
     recogRef.current = r;
     r.start();
     setListening(true);
-  }
-
-  function stopVoice() {
-    recogRef.current?.stop();
-    setListening(false);
   }
 
   function copyMessage(content, id) {
@@ -406,7 +428,14 @@ export default function SimpleMode({ daemon }) {
                 e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
               }}
               onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (listening) {
+                    recogRef.current?.stop();
+                    setListening(false);
+                  }
+                  sendMessage();
+                }
               }}
               placeholder="Ask anything, build something…"
               rows={1}
@@ -418,19 +447,19 @@ export default function SimpleMode({ daemon }) {
           {/* Voice button */}
           {(window.SpeechRecognition || window.webkitSpeechRecognition) && (
             <button
-              onMouseDown={startVoice}
-              onMouseUp={stopVoice}
-              onTouchStart={startVoice}
-              onTouchEnd={stopVoice}
+              onClick={startVoice}
               className={cn(
-                'flex-shrink-0 p-2.5 rounded-lg border transition-all',
+                'flex-shrink-0 p-2.5 rounded-lg border transition-all relative',
                 listening
-                  ? 'bg-danger/10 border-danger text-danger'
+                  ? 'bg-danger/10 border-danger text-danger animate-pulse'
                   : 'bg-bg-elevated border-border-subtle text-text-faint hover:text-text-sec hover:border-border-mid',
               )}
-              title="Hold to speak"
+              title={listening ? 'Tap to stop listening' : 'Tap to speak'}
             >
               {listening ? <MicOff size={16} /> : <Mic size={16} />}
+              {listening && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-danger animate-ping" />
+              )}
             </button>
           )}
 
@@ -449,7 +478,7 @@ export default function SimpleMode({ daemon }) {
           </button>
         </div>
         <p className="text-text-faint text-[11px] font-ui mt-1.5 ml-1">
-          Enter to send · Shift+Enter for newline{(window.SpeechRecognition || window.webkitSpeechRecognition) ? ' · Hold mic to speak' : ''}
+          Enter to send · Shift+Enter for newline{(window.SpeechRecognition || window.webkitSpeechRecognition) ? ' · Tap mic to speak' : ''}
           {' · Tap speaker for neural TTS (on-device)'}
         </p>
       </div>
