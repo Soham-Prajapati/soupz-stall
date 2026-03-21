@@ -46,6 +46,7 @@ export const SPECIALISTS = [
   { id: 'legal',           name: 'Legal',         icon: Scale,         color: '#64748B', desc: 'Contracts, compliance, ToS',       category: 'business' },
   { id: 'cost-optimizer',  name: 'Cost Optimizer',icon: TrendingUp,    color: '#F97316', desc: 'Reduce cloud + AI spend',          category: 'business' },
   { id: 'orchestrator',    name: 'Orchestrator',  icon: Wrench,        color: '#8B5CF6', desc: 'Multi-agent workflows',            category: 'all'      },
+  { id: 'admin',           name: 'Admin',         icon: Shield,        color: '#EF4444', desc: 'System management & analytics',    category: 'all'      },
 ];
 
 export const SPECIALIST_CATEGORIES = [

@@ -13,6 +13,7 @@ const ConnectPage = lazy(() => import('./components/connect/ConnectPage'));
 const ProMode = lazy(() => import('./components/pro/ProMode'));
 const LandingPage = lazy(() => import('./components/landing/LandingPage'));
 const ProfilePage = lazy(() => import('./components/profile/ProfilePage'));
+const AdminPage = lazy(() => import('./components/admin/AdminPage'));
 const CommandPalette = lazy(() => import('./components/shared/CommandPalette'));
 const FolderPicker = lazy(() => import('./components/shared/FolderPicker'));
 const SetupWizard = lazy(() => import('./components/shared/SetupWizard'));
@@ -252,6 +253,18 @@ export default function App() {
     );
   }
 
+  // /admin route — admin command center
+  if (path === '/admin') {
+    return (
+      <Suspense fallback={routeLoader}>
+        <AdminPage
+          user={user}
+          navigate={navigate}
+        />
+      </Suspense>
+    );
+  }
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-bg-base flex items-center justify-center">
@@ -342,6 +355,17 @@ export default function App() {
         {/* Workspace status */}
         <WorkspaceStatus online={workspaceOnline} machine={workspaceMachine} navigate={navigate} />
 
+        {/* Admin Link (Authorized only) */}
+        {(user?.id === 'local' || user?.email === 'krishramadeveloper@gmail.com' || user?.id === '0b3ttz_vvj2xg9yrm_k0t8j70r0000gn') && (
+          <button
+            onClick={() => navigate('/admin')}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-text-faint hover:text-accent hover:bg-accent/5 transition-all"
+            title="Admin Command Center"
+          >
+            <Shield size={13} />
+          </button>
+        )}
+
         {/* User identity — click to open profile */}
         {user?.id && user.id !== 'local' && (
           <button
@@ -376,18 +400,20 @@ export default function App() {
       </nav>
 
       {/* Main */}
-      <div className="flex-1 overflow-hidden min-h-0">
+      <main className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
         {!workspaceOnline && !!localStorage.getItem('soupz_daemon_token') && (
           <WorkspaceOfflineBanner navigate={navigate} />
         )}
-        {mode === 'simple' ? (
-          <SimpleMode daemon={workspace} />
-        ) : (
-          <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
-            <ProMode daemon={workspace} fileTree={fileTree} changedPaths={changedFiles} onEditorStateChange={setEditorState} />
-          </Suspense>
-        )}
-      </div>
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          {mode === 'simple' ? (
+            <SimpleMode daemon={workspace} />
+          ) : (
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
+              <ProMode daemon={workspace} fileTree={fileTree} changedPaths={changedFiles} onEditorStateChange={setEditorState} />
+            </Suspense>
+          )}
+        </div>
+      </main>
 
       {/* Command Palette */}
       {cmdPaletteOpen && (

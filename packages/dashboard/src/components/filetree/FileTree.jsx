@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Folder, FolderOpen, ChevronRight, ChevronDown,
   FileCode2, FileText, FileJson, Globe, Palette,
   Lock, GitBranch, Image, File, Search, FolderOpen as FolderOpenIcon,
+  FilePlus, FolderPlus, RotateCcw, MinusSquare
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 
@@ -25,39 +26,66 @@ function getFileIcon(name) {
   return EXT_ICONS[ext] || File;
 }
 
-function TreeNode({ node, depth = 0, changedPaths = new Set(), onSelect, selectedPath }) {
-  const [open, setOpen] = useState(depth < 2);
+function getGitStatus(path, changedPaths) {
+  // changedPaths is an array of relative paths from git status --porcelain
+  // Examples: 'M src/App.jsx', '?? newfile.js'
+  const entry = changedPaths.find(p => p.slice(3) === path || p === path);
+  if (!entry) return null;
+  if (entry.startsWith('M')) return { label: 'M', color: 'text-warning', bg: 'bg-warning/20' };
+  if (entry.startsWith('??')) return { label: 'U', color: 'text-success', bg: 'bg-success/20' };
+  if (entry.startsWith('A')) return { label: 'A', color: 'text-success', bg: 'bg-success/20' };
+  return { label: 'M', color: 'text-warning', bg: 'bg-warning/20' };
+}
+
+function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, collapsedAll }) {
+  // Start collapsed by default (open: false)
+  const [open, setOpen] = useState(false);
+  
+  useMemo(() => {
+    if (collapsedAll) setOpen(false);
+  }, [collapsedAll]);
+
   const isDir = !!node.children;
   const Icon = isDir ? (open ? FolderOpen : Folder) : getFileIcon(node.name);
-  const isChanged = changedPaths.has(node.path);
+  const gitStatus = !isDir ? getGitStatus(node.path, changedPaths) : null;
   const isSelected = selectedPath === node.path;
+
+  // For folders, check if any child has changes to show a dot
+  const hasChildChanges = isDir && changedPaths.some(p => p.includes(node.path));
 
   return (
     <div>
       <div
         onClick={() => isDir ? setOpen(v => !v) : onSelect?.(node)}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        style={{ paddingLeft: `${depth * 12 + 12}px` }}
         className={cn(
-          'flex items-center gap-1.5 py-1 pr-2 rounded-sm cursor-pointer group select-none',
+          'flex items-center gap-1.5 py-1 pr-2 cursor-pointer group select-none border-l-2 transition-all relative',
           isSelected
-            ? 'bg-accent/15 text-text-pri'
-            : 'text-text-sec hover:bg-bg-elevated hover:text-text-pri',
+            ? 'bg-accent/10 text-accent border-accent font-medium'
+            : cn('text-text-sec border-transparent hover:bg-bg-elevated hover:text-text-pri', gitStatus?.color)
         )}
       >
-        {isDir && (
-          <span className="text-text-faint w-3 shrink-0">
-            {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        <div className="w-4 flex items-center justify-center shrink-0">
+          {isDir && (
+            <span className="text-text-faint group-hover:text-text-sec">
+              {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </span>
+          )}
+        </div>
+        <Icon size={14} className={cn('shrink-0', isDir ? 'text-warning/80' : (isSelected ? 'text-accent' : ''))} />
+        <span className="text-[13px] font-ui truncate flex-1">{node.name}</span>
+        
+        {gitStatus && (
+          <span className={cn("text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-sm shrink-0", gitStatus.color)}>
+            {gitStatus.label}
           </span>
         )}
-        {!isDir && <span className="w-3 shrink-0" />}
-        <Icon size={13} className={cn('shrink-0', isDir ? 'text-warning' : 'text-text-sec')} />
-        <span className="text-xs font-ui truncate flex-1">{node.name}</span>
-        {isChanged && (
-          <span className="w-1.5 h-1.5 rounded-full bg-warning shrink-0" title="Modified" />
+        {hasChildChanges && !open && (
+          <div className="w-1.5 h-1.5 rounded-full bg-warning shrink-0 absolute right-2" />
         )}
       </div>
       {isDir && open && node.children && (
-        <div>
+        <div className="animate-fade-up">
           {node.children.map(child => (
             <TreeNode
               key={child.path}
@@ -66,6 +94,7 @@ function TreeNode({ node, depth = 0, changedPaths = new Set(), onSelect, selecte
               changedPaths={changedPaths}
               onSelect={onSelect}
               selectedPath={selectedPath}
+              collapsedAll={collapsedAll}
             />
           ))}
         </div>
@@ -74,9 +103,9 @@ function TreeNode({ node, depth = 0, changedPaths = new Set(), onSelect, selecte
   );
 }
 
-export default function FileTree({ tree, changedPaths = [], onSelect, selectedPath }) {
+export default function FileTree({ tree, changedPaths = [], onSelect, selectedPath, rootName = 'PROJECT' }) {
   const [search, setSearch] = useState('');
-  const changedSet = new Set(changedPaths);
+  const [collapsedAll, setCollapsedAll] = useState(0);
 
   function filterTree(nodes, q) {
     if (!q) return nodes;
@@ -95,6 +124,28 @@ export default function FileTree({ tree, changedPaths = [], onSelect, selectedPa
 
   return (
     <div className="flex flex-col h-full bg-bg-surface">
+      {/* VS Code Style Header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-subtle group/header">
+        <span className="text-[11px] font-ui font-bold text-text-pri uppercase tracking-widest truncate">
+          {rootName}
+        </span>
+        <div className="flex items-center gap-1 opacity-0 group-hover/header:opacity-100 transition-opacity">
+          <button className="p-1 hover:bg-bg-elevated rounded text-text-faint hover:text-text-pri transition-colors" title="New File">
+            <FilePlus size={13} />
+          </button>
+          <button className="p-1 hover:bg-bg-elevated rounded text-text-faint hover:text-text-pri transition-colors" title="New Folder">
+            <FolderPlus size={13} />
+          </button>
+          <button 
+            onClick={() => setCollapsedAll(v => v + 1)}
+            className="p-1 hover:bg-bg-elevated rounded text-text-faint hover:text-text-pri transition-colors" 
+            title="Collapse All"
+          >
+            <MinusSquare size={13} />
+          </button>
+        </div>
+      </div>
+
       {/* Search */}
       <div className="px-3 py-2 border-b border-border-subtle shrink-0">
         <div className="relative">
@@ -103,18 +154,18 @@ export default function FileTree({ tree, changedPaths = [], onSelect, selectedPa
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search files…"
-            className="w-full pl-7 pr-3 py-1.5 bg-bg-elevated border border-border-subtle rounded text-xs font-ui text-text-pri placeholder:text-text-faint focus:outline-none focus:border-accent transition-colors"
+            className="w-full pl-7 pr-3 py-1 bg-bg-base border border-border-subtle rounded text-[13px] font-ui text-text-pri placeholder:text-text-faint focus:outline-none focus:border-accent transition-colors"
           />
         </div>
       </div>
 
       {/* Tree */}
-      <div className="flex-1 overflow-y-auto py-1.5 min-h-0">
+      <div className="flex-1 overflow-y-auto min-h-0 py-1">
         {!tree || !displayTree?.length ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-text-faint px-4">
-            <FolderOpenIcon size={28} className="opacity-40" />
-            <p className="text-xs font-ui text-center">
-              {search ? 'No files match your search' : 'Open a folder to browse files'}
+            <FolderOpenIcon size={28} className="opacity-20" />
+            <p className="text-[13px] font-ui text-center opacity-60">
+              {search ? 'No files match' : 'Empty workspace'}
             </p>
           </div>
         ) : (
@@ -125,6 +176,7 @@ export default function FileTree({ tree, changedPaths = [], onSelect, selectedPa
               changedPaths={changedSet}
               onSelect={onSelect}
               selectedPath={selectedPath}
+              collapsedAll={collapsedAll}
             />
           ))
         )}

@@ -3,7 +3,7 @@ import {
   Send, Mic, MicOff, ChevronDown, Check, X, Paperclip,
   Cpu, Palette, Code2, Search, TrendingUp, Server, DollarSign, Bot,
   Zap, BrainCircuit, Sparkles, Github, RotateCcw, Copy, CheckCheck,
-  Square, Volume2, VolumeX, Loader2,
+  Square, Volume2, VolumeX, Loader2, User,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS, SPECIALISTS, BUILD_MODES, getAgentById } from '../../lib/agents';
@@ -645,86 +645,65 @@ function Message({ msg, onCopy, copied, onSpeak, speaking, modelLoading, loadPro
   const isUser = msg.role === 'user';
   const Icon = getIcon(msg.agentId || 'auto');
 
-  if (isUser) return (
-    <div className="flex justify-end">
-      <div className="max-w-[85%] sm:max-w-[70%] bg-accent/15 border border-accent/20 rounded-xl rounded-tr-sm px-3.5 py-2.5 text-text-pri text-sm font-ui leading-relaxed whitespace-pre-wrap">
-        {msg.content}
-      </div>
-    </div>
-  );
-
-  // Detect [SOUPZ_Q]...[/SOUPZ_Q] in finished AI messages
-  const parsed = !msg.streaming ? parseSoupzQ(msg.content) : null;
-
   return (
-    <div className="flex items-start gap-2.5">
-      <div className="w-6 h-6 rounded-md bg-bg-elevated border border-border-subtle flex items-center justify-center shrink-0 mt-0.5">
-        <Icon size={12} className="text-text-sec" />
-      </div>
-      <div className="flex-1 min-w-0">
-        {/* Agent header — show auto-routing label when applicable */}
-        {(autoLabel || msg.autoLabel) && (
-          <div className="mb-1 flex items-center gap-1">
-            <span className="text-[10px] font-ui text-text-faint px-1.5 py-0.5 bg-bg-elevated border border-border-subtle rounded">
-              {autoLabel || msg.autoLabel}
+    <div className={cn(
+      'group px-4 py-6 border-b border-border-subtle/50 transition-colors hover:bg-bg-surface/30',
+      isUser ? 'bg-bg-base' : 'bg-bg-surface/50'
+    )}>
+      <div className="max-w-3xl mx-auto flex gap-4">
+        <div className={cn(
+          'w-7 h-7 rounded-md flex items-center justify-center shrink-0 border transition-all',
+          isUser 
+            ? 'bg-bg-elevated border-border-mid text-text-sec' 
+            : 'bg-accent/10 border-accent/20 text-accent group-hover:scale-105'
+        )}>
+          {isUser ? <User size={14} /> : <Icon size={14} />}
+        </div>
+        
+        <div className="flex-1 min-w-0 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-ui font-semibold uppercase tracking-wider text-text-faint">
+              {isUser ? 'You' : (msg.agentId || 'Soupz')}
             </span>
+            {(autoLabel || msg.autoLabel) && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-elevated border border-border-subtle text-text-sec font-mono">
+                {autoLabel || msg.autoLabel}
+              </span>
+            )}
           </div>
-        )}
-        <div className="bg-bg-surface border border-border-subtle rounded-xl rounded-tl-sm px-3.5 py-2.5 text-text-sec text-sm font-ui leading-relaxed">
-          {msg.streaming && !msg.content ? (
-            <div className="flex items-center gap-1 py-1">
-              {[0,1,2].map(i => <span key={i} className="thinking-dot" style={i ? { animationDelay: `${i * 0.2}s` } : {}} />)}
+
+          <div className="text-sm text-text-pri leading-relaxed font-ui whitespace-pre-wrap break-words">
+            {msg.streaming && !msg.content ? (
+              <div className="flex items-center gap-1 py-1">
+                {[0,1,2].map(i => <span key={i} className="thinking-dot" style={i ? { animationDelay: `${i * 0.2}s` } : {}} />)}
+              </div>
+            ) : (
+              <div>{renderMarkdown(msg.content)}</div>
+            )}
+          </div>
+
+          {!msg.streaming && msg.content && (
+            <div className="flex items-center gap-3 pt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={() => onCopy(msg.content, msg.id)}
+                className="text-text-faint hover:text-text-sec transition-colors"
+                title="Copy"
+              >
+                {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
+              </button>
+              <button
+                onClick={() => onSpeak(msg.content, msg.id)}
+                className={cn(
+                  'transition-colors',
+                  speaking ? 'text-accent' : 'text-text-faint hover:text-text-sec',
+                )}
+                title="Read aloud"
+              >
+                {speaking ? <VolumeX size={12} /> : <Volume2 size={12} />}
+              </button>
             </div>
-          ) : parsed ? (
-            <>
-              {parsed.before.trim() && (
-                <div className="mb-2">{renderMarkdown(parsed.before)}</div>
-              )}
-              <InteractiveQuestions
-                data={parsed.data}
-                onSubmit={(answers) => onQuestionSubmit?.(parsed.data.questions, answers)}
-              />
-              {parsed.after.trim() && (
-                <div className="mt-2">{renderMarkdown(parsed.after)}</div>
-              )}
-            </>
-          ) : (
-            <div>{renderMarkdown(msg.content)}</div>
           )}
         </div>
-        {!msg.streaming && msg.content && (
-          <div className="mt-1 ml-1 flex items-center gap-2">
-            <button
-              onClick={() => onCopy(msg.content, msg.id)}
-              className="text-text-faint hover:text-text-sec transition-colors"
-              title="Copy"
-            >
-              {copied ? <CheckCheck size={11} className="text-success" /> : <Copy size={11} />}
-            </button>
-            <button
-              onClick={() => onSpeak(msg.content, msg.id)}
-              className={cn(
-                'transition-colors',
-                speaking ? 'text-accent' : 'text-text-faint hover:text-text-sec',
-              )}
-              title={
-                speaking
-                  ? 'Stop reading'
-                  : modelLoading
-                  ? `Loading neural voice… ${loadProgress > 0 ? `${loadProgress}%` : ''}`
-                  : 'Read aloud (Neural TTS)'
-              }
-            >
-              {modelLoading ? (
-                <Loader2 size={11} className="animate-spin" />
-              ) : speaking ? (
-                <VolumeX size={11} />
-              ) : (
-                <Volume2 size={11} />
-              )}
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -1,5 +1,35 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import Editor from '@monaco-editor/react';
+import Editor, { loader } from '@monaco-editor/react';
+
+// Define theme once to avoid "t.create is not a function" re-declaration crash
+loader.init().then(monaco => {
+  monaco.editor.defineTheme('soupz-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [
+      { token: 'comment', foreground: '4A4A5A', fontStyle: 'italic' },
+      { token: 'keyword', foreground: '6366F1' },
+      { token: 'string', foreground: '22C55E' },
+      { token: 'number', foreground: 'F59E0B' },
+      { token: 'type', foreground: '06B6D4' },
+    ],
+    colors: {
+      'editor.background': '#0C0C0F',
+      'editor.foreground': '#F0F0F5',
+      'editorLineNumber.foreground': '#3A3A47',
+      'editorLineNumber.activeForeground': '#8B8B9A',
+      'editor.selectionBackground': '#6366F125',
+      'editor.lineHighlightBackground': '#111114',
+      'editorCursor.foreground': '#6366F1',
+      'editorIndentGuide.background': '#1E1E24',
+      'editor.inactiveSelectionBackground': '#6366F110',
+      'editorGutter.background': '#0C0C0F',
+      'scrollbarSlider.background': '#27272a',
+      'scrollbarSlider.hoverBackground': '#3f3f46',
+    },
+  });
+});
+
 import {
   Files, GitBranch, Settings, ChevronLeft, ChevronRight,
   Play, Loader2, PanelRightClose, PanelRightOpen, X, Package,
@@ -470,33 +500,6 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
               theme="soupz-dark"
               onChange={handleEditorChange}
               onMount={handleEditorMount}
-              beforeMount={monaco => {
-                monaco.editor.defineTheme('soupz-dark', {
-                  base: 'vs-dark',
-                  inherit: true,
-                  rules: [
-                    { token: 'comment', foreground: '4A4A5A', fontStyle: 'italic' },
-                    { token: 'keyword', foreground: '6366F1' },
-                    { token: 'string', foreground: '22C55E' },
-                    { token: 'number', foreground: 'F59E0B' },
-                    { token: 'type', foreground: '06B6D4' },
-                  ],
-                  colors: {
-                    'editor.background': '#0C0C0F',
-                    'editor.foreground': '#F0F0F5',
-                    'editorLineNumber.foreground': '#3A3A47',
-                    'editorLineNumber.activeForeground': '#8B8B9A',
-                    'editor.selectionBackground': '#6366F120',
-                    'editor.lineHighlightBackground': '#111114',
-                    'editorCursor.foreground': '#6366F1',
-                    'editorIndentGuide.background': '#1E1E24',
-                    'editor.inactiveSelectionBackground': '#6366F110',
-                    'editorGutter.background': '#0C0C0F',
-                    'scrollbarSlider.background': '#27272a',
-                    'scrollbarSlider.hoverBackground': '#3f3f46',
-                  },
-                });
-              }}
               options={{
                 fontSize: 13,
                 fontFamily: "'JetBrains Mono', 'Fira Code', monospace",

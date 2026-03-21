@@ -141,6 +141,46 @@ export default function StatsPanel() {
             ))}
           </div>
 
+          {/* Premium Usage Tracking */}
+          <div className="bg-bg-elevated border border-border-subtle rounded-xl p-3.5 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-ui font-bold text-text-pri">Copilot Pro Usage</span>
+              <Settings size={12} className="text-text-faint" />
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-text-sec">Inline Suggestions</span>
+                <span className="text-text-faint uppercase font-bold">Included</span>
+              </div>
+              <div className="h-0.5 bg-accent/20 rounded-full w-full" />
+              
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-text-sec">Chat messages</span>
+                <span className="text-text-faint uppercase font-bold">Included</span>
+              </div>
+              <div className="h-0.5 bg-accent/20 rounded-full w-full" />
+
+              <div className="space-y-1.5 pt-1">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-text-sec">Premium requests</span>
+                  <span className="text-text-pri font-mono font-bold">{Math.min((totalMsgs / 100) * 100, 100).toFixed(1)}%</span>
+                </div>
+                <div className="h-1.5 bg-bg-base rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-accent transition-all duration-1000" 
+                    style={{ width: `${Math.min((totalMsgs / 100) * 100, 100)}%` }} 
+                  />
+                </div>
+                <p className="text-[9px] text-text-faint leading-tight">Allowance resets {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toLocaleDateString()} at 12:00 AM.</p>
+              </div>
+            </div>
+
+            <button className="w-full py-2 bg-bg-base border border-border-subtle hover:bg-bg-surface rounded-lg text-[11px] font-ui font-semibold text-text-sec transition-all">
+              Manage paid premium requests
+            </button>
+          </div>
+
           {/* Daily activity chart */}
           {totalMsgs > 0 && (
             <div>

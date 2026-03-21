@@ -3,7 +3,7 @@ import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve, relative, extname } from 'path';
 import { createClient } from '@supabase/supabase-js';
 import os from 'os';
 
@@ -81,6 +81,17 @@ function createPairingCode() {
 
     // Register in Supabase for remote pairing if available
     if (supabase) {
+        // Cleanup expired codes in DB
+        supabase.from('soupz_pairing').delete().lt('expires_at', new Date().toISOString()).then(() => {});
+
+        // Register machine as online
+        supabase.from('soupz_machines').upsert({
+            id: os.hostname(),
+            name: os.hostname(),
+            last_seen: new Date().toISOString(),
+            status: 'online'
+        }).then(() => {});
+
         supabase
             .from('soupz_pairing')
             .upsert({
@@ -965,7 +976,6 @@ app.post('/terminal', requireAuth, (req, res) => {
 
 import { readdir, readFile, writeFile, stat, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
-import { resolve, relative, extname, join } from 'path';
 
 const IGNORED_DIRS = new Set(['.git', 'node_modules', '.next', 'dist', 'build', '__pycache__', '.DS_Store']);
 const MAX_FILE_SIZE = 1024 * 1024; // 1MB max for editor

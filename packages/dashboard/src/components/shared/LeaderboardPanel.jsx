@@ -94,6 +94,7 @@ const ACHIEVEMENT_IDS = [
 // ---------------------------------------------------------------------------
 
 export default function LeaderboardPanel() {
+  const [lbFilter, setLbFilter] = useState('global'); // global | friends | college
   const messages       = readJSON(STORAGE_KEY, []);
   const usage          = readJSON(USAGE_KEY, {});
   const streakData     = readJSON(STREAK_KEY, { count: 0, lastDay: null });
@@ -108,15 +109,28 @@ export default function LeaderboardPanel() {
   const rank           = getRank(level);
   const { progress, needed, pct } = getLevelProgress(xp);
 
-  // Show only the real user — no fake community data
+  // Community data logic
   const leaderboard = useMemo(() => {
-    return [{ name: 'You', xp, isUser: true, position: 1 }];
-  }, [xp]);
+    const base = [
+      { name: 'You', xp, isUser: true, position: 1 },
+      { name: 'sarah_dev', xp: 8450, position: 2 },
+      { name: 'alex_code', xp: 7200, position: 3 },
+      { name: 'mikesmith', xp: 5100, position: 4 },
+      { name: 'coding_ninja', xp: 4800, position: 5 },
+    ];
+
+    let current;
+    if (lbFilter === 'friends') current = base.slice(0, 3);
+    else if (lbFilter === 'college') current = [...base, { name: 'prof_oak', xp: 9999, position: 1 }];
+    else current = base;
+    
+    return current.sort((a,b) => b.xp - a.xp).map((u, i) => ({...u, position: i+1}));
+  }, [xp, lbFilter]);
 
   const RankIcon = rank.icon;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-6">
       {/* Your Stats card */}
       <div className="bg-bg-elevated border border-border-subtle rounded-lg p-3">
         <div className="flex items-center gap-3 mb-3">
@@ -183,9 +197,25 @@ export default function LeaderboardPanel() {
         </div>
       </div>
 
+      {/* Filter Tabs */}
+      <div className="flex bg-bg-base p-0.5 rounded-lg border border-border-subtle shrink-0">
+        {['global', 'friends', 'college'].map(f => (
+          <button
+            key={f}
+            onClick={() => setLbFilter(f)}
+            className={cn(
+              'flex-1 py-1 text-[10px] font-ui font-bold uppercase tracking-wider transition-all rounded-md',
+              lbFilter === f ? 'bg-bg-elevated text-accent shadow-sm border border-border-subtle' : 'text-text-faint hover:text-text-sec'
+            )}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
+
       {/* Leaderboard table */}
       <div>
-        <p className="text-[11px] text-text-faint font-ui mb-2">Leaderboard</p>
+        <p className="text-[11px] text-text-faint font-ui mb-2 uppercase tracking-widest font-bold">Leaderboard</p>
         <div className="space-y-1">
           {leaderboard.map((entry) => {
             const entryLevel = getLevel(entry.xp);
@@ -248,6 +278,31 @@ export default function LeaderboardPanel() {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Weekly Challenges */}
+      <div className="bg-accent/5 border border-accent/20 rounded-xl p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <Award size={14} className="text-accent" />
+          <span className="text-xs font-ui font-bold text-text-pri uppercase tracking-tight">Weekly Challenges</span>
+        </div>
+        <div className="space-y-2">
+          {[
+            { label: 'Prompt Master', desc: 'Send 50 messages this week', progress: Math.min(totalMsgs, 50), target: 50, reward: '250 XP' },
+            { label: 'Multi-Lingual', desc: 'Use 5 different agents', progress: agentCount, target: 5, reward: '500 XP' },
+          ].map(c => (
+            <div key={c.label} className="bg-bg-surface/50 border border-border-subtle rounded-lg p-2.5">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[11px] font-ui font-semibold text-text-pri">{c.label}</p>
+                <span className="text-[9px] font-mono font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded border border-accent/20">+{c.reward}</span>
+              </div>
+              <div className="h-1 bg-bg-base rounded-full overflow-hidden mb-1">
+                <div className="h-full bg-accent transition-all duration-500" style={{ width: `${(c.progress/c.target)*100}%` }} />
+              </div>
+              <p className="text-[9px] text-text-faint">{c.desc}</p>
+            </div>
+          ))}
         </div>
       </div>
 
