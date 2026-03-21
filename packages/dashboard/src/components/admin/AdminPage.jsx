@@ -4,7 +4,22 @@ import {
   Lock, AlertCircle, Globe, Terminal, Server, Database,
   Search, Filter, ChevronRight, User as UserIcon, TrendingUp, BarChart3
 } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, RadarChart, PolarGrid, PolarAngleAxis, Radar } from 'recharts';
+
+const HEALTH_DATA = [
+  { subject: 'Uptime', A: 99, fullMark: 100 },
+  { subject: 'Latency', A: 85, fullMark: 100 },
+  { subject: 'Throughput', A: 92, fullMark: 100 },
+  { subject: 'Security', A: 100, fullMark: 100 },
+  { subject: 'Memory', A: 78, fullMark: 100 },
+];
+
+const REGIONAL_DATA = [
+  { name: 'North America', value: 450, color: '#6366F1' },
+  { name: 'Europe', value: 320, color: '#8B5CF6' },
+  { name: 'Asia', value: 280, color: '#EC4899' },
+  { name: 'Others', value: 120, color: '#F59E0B' },
+];
 import { cn } from '../../lib/cn';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
@@ -38,7 +53,7 @@ export default function AdminPage({ user, navigate }) {
   });
 
   // Role-based access check (Your ID specifically)
-  const isAdmin = user?.id === 'local' || user?.email === 'krishramadeveloper@gmail.com' || user?.id === '0b3ttz_vvj2xg9yrm_k0t8j70r0000gn';
+  const isAdmin = user?.id === 'local' || user?.user_metadata?.user_name === 'Soham-Prajapati' || user?.user_metadata?.preferred_username === 'Soham-Prajapati';
 
   useEffect(() => {
     if (!isAdmin) {
@@ -231,6 +246,57 @@ export default function AdminPage({ user, navigate }) {
                       <Area type="monotone" dataKey="users" stroke="var(--accent)" fillOpacity={1} fill="url(#colorUsers)" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="bg-bg-surface border border-border-subtle rounded-2xl p-6 shadow-soft flex flex-col">
+                <h3 className="text-sm font-bold text-text-pri uppercase tracking-widest flex items-center gap-2 mb-6">
+                  <Activity size={16} className="text-success" />
+                  System Vitals
+                </h3>
+                <div className="flex-1">
+                  <ResponsiveContainer width="100%" height={180}>
+                    <RadarChart cx="50%" cy="50%" outerRadius="80%" data={HEALTH_DATA}>
+                      <PolarGrid stroke="var(--border-subtle)" />
+                      <PolarAngleAxis dataKey="subject" tick={{ fontSize: 8, fill: 'var(--text-faint)' }} />
+                      <Radar name="System" dataKey="A" stroke="var(--accent)" fill="var(--accent)" fillOpacity={0.5} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-6">
+              <div className="bg-bg-surface border border-border-subtle rounded-2xl p-6 shadow-soft flex flex-col">
+                <h3 className="text-sm font-bold text-text-pri uppercase tracking-widest flex items-center gap-2 mb-6">
+                  <Globe size={16} className="text-accent" />
+                  Regional Reach
+                </h3>
+                <div className="flex-1 flex items-center justify-center">
+                  <ResponsiveContainer width="100%" height={160}>
+                    <PieChart>
+                      <Pie
+                        data={REGIONAL_DATA}
+                        innerRadius={50}
+                        outerRadius={70}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {REGIONAL_DATA.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-4">
+                  {REGIONAL_DATA.map(item => (
+                    <div key={item.name} className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: item.color }} />
+                      <span className="text-[10px] font-bold text-text-faint uppercase">{item.name}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
 

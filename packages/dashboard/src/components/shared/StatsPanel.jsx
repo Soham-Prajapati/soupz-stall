@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   Trophy, Zap, TrendingUp, MessageSquare, Bot, Flame,
   Star, Check, Lock, ChevronDown, ChevronUp, Crown,
+  Activity, Loader2, Settings
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import LeaderboardPanel from './LeaderboardPanel';
@@ -69,7 +70,7 @@ function getDailyActivity(messages) {
   return Object.entries(counts).map(([day, count]) => ({ day, count }));
 }
 
-export default function StatsPanel() {
+export default function StatsPanel({ daemon }) {
   const [collapsed, setCollapsed] = useState(false);
   const [lbCollapsed, setLbCollapsed] = useState(false);
   const [highlightedAgent, setHighlightedAgent] = useState(null);
@@ -123,6 +124,24 @@ export default function StatsPanel() {
 
       {!collapsed && (
         <div className="px-4 pb-4 space-y-4">
+          {/* Active Fleet (Universal Parallelism) */}
+          {activeFleet.length > 0 && (
+            <div className="bg-accent/5 border border-accent/20 rounded-xl p-3 space-y-2 animate-pulse">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-accent uppercase tracking-widest">Active Fleet ({activeFleet.length})</span>
+                <Loader2 size={10} className="animate-spin text-accent" />
+              </div>
+              <div className="space-y-1.5">
+                {activeFleet.map((f, i) => (
+                  <div key={i} className="flex items-center justify-between bg-bg-surface/50 rounded-lg px-2 py-1.5 border border-border-subtle">
+                    <span className="text-[11px] font-mono text-text-pri uppercase">{f.agent}</span>
+                    <span className="text-[10px] text-text-faint italic truncate ml-4 max-w-[120px]">{f.prompt}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Quick-stats row */}
           <div className="grid grid-cols-3 gap-2">
             {[
@@ -142,42 +161,58 @@ export default function StatsPanel() {
           </div>
 
           {/* Premium Usage Tracking */}
-          <div className="bg-bg-elevated border border-border-subtle rounded-xl p-3.5 space-y-3">
+          <div className="bg-bg-elevated border border-border-subtle rounded-xl p-3.5 space-y-3 shadow-soft">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-ui font-bold text-text-pri">Copilot Pro Usage</span>
-              <Settings size={12} className="text-text-faint" />
+              <div className="flex items-center gap-2">
+                <Crown size={14} className="text-warning" />
+                <span className="text-xs font-ui font-bold text-text-pri">AI Usage & Allowance</span>
+              </div>
+              <Settings size={12} className="text-text-faint hover:text-text-sec cursor-pointer transition-colors" />
             </div>
             
-            <div className="space-y-2">
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="text-text-sec">Inline Suggestions</span>
-                <span className="text-text-faint uppercase font-bold">Included</span>
-              </div>
-              <div className="h-0.5 bg-accent/20 rounded-full w-full" />
-              
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="text-text-sec">Chat messages</span>
-                <span className="text-text-faint uppercase font-bold">Included</span>
-              </div>
-              <div className="h-0.5 bg-accent/20 rounded-full w-full" />
-
-              <div className="space-y-1.5 pt-1">
-                <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-text-sec">Premium requests</span>
-                  <span className="text-text-pri font-mono font-bold">{Math.min((totalMsgs / 100) * 100, 100).toFixed(1)}%</span>
+            <div className="space-y-3">
+              {/* Common Tiers */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center text-[10px] uppercase tracking-wider font-bold">
+                  <span className="text-text-sec">Gemini Free Tier</span>
+                  <span className="text-success">Active</span>
                 </div>
-                <div className="h-1.5 bg-bg-base rounded-full overflow-hidden">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-text-faint">Rate Limit</span>
+                  <span className="text-text-pri font-mono">15 RPM</span>
+                </div>
+              </div>
+
+              <div className="h-px bg-border-subtle w-full opacity-50" />
+
+              {/* Dynamic Usage */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-text-sec font-medium">Premium requests used</span>
+                  <span className="text-text-pri font-mono font-bold">
+                    {Math.min((totalMsgs / 100) * 100, 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-2 bg-bg-base rounded-full overflow-hidden border border-border-subtle/30">
                   <div 
-                    className="h-full bg-accent transition-all duration-1000" 
+                    className={cn(
+                      "h-full transition-all duration-1000 rounded-full shadow-[0_0_8px]",
+                      totalMsgs > 80 ? "bg-danger shadow-danger/40" : "bg-accent shadow-accent/40"
+                    )}
                     style={{ width: `${Math.min((totalMsgs / 100) * 100, 100)}%` }} 
                   />
                 </div>
-                <p className="text-[9px] text-text-faint leading-tight">Allowance resets {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toLocaleDateString()} at 12:00 AM.</p>
+                <div className="flex justify-between items-center">
+                  <p className="text-[9px] text-text-faint leading-tight">
+                    Resetting {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toLocaleDateString()}
+                  </p>
+                  <span className="text-[10px] font-mono text-text-sec">{totalMsgs}/100 total</span>
+                </div>
               </div>
             </div>
 
-            <button className="w-full py-2 bg-bg-base border border-border-subtle hover:bg-bg-surface rounded-lg text-[11px] font-ui font-semibold text-text-sec transition-all">
-              Manage paid premium requests
+            <button className="w-full py-2 bg-accent/10 border border-accent/20 hover:bg-accent/20 rounded-lg text-[11px] font-ui font-bold text-accent transition-all">
+              Upgrade to Pro Plan
             </button>
           </div>
 
@@ -227,6 +262,34 @@ export default function StatsPanel() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Ecosystem Insights (Personal Growth) */}
+          {agentCount > 0 && (
+            <div className="bg-bg-elevated/50 border border-border-subtle rounded-xl p-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <Activity size={12} className="text-accent" />
+                <span className="text-[10px] font-bold text-text-pri uppercase tracking-widest">Ecosystem Insights</span>
+              </div>
+              <div className="h-32 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={Object.entries(usage).map(([id, count]) => ({ id, count }))}>
+                    <XAxis 
+                      dataKey="id" 
+                      tick={{ fontSize: 8, fill: 'var(--text-faint)' }} 
+                      axisLine={false} 
+                      tickLine={false}
+                    />
+                    <Tooltip 
+                      contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-mid)', borderRadius: 8 }}
+                      itemStyle={{ fontSize: 10, color: 'var(--accent)' }}
+                    />
+                    <Bar dataKey="count" fill="var(--accent)" radius={[4, 4, 0, 0]} barSize={20} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="text-[9px] text-text-faint text-center italic">Agent diversity score: {Math.round((agentCount / 5) * 100)}%</p>
             </div>
           )}
 

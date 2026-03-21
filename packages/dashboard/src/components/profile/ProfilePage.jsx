@@ -141,7 +141,7 @@ export default function ProfilePage({ user, navigate, onSignOut }) {
   }
 
   return (
-    <div className="min-h-screen bg-bg-base">
+    <div className="min-h-screen bg-bg-base overflow-y-auto custom-scrollbar">
       <div className="max-w-2xl mx-auto px-4 py-8">
         {/* Back nav */}
         <button
@@ -370,7 +370,10 @@ export default function ProfilePage({ user, navigate, onSignOut }) {
                   <p className="text-[10px] text-text-faint">Sign out of your account</p>
                 </div>
                 <button
-                  onClick={onSignOut}
+                  onClick={async () => {
+                    await onSignOut();
+                    navigate('/');
+                  }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-ui font-medium bg-bg-elevated text-text-sec hover:text-text-pri border border-border-subtle hover:border-border-mid transition-all"
                 >
                   <LogOut size={12} />

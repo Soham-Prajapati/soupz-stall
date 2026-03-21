@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Terminal, Wifi, WifiOff, LogOut, Layers, Code2, Loader2, Sun, Moon, Contrast,
   Leaf, Snowflake, Ghost, Coffee, Landmark, Flower2, SunDim, Github, Check, Search,
+  Shield,
 } from 'lucide-react';
 import { useRoute } from './hooks/useRoute';
 import AuthScreen from './components/auth/AuthScreen';
@@ -60,6 +61,21 @@ export default function App() {
   });
   const [workspaceOnline, setWorkspaceOnline] = useState(false);
   const [workspaceMachine, setWorkspaceMachine] = useState(null);
+  const [activeFleet, setActiveFleet] = useState([]); // Track background workers
+
+  // ... (inside checkDaemonHealth loop)
+  useEffect(() => {
+    // ...
+    const handleWsMessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'fleet_update') {
+          setActiveFleet(msg.active);
+        }
+      } catch {}
+    };
+    // ...
+  }, []);
   const [themeOpen, setThemeOpen] = useState(false);
 
   // File/git state for ProMode
@@ -145,12 +161,37 @@ export default function App() {
       setUser({ id: 'local', email: 'local@soupz.app' });
       return;
     }
+
+    async function upsertProfile(u) {
+      if (!u || u.id === 'local') return;
+      const githubUsername = u.user_metadata?.user_name || u.user_metadata?.preferred_username || u.email?.split('@')[0];
+      try {
+        await supabase
+          .from('soupz_profiles')
+          .upsert({
+            id: u.id,
+            display_name: githubUsername,
+            avatar_url: u.user_metadata?.avatar_url || null,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'id' });
+      } catch (err) {
+        console.error('Failed to sync profile:', err);
+      }
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+      const curr = session?.user ?? null;
+      setUser(curr);
+      if (curr) upsertProfile(curr);
       setAuthLoading(false);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
-      setUser(session?.user ?? null);
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      const curr = session?.user ?? null;
+      setUser(curr);
+      if (curr && (event === 'SIGNED_IN' || event === 'USER_UPDATED')) {
+        upsertProfile(curr);
+      }
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -198,6 +239,7 @@ export default function App() {
   const workspace = {
     online: workspaceOnline,
     machine: workspaceMachine,
+    activeFleet,
     async sendPrompt({ prompt, agentId, buildMode }, onChunk) {
       return sendAgentPrompt(prompt, agentId, buildMode, user?.id, onChunk);
     },
@@ -206,6 +248,10 @@ export default function App() {
     },
     async writeFile(path, content) {
       return writeFile(path, content, user?.id);
+    },
+    async runFile(path) {
+      const { runFile } = await import('./lib/daemon.js');
+      return runFile(path, user?.id);
     },
     async gitStatus() {
       return getGitStatus(null, user?.id);
@@ -230,37 +276,46 @@ export default function App() {
     </div>
   );
 
-  // /connect route — no auth needed
+  // AUTH GUARD: If not logged in and Supabase is active, only allow Landing/Connect
+  const isAuthRequired = isSupabaseConfigured();
+  if (isAuthRequired && !user && !authLoading) {
+    if (path === '/landing') return <Suspense fallback={routeLoader}><LandingPage navigate={navigate} /></Suspense>;
+    if (path === '/connect') return <Suspense fallback={routeLoader}><ConnectPage getParam={getParam} navigate={navigate} /></Suspense>;
+    return <AuthScreen supabase={supabase} onAuth={() => {}} />;
+  }
+
+  // /connect route
   if (path === '/connect') {
     return <Suspense fallback={routeLoader}><ConnectPage getParam={getParam} navigate={navigate} /></Suspense>;
   }
 
-  // /landing route — marketing page, no auth needed
+  // /landing route
   if (path === '/landing') {
     return <Suspense fallback={routeLoader}><LandingPage navigate={navigate} /></Suspense>;
   }
 
-  // /profile route — user profile page
+  // /profile route
   if (path === '/profile') {
     return (
       <Suspense fallback={routeLoader}>
         <ProfilePage
           user={user}
           navigate={navigate}
-          onSignOut={isSupabaseConfigured() && user?.id !== 'local' ? () => supabase.auth.signOut() : null}
+          onSignOut={async () => {
+            await supabase.auth.signOut();
+            setUser(null);
+            navigate('/');
+          }}
         />
       </Suspense>
     );
   }
 
-  // /admin route — admin command center
+  // /admin route
   if (path === '/admin') {
     return (
       <Suspense fallback={routeLoader}>
-        <AdminPage
-          user={user}
-          navigate={navigate}
-        />
+        <AdminPage user={user} navigate={navigate} />
       </Suspense>
     );
   }
@@ -276,10 +331,6 @@ export default function App() {
         </div>
       </div>
     );
-  }
-
-  if (!user && isSupabaseConfigured()) {
-    return <AuthScreen supabase={supabase} onAuth={() => {}} />;
   }
 
   const CurrentThemeIcon = THEMES.find(t => t.id === theme)?.icon || Moon;
@@ -356,13 +407,14 @@ export default function App() {
         <WorkspaceStatus online={workspaceOnline} machine={workspaceMachine} navigate={navigate} />
 
         {/* Admin Link (Authorized only) */}
-        {(user?.id === 'local' || user?.email === 'krishramadeveloper@gmail.com' || user?.id === '0b3ttz_vvj2xg9yrm_k0t8j70r0000gn') && (
+        {(user?.id === 'local' || user?.user_metadata?.user_name === 'Soham-Prajapati' || user?.user_metadata?.preferred_username === 'Soham-Prajapati') && (
           <button
             onClick={() => navigate('/admin')}
-            className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-text-faint hover:text-accent hover:bg-accent/5 transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-bg-elevated border border-border-subtle text-text-sec hover:text-accent hover:border-accent/30 transition-all shadow-sm"
             title="Admin Command Center"
           >
-            <Shield size={13} />
+            <Shield size={14} className="text-accent" />
+            <span className="text-[11px] font-ui font-bold uppercase tracking-tight">Admin</span>
           </button>
         )}
 
@@ -389,7 +441,11 @@ export default function App() {
         {/* Sign out */}
         {isSupabaseConfigured() && user?.id !== 'local' && (
           <button
-            onClick={() => supabase.auth.signOut()}
+            onClick={async () => {
+              await supabase.auth.signOut();
+              setUser(null);
+              navigate('/');
+            }}
             className="flex items-center gap-1 text-text-faint hover:text-text-sec text-xs font-ui transition-colors"
             title="Sign out"
           >

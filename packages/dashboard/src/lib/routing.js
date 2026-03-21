@@ -205,17 +205,17 @@ export function detectIntent(prompt) {
 // ---------------------------------------------------------------------------
 
 // Default fallback agent ordering (by general capability breadth)
-const DEFAULT_AGENT_ORDER = ['claude-code', 'gemini', 'copilot', 'kiro', 'ollama'];
+const DEFAULT_AGENT_ORDER = ['gemini', 'copilot', 'ollama', 'claude-code', 'kiro'];
 
 // Category → preferred CLI agents (ordered by preference, first available wins)
 const CATEGORY_PREFERRED_AGENTS = {
-  code:     ['claude-code', 'gemini', 'copilot', 'ollama'],
-  design:   ['claude-code', 'gemini', 'copilot', 'ollama'],
-  research: ['gemini', 'claude-code', 'copilot', 'ollama'],
-  strategy: ['gemini', 'claude-code', 'copilot', 'ollama'],
-  content:  ['gemini', 'claude-code', 'copilot', 'ollama'],
-  business: ['claude-code', 'gemini', 'copilot', 'ollama'],
-  general:  ['claude-code', 'gemini', 'copilot', 'ollama'],
+  code:     ['gemini', 'copilot', 'ollama', 'claude-code'],
+  design:   ['gemini', 'copilot', 'ollama', 'claude-code'],
+  research: ['gemini', 'copilot', 'ollama', 'claude-code'],
+  strategy: ['gemini', 'copilot', 'ollama', 'claude-code'],
+  content:  ['gemini', 'copilot', 'ollama', 'claude-code'],
+  business: ['gemini', 'copilot', 'ollama', 'claude-code'],
+  general:  ['gemini', 'copilot', 'ollama', 'claude-code'],
 };
 
 // Legacy single-agent mapping (for backwards compat)

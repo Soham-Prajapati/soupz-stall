@@ -12,7 +12,7 @@ import { getAutoSelection } from '../../lib/routing';
 import { checkAgentAvailability } from '../../lib/daemon';
 import { detectTeamTrigger, getTeamById } from '../../lib/teams';
 import OllamaStatus from '../shared/OllamaStatus';
-import InteractiveQuestions, { parseSoupzQ, formatAnswers } from '../shared/InteractiveQuestions';
+import InteractiveQuestions from './InteractiveQuestions';
 import LearnedAgents, { SuggestionDot } from '../shared/LearnedAgents';
 import PreviewPanel from '../shared/PreviewPanel';
 import { usePreviewExtractor } from '../../hooks/usePreviewExtractor';
@@ -78,6 +78,17 @@ function renderMarkdown(text) {
     });
     return <span key={i}>{inline}</span>;
   });
+}
+
+function parseQuestionBlock(content) {
+  const SOUPZ_Q_RE = /\[SOUPZ_Q\]([\s\S]*?)\[\/SOUPZ_Q\]/;
+  const match = content.match(SOUPZ_Q_RE);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1]);
+  } catch (e) {
+    return null;
+  }
 }
 
 export default function SimpleMode({ daemon, compact = false }) {
@@ -262,8 +273,15 @@ export default function SimpleMode({ daemon, compact = false }) {
 
   // Called when user submits answers to a SOUPZ_Q block
   function handleQuestionSubmit(questions, answers) {
-    const formatted = formatAnswers(questions, answers);
-    sendMessage(`Answers to questions:\n\n${formatted}`);
+    // Format: "[User answers] q1: PostgreSQL | q2: Vercel, AWS"
+    const formatted = Object.entries(answers)
+      .map(([qId, selected]) => {
+        const labels = Array.isArray(selected) ? selected.join(', ') : selected;
+        return `${qId}: ${labels}`;
+      })
+      .join(' | ');
+
+    sendMessage(`[User answers] ${formatted}`);
   }
 
   function startVoice() {
@@ -644,6 +662,7 @@ export default function SimpleMode({ daemon, compact = false }) {
 function Message({ msg, onCopy, copied, onSpeak, speaking, modelLoading, loadProgress, getIcon, autoLabel, onQuestionSubmit }) {
   const isUser = msg.role === 'user';
   const Icon = getIcon(msg.agentId || 'auto');
+  const questionData = !isUser && !msg.streaming ? parseQuestionBlock(msg.content) : null;
 
   return (
     <div className={cn(
@@ -678,7 +697,15 @@ function Message({ msg, onCopy, copied, onSpeak, speaking, modelLoading, loadPro
                 {[0,1,2].map(i => <span key={i} className="thinking-dot" style={i ? { animationDelay: `${i * 0.2}s` } : {}} />)}
               </div>
             ) : (
-              <div>{renderMarkdown(msg.content)}</div>
+              <div>
+                {renderMarkdown(msg.content)}
+                {questionData && (
+                  <InteractiveQuestions 
+                    data={questionData} 
+                    onAnswer={(answers) => onQuestionSubmit(questionData.questions, answers)} 
+                  />
+                )}
+              </div>
             )}
           </div>
 

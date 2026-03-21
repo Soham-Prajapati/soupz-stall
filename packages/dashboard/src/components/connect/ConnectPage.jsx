@@ -185,8 +185,8 @@ export default function ConnectPage({ getParam, navigate }) {
             ) : (
             <>
             {/* Code input: 4+4 groups */}
-            <div className="flex items-center gap-3 mb-6 justify-center">
-              <div className="flex gap-1.5">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-6 justify-center max-w-full">
+              <div className="flex gap-1 sm:gap-1.5">
                 {[0,1,2,3].map(i => (
                   <DigitInput
                     key={i}
@@ -199,8 +199,8 @@ export default function ConnectPage({ getParam, navigate }) {
                   />
                 ))}
               </div>
-              <span className="text-text-faint text-lg">–</span>
-              <div className="flex gap-1.5">
+              <span className="text-text-faint text-lg font-bold mx-0.5">–</span>
+              <div className="flex gap-1 sm:gap-1.5">
                 {[4,5,6,7].map(i => (
                   <DigitInput
                     key={i}
@@ -353,7 +353,7 @@ const DigitInput = forwardRef(function DigitInput({ value, onChange, onKeyDown, 
       onKeyDown={onKeyDown}
       onPaste={onPaste}
       className={cn(
-        'w-10 h-12 rounded-md text-center font-mono text-lg font-medium caret-accent',
+        'w-8 h-10 sm:w-10 sm:h-12 rounded-md text-center font-mono text-base sm:text-lg font-medium caret-accent',
         'bg-bg-elevated border transition-all outline-none',
         hasError
           ? 'border-danger/50 text-danger'

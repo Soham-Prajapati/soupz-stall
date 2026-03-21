@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Crown, Shield, Sword, Hammer, Sparkles,
   Flame, MessageSquare, Target, Lock, Check,
-  ChevronRight, Award,
+  ChevronRight, Award, Loader2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
 // ---------------------------------------------------------------------------
 // Storage helpers (mirrors StatsPanel pattern)
@@ -95,6 +96,10 @@ const ACHIEVEMENT_IDS = [
 
 export default function LeaderboardPanel() {
   const [lbFilter, setLbFilter] = useState('global'); // global | friends | college
+  const [profiles, setProfiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
+
   const messages       = readJSON(STORAGE_KEY, []);
   const usage          = readJSON(USAGE_KEY, {});
   const streakData     = readJSON(STREAK_KEY, { count: 0, lastDay: null });
@@ -109,23 +114,66 @@ export default function LeaderboardPanel() {
   const rank           = getRank(level);
   const { progress, needed, pct } = getLevelProgress(xp);
 
+  useEffect(() => {
+    async function fetchData() {
+      if (!isSupabaseConfigured()) {
+        setLoading(false);
+        return;
+      }
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setCurrentUser(session?.user);
+
+        const { data, error } = await supabase
+          .from('soupz_profiles')
+          .select('*')
+          .order('xp', { ascending: false })
+          .limit(20);
+        
+        if (error) throw error;
+        setProfiles(data || []);
+      } catch (err) {
+        console.error('Leaderboard error:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
+
   // Community data logic
   const leaderboard = useMemo(() => {
-    const base = [
-      { name: 'You', xp, isUser: true, position: 1 },
-      { name: 'sarah_dev', xp: 8450, position: 2 },
-      { name: 'alex_code', xp: 7200, position: 3 },
-      { name: 'mikesmith', xp: 5100, position: 4 },
-      { name: 'coding_ninja', xp: 4800, position: 5 },
-    ];
+    if (loading && profiles.length === 0) {
+      return [{ name: 'You', xp, isUser: true, position: 1 }];
+    }
 
-    let current;
-    if (lbFilter === 'friends') current = base.slice(0, 3);
-    else if (lbFilter === 'college') current = [...base, { name: 'prof_oak', xp: 9999, position: 1 }];
-    else current = base;
+    let list = profiles.map(p => ({
+      name: p.display_name,
+      xp: p.xp,
+      isUser: p.id === currentUser?.id,
+      avatar: p.avatar_url,
+    }));
+
+    // Ensure current user is present with their latest local XP if they are logged in
+    const userInList = list.find(p => p.isUser);
+    if (currentUser && !userInList) {
+      list.push({
+        name: currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email,
+        xp: xp,
+        isUser: true,
+        avatar: currentUser.user_metadata?.avatar_url
+      });
+    } else if (userInList) {
+      // Use the higher of local vs DB (in case DB is slightly behind)
+      userInList.xp = Math.max(userInList.xp, xp);
+    }
+
+    const sorted = list.sort((a,b) => b.xp - a.xp).map((u, i) => ({...u, position: i+1}));
     
-    return current.sort((a,b) => b.xp - a.xp).map((u, i) => ({...u, position: i+1}));
-  }, [xp, lbFilter]);
+    if (lbFilter === 'friends') return sorted.slice(0, 3);
+    if (lbFilter === 'college') return sorted.slice(0, 5);
+    return sorted;
+  }, [profiles, xp, currentUser, lbFilter, loading]);
 
   const RankIcon = rank.icon;
 

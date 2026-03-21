@@ -6,43 +6,57 @@
 /* ─── Default theme (dark) ──────────────────────────────────────────────── */
 :root,
 [data-theme="dark"] {
-  --bg-base-ch:         15 15 19;
-  --bg-surface-ch:      20 20 24;
-  --bg-elevated-ch:     26 26 32;
-  --bg-overlay-ch:      32 32 38;
-  --border-subtle-ch:   33 33 42;
-  --border-mid-ch:      45 45 56;
-  --border-strong-ch:   60 60 74;
+  --bg-base-ch:         10 10 12;
+  --bg-surface-ch:      18 18 22;
+  --bg-elevated-ch:     24 24 30;
+  --bg-overlay-ch:      30 30 38;
+  --border-subtle-ch:   32 32 44;
+  --border-mid-ch:      48 48 64;
+  --border-strong-ch:   64 64 80;
   --accent-ch:          99 102 241;
   --accent-hover-ch:    85 88 232;
   --success-ch:         52 211 153;
   --warning-ch:         251 191 36;
   --danger-ch:          248 113 113;
-  --text-pri-ch:        226 226 232;
-  --text-sec-ch:        142 142 159;
-  --text-faint-ch:      71 71 90;
+  --text-pri-ch:        240 240 245;
+  --text-sec-ch:        160 160 180;
+  --text-faint-ch:      100 100 120;
 
   /* Hex vars for direct CSS usage */
-  --bg-base:         #0F0F13;
-  --bg-surface:      #141418;
-  --bg-elevated:     #1A1A20;
-  --bg-overlay:      #202026;
-  --border-subtle:   #21212A;
-  --border-mid:      #2D2D38;
-  --border-strong:   #3C3C4A;
+  --bg-base:         #0A0A0C;
+  --bg-surface:      #121216;
+  --bg-elevated:     #18181E;
+  --bg-overlay:      #1E1E26;
+  --border-subtle:   rgba(255,255,255,0.06);
+  --border-mid:      rgba(255,255,255,0.12);
+  --border-strong:   rgba(255,255,255,0.20);
   --accent:          #6366F1;
   --accent-hover:    #5558E8;
-  --accent-muted:    rgba(99,102,241,0.10);
-  --accent-glow:     rgba(99,102,241,0.20);
+  --accent-muted:    rgba(99,102,241,0.12);
+  --accent-glow:     rgba(99,102,241,0.25);
   --success:         #34D399;
   --success-muted:   rgba(52,211,153,0.10);
   --warning:         #FBBF24;
   --warning-muted:   rgba(251,191,36,0.10);
   --danger:          #F87171;
   --danger-muted:    rgba(248,113,113,0.10);
-  --text-pri:        #E2E2E8;
-  --text-sec:        #8E8E9F;
-  --text-faint:      #47475A;
+  --text-pri:        #F0F0F5;
+  --text-sec:        #A0A0B4;
+  --text-faint:      #646478;
+...
+/* ─── Glassmorphism utilities ───────────────────────────────────────────── */
+.glass {
+  background: rgba(18, 18, 22, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+}
+.glass-elevated {
+  background: rgba(24, 24, 30, 0.8);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-mid);
+}
   --font-ui:         'Inter', -apple-system, sans-serif;
   --font-mono:       'JetBrains Mono', 'Fira Code', monospace;
   --radius-sm:       4px;

@@ -26,10 +26,9 @@ function getFileIcon(name) {
   return EXT_ICONS[ext] || File;
 }
 
-function getGitStatus(path, changedPaths) {
-  // changedPaths is an array of relative paths from git status --porcelain
-  // Examples: 'M src/App.jsx', '?? newfile.js'
-  const entry = changedPaths.find(p => p.slice(3) === path || p === path);
+function getGitStatus(path, changedPaths = []) {
+  const paths = Array.isArray(changedPaths) ? changedPaths : [];
+  const entry = paths.find(p => p.slice(3) === path || p === path);
   if (!entry) return null;
   if (entry.startsWith('M')) return { label: 'M', color: 'text-warning', bg: 'bg-warning/20' };
   if (entry.startsWith('??')) return { label: 'U', color: 'text-success', bg: 'bg-success/20' };
@@ -47,11 +46,13 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
 
   const isDir = !!node.children;
   const Icon = isDir ? (open ? FolderOpen : Folder) : getFileIcon(node.name);
-  const gitStatus = !isDir ? getGitStatus(node.path, changedPaths) : null;
+  const paths = Array.isArray(changedPaths) ? changedPaths : [];
+  const gitStatus = !isDir ? getGitStatus(node.path, paths) : null;
   const isSelected = selectedPath === node.path;
 
   // For folders, check if any child has changes to show a dot
-  const hasChildChanges = isDir && changedPaths.some(p => p.includes(node.path));
+  const hasModified = isDir && paths.some(p => p.startsWith('M') && p.includes(node.path));
+  const hasUntracked = isDir && !hasModified && paths.some(p => p.startsWith('??') && p.includes(node.path));
 
   return (
     <div>
@@ -59,9 +60,9 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
         onClick={() => isDir ? setOpen(v => !v) : onSelect?.(node)}
         style={{ paddingLeft: `${depth * 12 + 12}px` }}
         className={cn(
-          'flex items-center gap-1.5 py-1 pr-2 cursor-pointer group select-none border-l-2 transition-all relative',
+          'flex items-center gap-1.5 py-1.5 pr-2 cursor-pointer group select-none border-l-[3px] transition-all relative',
           isSelected
-            ? 'bg-accent/10 text-accent border-accent font-medium'
+            ? 'bg-accent/20 text-text-pri border-accent font-bold shadow-[inset_0_0_10px_rgba(99,102,241,0.1)]'
             : cn('text-text-sec border-transparent hover:bg-bg-elevated hover:text-text-pri', gitStatus?.color)
         )}
       >
@@ -80,8 +81,11 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
             {gitStatus.label}
           </span>
         )}
-        {hasChildChanges && !open && (
-          <div className="w-1.5 h-1.5 rounded-full bg-warning shrink-0 absolute right-2" />
+        {isDir && !open && (
+          <div className="flex gap-1 absolute right-2 shrink-0">
+            {hasModified && <div className="w-1.5 h-1.5 rounded-full bg-warning shadow-[0_0_5px_rgba(245,158,11,0.5)]" />}
+            {hasUntracked && <div className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_5px_rgba(34,197,94,0.5)]" />}
+          </div>
         )}
       </div>
       {isDir && open && node.children && (
@@ -106,6 +110,7 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
 export default function FileTree({ tree, changedPaths = [], onSelect, selectedPath, rootName = 'PROJECT' }) {
   const [search, setSearch] = useState('');
   const [collapsedAll, setCollapsedAll] = useState(0);
+  const changedSet = new Set(changedPaths);
 
   function filterTree(nodes, q) {
     if (!q) return nodes;
@@ -135,6 +140,9 @@ export default function FileTree({ tree, changedPaths = [], onSelect, selectedPa
           </button>
           <button className="p-1 hover:bg-bg-elevated rounded text-text-faint hover:text-text-pri transition-colors" title="New Folder">
             <FolderPlus size={13} />
+          </button>
+          <button className="p-1 hover:bg-bg-elevated rounded text-text-faint hover:text-text-pri transition-colors" title="Refresh Explorer">
+            <RotateCcw size={13} />
           </button>
           <button 
             onClick={() => setCollapsedAll(v => v + 1)}
@@ -173,7 +181,7 @@ export default function FileTree({ tree, changedPaths = [], onSelect, selectedPa
             <TreeNode
               key={node.path}
               node={node}
-              changedPaths={changedSet}
+              changedPaths={changedPaths}
               onSelect={onSelect}
               selectedPath={selectedPath}
               collapsedAll={collapsedAll}

@@ -224,7 +224,13 @@ export async function sendAgentPrompt(prompt, agentId, mode, userId, onChunk) {
 
   // Remote path via Supabase relay
   if (supabase && userId) {
-    return sendCommand('AGENT_PROMPT', { prompt, agentId, mode }, userId);
+    const commandId = await sendCommand('AGENT_PROMPT', { prompt, agentId, mode }, userId);
+    if (onChunk) {
+      const unsub = subscribeToChunks(commandId, onChunk);
+      // Failsafe cleanup
+      setTimeout(unsub, 300000); 
+    }
+    return commandId;
   }
 
   throw new Error('Not connected — run npx soupz on your machine first');
@@ -258,6 +264,22 @@ export async function sendCommand(type, payload, userId) {
   });
   if (!res.ok) throw new Error(`Daemon error: ${res.status}`);
   return commandId;
+}
+
+// ─── Real-time streaming ─────────────────────────────────────────────────────
+
+export function subscribeToChunks(commandId, onChunk) {
+  if (!supabase) return () => {};
+  const channel = supabase
+    .channel(`chunks:${commandId}`)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'soupz_output_chunks',
+      filter: `order_id=eq.${commandId}`,
+    }, (payload) => {
+      onChunk(payload.new.chunk);
+    })
+    .subscribe();
+  return () => supabase.removeChannel(channel);
 }
 
 // ─── Supabase relay subscription ─────────────────────────────────────────────
@@ -389,12 +411,43 @@ async function localPost(path, body) {
 }
 
 export async function getFileTree(rootPath, userId) {
-  if (token() || isLocalDaemon) return localGet(`/api/fs/tree${rootPath ? `?root=${encodeURIComponent(rootPath)}` : ''}`);
+  if (token() || isLocalDaemon) {
+    try {
+      return await localGet(`/api/fs/tree${rootPath ? `?root=${encodeURIComponent(rootPath)}` : ''}`);
+    } catch (e) {
+      if (!userId) throw e;
+      // Fall through to GitHub if local fails and we have a user
+    }
+  }
+  
+  // GitHub Fallback: Use the mirror API if daemon is offline
+  if (userId) {
+    try {
+      return await localGet('/api/git/mirror/manifest');
+    } catch {
+      return sendCommand('FILE_TREE', { path: rootPath }, userId);
+    }
+  }
   return sendCommand('FILE_TREE', { path: rootPath }, userId);
 }
 
 export async function readFile(filePath, userId) {
-  if (token() || isLocalDaemon) return localGet(`/api/fs/file?path=${encodeURIComponent(filePath)}`);
+  if (token() || isLocalDaemon) {
+    try {
+      return await localGet(`/api/fs/file?path=${encodeURIComponent(filePath)}`);
+    } catch (e) {
+      if (!userId) throw e;
+    }
+  }
+
+  // GitHub Fallback
+  if (userId) {
+    try {
+      return await localGet(`/api/git/mirror/file?path=${encodeURIComponent(filePath)}`);
+    } catch {
+      return sendCommand('FILE_READ', { path: filePath }, userId);
+    }
+  }
   return sendCommand('FILE_READ', { path: filePath }, userId);
 }
 
@@ -426,4 +479,9 @@ export async function gitCommit(message, userId) {
 export async function gitPush(userId) {
   if (token() || isLocalDaemon) return localPost('/api/git/push', {});
   return sendCommand('GIT_PUSH', {}, userId);
+}
+
+export async function runFile(path, userId) {
+  if (token() || isLocalDaemon) return localPost('/api/exec', { path });
+  return sendCommand('RUN_FILE', { path }, userId);
 }

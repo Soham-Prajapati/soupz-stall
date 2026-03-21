@@ -495,7 +495,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           {activeFile ? (
             <Editor
               path={activeFile.path}
-              value={fileContents[activeFile.path] || ''}
+              value={String(fileContents[activeFile.path] || '')}
               language={lang}
               theme="soupz-dark"
               onChange={handleEditorChange}

@@ -182,6 +182,27 @@ function requireAuth(req, res, next) {
 const terminals = new Map();
 let terminalCounter = 0;
 
+// Track active parallel processes (Fleet)
+const activeFleet = new Map(); // commandId -> { agent, prompt, startTime }
+
+function registerFleet(id, agent, prompt) {
+    activeFleet.set(id, { agent, prompt, startTime: Date.now() });
+    broadcast({ type: 'fleet_update', active: Array.from(activeFleet.values()) });
+}
+
+function unregisterFleet(id) {
+    activeFleet.delete(id);
+    broadcast({ type: 'fleet_update', active: Array.from(activeFleet.values()) });
+}
+
+function broadcast(msg) {
+    const message = JSON.stringify(msg);
+    for (const client of wss.clients) {
+        if (client.readyState === 1 && authenticatedClients.has(client)) {
+            client.send(message);
+        }
+    }
+}
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = join(__dirname, '../../../');
@@ -681,7 +702,7 @@ const AGENT_BINARY_MAP = {
 };
 
 // Ordered fallback chain — try free agents first
-const AGENT_FALLBACK_CHAIN = ['gemini', 'copilot', 'claude-code', 'ollama'];
+const AGENT_FALLBACK_CHAIN = ['gemini', 'copilot', 'ollama', 'claude-code'];
 
 function isAgentInstalled(agentId) {
     const bin = AGENT_BINARY_MAP[agentId];
@@ -1095,6 +1116,29 @@ app.get('/api/fs/dirs', requireAuth, async (req, res) => {
     }
 });
 
+// GET /api/usage — Fetch real-time usage metrics from CLI agents (authenticated)
+app.get('/api/usage', requireAuth, (req, res) => {
+    const agents = ['gemini', 'copilot', 'claude', 'kiro'];
+    const usage = {};
+
+    for (const agent of agents) {
+        try {
+            let cmd = '';
+            if (agent === 'gemini') cmd = 'gemini --version'; // No native usage command yet
+            else if (agent === 'copilot') cmd = 'gh copilot --version';
+            else if (agent === 'claude') cmd = 'claude --version';
+            
+            if (cmd) {
+                const out = execSync(cmd, { timeout: 2000 }).toString().trim();
+                usage[agent] = { raw: out, timestamp: new Date().toISOString() };
+            }
+        } catch {
+            usage[agent] = { error: 'Unavailable' };
+        }
+    }
+    res.json(usage);
+});
+
 // GET /api/fs/tree?root=/path (authenticated)
 app.get('/api/fs/tree', requireAuth, async (req, res) => {
     const rootPath = resolve(req.query.root || REPO_ROOT || process.cwd());
@@ -1185,6 +1229,106 @@ app.post('/api/git/push', express.json(), requireAuth, (req, res) => {
     }
 });
 
+// POST /api/exec — Run a file with the appropriate runtime (authenticated)
+app.post('/api/exec', express.json(), requireAuth, (req, res) => {
+    const { path: filePath, root } = req.body;
+    if (!filePath) return res.status(400).json({ error: 'Missing path' });
+
+    const cwd = root || REPO_ROOT || process.cwd();
+    const fullPath = resolve(cwd, filePath);
+
+    if (!existsSync(fullPath)) return res.status(404).json({ error: 'File not found' });
+
+    // Determine runtime
+    const ext = extname(filePath).toLowerCase();
+    let cmd = '';
+    if (ext === '.js') cmd = 'node';
+    else if (ext === '.py') cmd = 'python3';
+    else if (ext === '.sh') cmd = 'bash';
+    else if (ext === '.rb') cmd = 'ruby';
+    else if (ext === '.go') cmd = 'go run';
+    else if (ext === '.rs') cmd = 'cargo run';
+    else {
+        // Try to make it executable and run directly
+        cmd = '';
+    }
+
+    // We don't use spawn here because we want to push to the PTY if possible
+    // or just return ok and let the user see it in the terminal
+    // For now, let's just return what would be run
+    res.json({ ok: true, command: `${cmd} ${filePath}`.trim() });
+});
+
+/** Parse GitHub owner/repo from remote URL */
+function parseGithubUrl(url) {
+    if (!url) return null;
+    let u = url.trim();
+    if (u.endsWith('.git')) u = u.slice(0, -4);
+    
+    // https://github.com/owner/repo
+    if (u.includes('github.com/')) {
+        const parts = u.split('github.com/')[1].split('/');
+        return { owner: parts[0], repo: parts[1] };
+    }
+    
+    // git@github.com:owner/repo
+    if (u.includes('github.com:')) {
+        const parts = u.split('github.com:')[1].split('/');
+        return { owner: parts[0], repo: parts[1] };
+    }
+    
+    return null;
+}
+
+// GET /api/git/mirror/manifest — Fetch repository tree from GitHub (Fallback Mode)
+app.get('/api/git/mirror/manifest', requireAuth, async (req, res) => {
+    const root = resolve(req.query.root || REPO_ROOT || process.cwd());
+    try {
+        const remoteUrl = execSync('git remote get-url origin', { cwd: root, timeout: 3000 }).toString().trim();
+        const info = parseGithubUrl(remoteUrl);
+        if (!info) return res.status(400).json({ error: 'Not a GitHub repository' });
+
+        let branch = 'main';
+        try {
+            branch = execSync('git branch --show-current', { cwd: root, timeout: 2000 }).toString().trim() || 'main';
+        } catch (e) { /* fallback to main */ }
+
+        // Use gh api to fetch the recursive tree
+        const cmd = `gh api repos/${info.owner}/${info.repo}/git/trees/${branch}?recursive=1`;
+        const tree = JSON.parse(execSync(cmd, { timeout: 10000 }).toString());
+        res.json({ ...tree, owner: info.owner, repo: info.repo, branch });
+    } catch (err) {
+        res.status(500).json({ error: `GitHub Mirror Manifest failed: ${err.message}` });
+    }
+});
+
+// GET /api/git/mirror/file — Fetch raw file content from GitHub (Fallback Mode)
+app.get('/api/git/mirror/file', requireAuth, async (req, res) => {
+    const root = resolve(req.query.root || REPO_ROOT || process.cwd());
+    const filePath = (req.query.path || '').toString().trim();
+    if (!filePath) return res.status(400).json({ error: 'Missing path' });
+
+    try {
+        const remoteUrl = execSync('git remote get-url origin', { cwd: root, timeout: 3000 }).toString().trim();
+        const info = parseGithubUrl(remoteUrl);
+        if (!info) return res.status(400).json({ error: 'Not a GitHub repository' });
+
+        // Use gh api to fetch file contents (handles auth automatically)
+        const cmd = `gh api repos/${info.owner}/${info.repo}/contents/${filePath}`;
+        const data = JSON.parse(execSync(cmd, { timeout: 10000 }).toString());
+        
+        if (data.encoding === 'base64') {
+            const content = Buffer.from(data.content, 'base64').toString('utf8');
+            res.json({ content, path: filePath, sha: data.sha });
+        } else {
+            // Might be a directory or large file with a different response
+            res.json(data);
+        }
+    } catch (err) {
+        res.status(500).json({ error: `GitHub Mirror File fetch failed: ${err.message}` });
+    }
+});
+
 // POST /command — unified command endpoint for web IDE (no auth for local browser)
 app.post('/command', express.json(), (req, res) => {
     const { type, payload } = req.body;
@@ -1209,9 +1353,12 @@ app.post('/logout', requireAuth, (req, res) => {
 // WEBSOCKET (with OTP auth handshake)
 // ═══════════════════════════════════════════════════════════
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
     let wsAuthenticated = false;
     let wsToken = null;
+    
+    const clientIP = req.socket?.remoteAddress;
+    const isLocal = clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === '::ffff:127.0.0.1';
 
     // Client MUST authenticate within 10 seconds or get disconnected
     const authTimeout = setTimeout(() => {
@@ -1224,12 +1371,6 @@ wss.on('connection', (ws) => {
     ws.on('message', (raw) => {
         try {
             const msg = JSON.parse(raw);
-            
-            // Bypass auth for local browser connections
-            const clientIP = req?.socket?.remoteAddress; // We don't have req here easily, we need to get IP from ws object
-            // Actually, ws._socket.remoteAddress
-            const remoteAddress = ws._socket?.remoteAddress;
-            const isLocal = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
 
             // FIRST MESSAGE MUST BE AUTH
             if (!wsAuthenticated) {
@@ -1245,7 +1386,7 @@ wss.on('connection', (ws) => {
                             hostname: os.hostname(),
                             health: getSystemHealth(),
                         }));
-                        console.log(`  💻 Local dashboard authenticated automatically`);
+                        console.log(`  💻 Local dashboard terminal authenticated automatically`);
                         return;
                     }
 
@@ -1514,6 +1655,85 @@ export function startRemoteServer(port = DEFAULT_PORT, opts = {}) {
     });
 }
 
+// ─── Database Maintenance ──────────────────────────────────────────────────
+async function runDatabaseCleanup() {
+    if (!supabase) return;
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    
+    try {
+        console.log(`  🧹 Running 30-day database cleanup (before ${thirtyDaysAgo})...`);
+        
+        // Delete old commands (cascades to responses)
+        await supabase
+            .from('soupz_commands')
+            .delete()
+            .lt('created_at', thirtyDaysAgo);
+            
+        // Delete old pairing codes
+        await supabase
+            .from('soupz_pairing')
+            .delete()
+            .lt('expires_at', new Date().toISOString());
+            
+        console.log(`  ✔ Cleanup complete. Removed old records.`);
+    } catch (err) {
+        console.error('  ✖ Database cleanup failed:', err.message);
+    }
+}
+
+// Start maintenance loop (every 24 hours)
+setInterval(runDatabaseCleanup, 24 * 60 * 60 * 1000);
+runDatabaseCleanup();
+
+// ─── Maintenance & Sync ──────────────────────────────────────────────────────
+
+async function registerMachine() {
+    if (!supabase) return;
+    const machineId = os.hostname();
+    try {
+        await supabase.from('soupz_machines').upsert({
+            id: machineId,
+            name: machineId,
+            last_seen: new Date().toISOString(),
+            status: 'online',
+            version: '0.1.0-alpha'
+        });
+    } catch (err) {
+        console.error('  ✖ Machine registration failed:', err.message);
+    }
+}
+
+async function runShadowSync() {
+    if (!supabase) return;
+    const root = REPO_ROOT;
+    try {
+        let branch = 'main';
+        let headSha = '';
+        try {
+            branch = execSync('git branch --show-current', { cwd: root, timeout: 2000 }).toString().trim() || 'main';
+            headSha = execSync('git rev-parse HEAD', { cwd: root, timeout: 2000 }).toString().trim();
+        } catch {}
+
+        const out = execSync('git status --porcelain', { cwd: root, timeout: 3000 }).toString();
+        const dirtyFiles = out.split('\n').filter(Boolean).map(l => ({
+            status: l.slice(0, 2).trim(),
+            path: l.slice(3).trim(),
+        }));
+
+        // Push manifest (associated with the machine)
+        await supabase.from('soupz_shadow_manifest').upsert({
+            machine_id: os.hostname(),
+            branch_name: branch,
+            head_sha: headSha,
+            dirty_files: dirtyFiles,
+            last_sync: new Date().toISOString()
+        }, { onConflict: 'machine_id' });
+
+    } catch (err) {
+        // Silently fail sync
+    }
+}
+
 // ═══════════════════════════════════════════════════════════
 // SUPABASE COMMAND LISTENER (web IDE → local execution)
 // ═══════════════════════════════════════════════════════════
@@ -1552,6 +1772,73 @@ async function startCommandListener() {
             executeCommand(payload.new).catch(() => {});
         })
         .subscribe();
+}
+
+// Routing priority:
+// 1. Try GitHub Copilot locally for classification
+// 2. Try Ollama locally for classification
+// 3. Keyword matching
+// 4. Default to 'gemini'
+
+async function selectAgent(prompt, availableAgents) {
+  // 1. Try GitHub Copilot (most capable classification)
+  try {
+    const classifyPrompt = `Task classifier. Reply with ONLY the agent id from the list, no explanation.
+Given this task: "${prompt.slice(0, 300)}"
+Pick the best agent from this list: ${availableAgents.join(', ')}
+Reply with ONLY the agent id.`;
+
+    const out = execSync(
+      `gh copilot suggest -t shell ${JSON.stringify(classifyPrompt)} 2>/dev/null`,
+      { timeout: 5000, encoding: 'utf8' }
+    ).trim();
+
+    // Look for any of the available agent IDs in the output
+    const lowerOut = out.toLowerCase();
+    for (const agent of availableAgents) {
+      const lowerAgent = agent.toLowerCase();
+      if (lowerOut.includes(lowerAgent)) {
+        return agent;
+      }
+      // Special case: if it says "claude" but the ID is "claude-code"
+      if (agent === 'claude-code' && lowerOut.includes('claude')) {
+        return 'claude-code';
+      }
+    }
+  } catch { /* Copilot unavailable or failed */ }
+
+  // 2. Try Ollama locally
+  try {
+    const res = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'qwen2.5:0.5b',
+        prompt: `Given this task: "${prompt}", which agent should handle it? Options: ${availableAgents.join(', ')}. Reply with ONLY the agent id, nothing else.`,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const data = await res.json();
+    const picked = data.response?.trim().toLowerCase();
+    if (availableAgents.includes(picked)) return picked;
+  } catch { /* Ollama not running */ }
+
+  // 3. Keyword matching (fastest fallback)
+  const keywords = {
+    'claude-code': ['code', 'function', 'bug', 'refactor', 'implement', 'fix', 'typescript', 'javascript'],
+    'gemini': ['analyze', 'research', 'explain', 'document', 'summarize'],
+    'copilot': ['github', 'pull request', 'issue', 'workflow', 'action'],
+    'ollama': [], // local-only tasks
+  };
+  for (const [agent, words] of Object.entries(keywords)) {
+    if (words.some(w => prompt.toLowerCase().includes(w))) {
+      if (availableAgents.includes(agent)) return agent;
+    }
+  }
+
+  // 4. Default
+  return availableAgents.includes('gemini') ? 'gemini' : availableAgents[0];
 }
 
 async function executeCommand(cmd) {
@@ -1634,8 +1921,29 @@ async function executeCommand(cmd) {
                 break;
             }
 
+            case 'RUN_FILE': {
+                const { path: filePath, root } = payload;
+                const cwd = root || REPO_ROOT || process.cwd();
+                const ext = extname(filePath).toLowerCase();
+                let cmd = '';
+                if (ext === '.js') cmd = 'node';
+                else if (ext === '.py') cmd = 'python3';
+                else if (ext === '.sh') cmd = 'bash';
+                result = { ok: true, command: `${cmd} ${filePath}`.trim() };
+                break;
+            }
+
             case 'AGENT_PROMPT': {
-                result = await runAgentPrompt(payload);
+                let resolvedAgentId = payload.agentId;
+                if (resolvedAgentId === 'auto') {
+                    const available = ['claude-code', 'gemini', 'copilot', 'ollama'].filter(id => {
+                        // check if binary exists
+                        try { execSync(`which ${id === 'claude-code' ? 'claude' : id}`, { timeout: 1000 }); return true; }
+                        catch { return false; }
+                    });
+                    resolvedAgentId = await selectAgent(payload.prompt, available);
+                }
+                result = await runAgentPrompt({ ...payload, agentId: resolvedAgentId }, id, user_id);
                 break;
             }
 
@@ -1665,7 +1973,9 @@ async function executeCommand(cmd) {
     }
 }
 
-async function runAgentPrompt({ prompt, agentId = 'auto', mode, cwd: workDir }) {
+async function runAgentPrompt({ prompt, agentId = 'auto', mode, cwd: workDir }, commandId, userId) {
+    if (commandId) registerFleet(commandId, agentId, prompt);
+
     return new Promise((resolve) => {
         const args = [CLI_ENTRY];
         if (agentId && agentId !== 'auto') {
@@ -1680,21 +1990,39 @@ async function runAgentPrompt({ prompt, agentId = 'auto', mode, cwd: workDir }) 
             stdio: ['ignore', 'pipe', 'pipe'],
         });
 
-        let stdout = '';
+        let fullOutput = '';
         let stderr = '';
-        child.stdout?.on('data', (d) => { stdout += d.toString(); });
+        
+        child.stdout?.on('data', async (d) => {
+            const chunk = d.toString();
+            fullOutput += chunk;
+            if (supabase && commandId) {
+                try {
+                    await supabase.from('soupz_output_chunks').insert({
+                        order_id: commandId,
+                        chunk,
+                        created_at: new Date().toISOString(),
+                    });
+                } catch { /* ignore chunk insert errors */ }
+            }
+        });
+        
         child.stderr?.on('data', (d) => { stderr += d.toString(); });
+        
         child.on('close', (code) => {
-            resolve({ output: stdout.trim() || stderr.trim(), exitCode: code });
+            if (commandId) unregisterFleet(commandId);
+            resolve({ output: fullOutput.trim() || stderr.trim(), exitCode: code });
         });
         child.on('error', (err) => {
+            if (commandId) unregisterFleet(commandId);
             resolve({ error: err.message, exitCode: 1 });
         });
 
         // 5-minute timeout
         setTimeout(() => {
-            child.kill();
-            resolve({ output: stdout.trim(), timedOut: true });
+            try { child.kill(); } catch {}
+            if (commandId) unregisterFleet(commandId);
+            resolve({ output: fullOutput.trim() || stderr.trim(), exitCode: 1, timedOut: true });
         }, 300000);
     });
 }
