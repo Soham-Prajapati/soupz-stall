@@ -1416,6 +1416,14 @@ export class Session {
                 proc: null,
             };
 
+            // Notify dashboard via orchestrator
+            this.orchestrator.emit('fleet-worker-start', {
+                id: worker.id,
+                agentId: worker.agentId,
+                task: worker.task,
+                startTime: worker.startTime
+            });
+
             const proc = spawn(agent.binary, args, {
                 cwd: this.cwd || process.cwd(),
                 env: { ...process.env },
@@ -1430,6 +1438,18 @@ export class Session {
                 worker.status = code === 0 ? 'done' : 'failed';
                 worker.endTime = Date.now();
                 worker.duration = worker.endTime - worker.startTime;
+
+                // Notify dashboard via orchestrator
+                this.orchestrator.emit('fleet-worker-done', {
+                    id: worker.id,
+                    agentId: worker.agentId,
+                    task: worker.task,
+                    status: worker.status,
+                    startTime: worker.startTime,
+                    endTime: worker.endTime,
+                    duration: worker.duration
+                });
+
                 // Auto-report when done
                 const completed = this._fleet.filter(w => w.status !== 'running').length;
                 const total = this._fleet.length;

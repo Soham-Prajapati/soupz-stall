@@ -78,62 +78,57 @@ cd packages/dashboard && npm run dev
 Run this SQL in your Supabase SQL Editor:
 
 ```sql
--- Create tables if they don't exist
-CREATE TABLE IF NOT EXISTS soupz_orders (
-  id TEXT PRIMARY KEY,
-  prompt TEXT,
-  agent TEXT,
-  run_agent TEXT,
-  model_policy TEXT,
-  status TEXT DEFAULT 'pending',
-  created_at TIMESTAMPTZ DEFAULT now(),
-  started_at TIMESTAMPTZ,
-  finished_at TIMESTAMPTZ,
-  duration_ms INTEGER,
-  exit_code INTEGER,
-  stdout TEXT,
-  stderr TEXT,
-  events JSONB DEFAULT '[]'
+-- ─── Commands (web → daemon) ──────────────────────────────────────────────────
+create table if not exists soupz_commands (
+    id          uuid primary key default gen_random_uuid(),
+    user_id     uuid not null references auth.users(id) on delete cascade,
+    type        text not null,
+    payload     jsonb default '{}',
+    status      text not null default 'pending',
+    created_at  timestamptz default now()
 );
 
-CREATE TABLE IF NOT EXISTS soupz_commands (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id),
-  type TEXT NOT NULL,
-  payload JSONB,
-  status TEXT DEFAULT 'pending',
-  created_at TIMESTAMPTZ DEFAULT now()
+-- ─── Responses (daemon → web) ─────────────────────────────────────────────────
+create table if not exists soupz_responses (
+    id          uuid primary key default gen_random_uuid(),
+    command_id  uuid references soupz_commands(id) on delete cascade,
+    user_id     uuid not null references auth.users(id) on delete cascade,
+    type        text not null,
+    result      jsonb default '{}',
+    status      text not null default 'success',
+    created_at  timestamptz default now()
 );
 
-CREATE TABLE IF NOT EXISTS soupz_responses (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id),
-  type TEXT NOT NULL,
-  payload JSONB,
-  created_at TIMESTAMPTZ DEFAULT now()
+-- ─── Pairing (anonymous link) ────────────────────────────────────────────────
+create table if not exists soupz_pairing (
+    code        text primary key,
+    token       text not null,
+    hostname    text,
+    lan_ips     jsonb default '[]',
+    public_ip   text,
+    port        integer default 7533,
+    created_at  timestamptz default now(),
+    expires_at  timestamptz not null
 );
 
--- Enable Row Level Security (RLS)
-ALTER TABLE soupz_orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE soupz_commands ENABLE ROW LEVEL SECURITY;
-ALTER TABLE soupz_responses ENABLE ROW LEVEL SECURITY;
+-- ─── Row Level Security ───────────────────────────────────────────────────────
+alter table soupz_commands  enable row level security;
+alter table soupz_responses enable row level security;
+alter table soupz_pairing   enable row level security;
 
--- RLS policies: users see their own data
-CREATE POLICY "Users can read own commands" ON soupz_commands
-  FOR SELECT USING (auth.uid() = user_id);
+create policy "commands: user owns rows" on soupz_commands
+    for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert own commands" ON soupz_commands
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
+create policy "responses: user owns rows" on soupz_responses
+    for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
-CREATE POLICY "Users can read own responses" ON soupz_responses
-  FOR SELECT USING (auth.uid() = user_id);
+create policy "pairing: public read" on soupz_pairing
+    for select using (true);
 
--- Service role (daemon) has full access to orders
-CREATE POLICY "Service role full access" ON soupz_orders
-  FOR ALL USING (true) WITH CHECK (true);
-
--- Enable realtime subscription for browser
-ALTER PUBLICATION supabase_realtime ADD TABLE soupz_responses;
+-- ─── Realtime ─────────────────────────────────────────────────────────────────
+alter publication supabase_realtime add table soupz_commands;
+alter publication supabase_realtime add table soupz_responses;
+alter publication supabase_realtime add table soupz_pairing;
 ```
 
 ## 3. Environment Variables

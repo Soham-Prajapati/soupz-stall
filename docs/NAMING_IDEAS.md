@@ -192,49 +192,34 @@
 
 ---
 
-## Quick Comparison Table
+## 5 New Architecture & Orchestration Names
 
-| Name | Syllables | Verb Form? | Cultural Root | Vibe |
-|------|-----------|------------|---------------|------|
-| Relay | 2 | Yes | English | Fast, functional |
-| Conduit | 2 | No | Latin/English | Engineering, precise |
-| Aether | 2 | No | Greek | Ethereal, invisible magic |
-| Span | 1 | Yes | English/HTML | Minimal, dev-native |
-| Cove | 1 | No | English | Warm, safe harbor |
-| Vox | 1 | No | Latin | Bold, voice-first |
-| Tether | 2 | Yes | English | Mobile, connected |
-| Pulse | 1 | Yes | Latin/English | Alive, real-time |
-| Drift | 1 | Yes | English | Smooth, effortless |
-| Pylon | 2 | No | Greek | Strong, structural |
-| Nexus | 2 | No | Latin | Central, convergent |
-| Arca | 2 | No | Latin | Vault, treasure, arc |
-| Omni | 2 | No | Latin | Universal, bold |
-| Sync | 1 | Yes | English | Clear, obvious |
-| Loom | 1 | Yes | English | Crafted, woven |
-| Setu | 2 | No | Sanskrit | Bridge, mythological |
-| Sarva | 2 | No | Sanskrit | Everywhere, complete |
-| Bandhu | 2 | No | Sanskrit | Bond, companion |
-| Vyom | 1 | No | Sanskrit | Sky, boundless |
-| CodeBridge | 4 | Yes | English | Literal, clear |
-| DevLink | 2 | No | English | Clean, professional |
-| Floe | 1 | No | English | Flow, minimal |
-| Raga | 2 | No | Sanskrit | Musical, orchestrated |
-| Tide | 1 | Yes | English | Natural rhythm |
-| Baton | 2 | No | French | Handoff, conductor |
-| Sutra | 2 | No | Sanskrit | Thread, wisdom |
-| Warp | 1 | Yes | English | Fast, teleportation |
-| Kavi | 2 | No | Sanskrit | Poetic, wise |
-| Arc | 1 | No | Latin/English | Sharp, geometric |
-| Tantu | 2 | No | Sanskrit | Invisible thread |
+### 31. Prism
+- **Reasoning:** A prism takes a single beam of light and breaks it into multiple parallel spectrums. Just like Soupz takes a single complex prompt and breaks it into parallel agent workstreams (BMAD).
+- **Spoken:** One syllable, PRIZ-um. Sharp and memorable.
+- **Evokes:** Light, clarity, parallel streams, refraction, Pink Floyd.
+- **Domains:** prism.dev (likely taken), prismcode.dev, useprism.dev
 
----
+### 32. Maestro
+- **Reasoning:** The conductor of an orchestra. Perfectly captures the "Master Orchestrator" and "Team of Teams" philosophy. It directs the specialized agents without playing the instruments itself.
+- **Spoken:** Three syllables, MY-stro. Cultured and authoritative.
+- **Evokes:** Conducting, harmony, leadership, classical music, mastery.
+- **Domains:** maestro.dev, getmaestro.dev, devmaestro.com
 
-## Top Picks by Category
+### 33. Synapse
+- **Reasoning:** The connection point where signals are passed between neurons. Your laptop is the brain, your phone is the synapse. The parallel agents are the neural network.
+- **Spoken:** Two syllables, SIN-aps. Scientific and fast.
+- **Evokes:** Brainpower, neural networks, instant transmission, AI.
+- **Domains:** synapse.dev, getsynapse.dev, synapsecodes.com
 
-**If you want authority:** Nexus, Conduit, Pylon
-**If you want warmth:** Cove, Kavi, Bandhu
-**If you want speed:** Relay, Pulse, Warp
-**If you want cultural depth:** Setu, Raga, Sutra, Tantu
-**If you want minimalism:** Span, Arc, Floe, Vox
-**If you want universality:** Omni, Sarva, Vyom
-**If you want something totally unique:** Arca, Vyom, Tantu, Floe
+### 34. Kinaara (Sanskrit/Hindi)
+- **Reasoning:** Meaning "edge" or "shore." You are coding on the edge (your phone), looking out at the ocean (your dev machine). A bridge connects two shores.
+- **Spoken:** Three syllables, kih-NAH-ra. Musical and unique.
+- **Evokes:** Coastlines, edge computing, boundaries, Indian heritage.
+- **Domains:** kinaara.dev, getkinaara.dev, kinaaracode.dev
+
+### 35. Hub
+- **Reasoning:** The absolute center of a network. Simple, unpretentious, universally understood. Your laptop is the Hub, all other devices and agents connect to it.
+- **Spoken:** One syllable. Blunt and effective.
+- **Evokes:** Centrality, networks, spokes, GitHub, concentration of power.
+- **Domains:** hub.dev (definitely taken), codehub.dev, devhub.sh

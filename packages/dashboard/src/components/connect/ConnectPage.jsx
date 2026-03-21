@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { Terminal, CheckCircle, XCircle, ArrowRight, RefreshCw, QrCode, Keyboard } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { cn } from '../../lib/cn';
+import { supabase } from '../../lib/supabase';
 
-// Connect to daemon - always use localhost since daemon runs on user's machine
-const PAIRING_API = '';
+// Connect to daemon - can be localhost or an IP from Supabase pairing table
+const LOCAL_DAEMON_PORT = 7533;
 
 export default function ConnectPage({ getParam, navigate }) {
   const urlCode = getParam?.('code') || '';
@@ -32,28 +33,67 @@ export default function ConnectPage({ getParam, navigate }) {
     if (c.length !== 8) return;
     setStatus('loading');
     setErrorMsg('');
+
+    // 1. Try local daemon first (fastest, no internet required if on same machine)
     try {
-      const res = await fetch(`${PAIRING_API}/api/pair`, {
+      const localUrl = `http://localhost:${LOCAL_DAEMON_PORT}`;
+      const res = await fetch(`${localUrl}/api/pair`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: c }),
+        signal: AbortSignal.timeout(1500), // Fast timeout for local check
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setMachine(data);
-        setStatus('success');
-        // Store token for daemon comms
-        if (data.token) localStorage.setItem('soupz_daemon_token', data.token);
-        if (data.hostname) localStorage.setItem('soupz_hostname', data.hostname);
-        setTimeout(() => navigate('/'), 1800);
-      } else {
-        setErrorMsg(data.error || 'Invalid pairing code');
-        setStatus('error');
+        finishConnect(data, localUrl);
+        return;
       }
-    } catch {
-      setErrorMsg('Could not connect — make sure npx soupz is running');
+    } catch { /* not local */ }
+
+    // 2. Try Supabase pairing table (allows remote pairing via internet)
+    try {
+      const { data, error } = await supabase
+        .from('soupz_pairing')
+        .select('*')
+        .eq('code', c)
+        .single();
+
+      if (error || !data) throw new Error('Invalid pairing code');
+      if (new Date(data.expires_at) < new Date()) throw new Error('Code expired');
+
+      // Found machine info in Supabase!
+      // Try to reach the machine via its LAN IPs (if we are on the same Wi-Fi)
+      const lanIPs = Array.isArray(data.lan_ips) ? data.lan_ips : [];
+      for (const ip of lanIPs) {
+        try {
+          const ipUrl = `http://${ip}:${data.port || LOCAL_DAEMON_PORT}`;
+          const res = await fetch(`${ipUrl}/health`, { signal: AbortSignal.timeout(1000) });
+          if (res.ok) {
+            // We can talk to the machine directly!
+            finishConnect(data, ipUrl);
+            return;
+          }
+        } catch { /* try next IP */ }
+      }
+
+      // If we can't reach any local IP, we will use the relay path
+      // (The token from Supabase allows us to identify the session)
+      finishConnect(data, null);
+    } catch (err) {
+      setErrorMsg(err.message || 'Could not connect — make sure npx soupz is running');
       setStatus('error');
     }
+  }
+
+  function finishConnect(data, url) {
+    setMachine(data);
+    setStatus('success');
+    if (data.token) localStorage.setItem('soupz_daemon_token', data.token);
+    if (data.hostname) localStorage.setItem('soupz_hostname', data.hostname);
+    if (url) localStorage.setItem('soupz_daemon_url', url);
+    else localStorage.removeItem('soupz_daemon_url'); // fallback to relay
+
+    setTimeout(() => navigate('/'), 1200);
   }
 
   function onDigitChange(idx, val) {

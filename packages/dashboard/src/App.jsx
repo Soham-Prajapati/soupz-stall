@@ -15,11 +15,12 @@ const LandingPage = lazy(() => import('./components/landing/LandingPage'));
 const ProfilePage = lazy(() => import('./components/profile/ProfilePage'));
 const CommandPalette = lazy(() => import('./components/shared/CommandPalette'));
 const FolderPicker = lazy(() => import('./components/shared/FolderPicker'));
+const SetupWizard = lazy(() => import('./components/shared/SetupWizard'));
 import { supabase, isSupabaseConfigured } from './lib/supabase.js';
 import {
   checkDaemonHealth, subscribeToDaemon, sendAgentPrompt,
   getFileTree, readFile, writeFile, getGitStatus, getGitDiff,
-  gitStage, gitCommit, gitPush,
+  gitStage, gitCommit, gitPush, checkSystemCLIs,
 } from './lib/daemon.js';
 import { cn } from './lib/cn';
 
@@ -67,9 +68,23 @@ export default function App() {
   const [editorState, setEditorState] = useState(null);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [workspaceRoot, setWorkspaceRoot] = useState(null);
 
   useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
+
+  // Auto-check setup on mount/login
+  useEffect(() => {
+    if (user && workspaceOnline && !localStorage.getItem('soupz_setup_completed')) {
+      checkSystemCLIs().then(clis => {
+        if (clis && clis.length > 0 && clis.some(c => !c.installed)) {
+          setSetupOpen(true);
+        } else if (clis && clis.length > 0) {
+          localStorage.setItem('soupz_setup_completed', 'true');
+        }
+      }).catch(() => {});
+    }
+  }, [user, workspaceOnline]);
 
   useEffect(() => {
     function handleKey(e) {
@@ -146,26 +161,24 @@ export default function App() {
       setWorkspaceOnline(h.online);
       if (h.online) {
         setWorkspaceMachine(h.machine);
-        // Auto-fetch file tree when locally connected (requires pairing token)
-        if (localStorage.getItem('soupz_daemon_token')) {
-          try {
-            const root = workspaceRoot || localStorage.getItem('soupz_workspace_root') || undefined;
-            const treeData = await getFileTree(root);
-            if (treeData?.tree) {
-              const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
-              if (children.length > 0) {
-                setFileTree(children);
-                setChangedFiles(treeData.changedFiles || []);
-              }
-            }
-          } catch { /* daemon may not support fs yet */ }
+        // Auto-fetch file tree when locally connected
+        try {
+          const root = workspaceRoot || localStorage.getItem('soupz_workspace_root') || '';
+          const treeData = await getFileTree(root);
+          if (treeData?.tree) {
+            const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
+            setFileTree(children);
+            setChangedFiles(treeData.changedFiles || []);
+          }
+        } catch (err) {
+          console.error('Failed to auto-fetch file tree:', err);
         }
       }
     }
     check();
     const id = setInterval(check, 8000);
     return () => clearInterval(id);
-  }, []);
+  }, [workspaceRoot]);
 
   // Supabase relay
   useEffect(() => {
@@ -394,6 +407,16 @@ export default function App() {
             open={folderPickerOpen}
             onClose={() => setFolderPickerOpen(false)}
             onSelect={handleOpenFolder}
+          />
+        </Suspense>
+      )}
+
+      {/* Setup Wizard */}
+      {setupOpen && (
+        <Suspense fallback={null}>
+          <SetupWizard
+            isOpen={setupOpen}
+            onClose={() => setSetupOpen(false)}
           />
         </Suspense>
       )}

@@ -310,7 +310,7 @@ export default function LearnedAgents({ onSelect, selectedId }) {
           className="flex items-center gap-1.5 text-[11px] font-ui text-text-faint hover:text-accent transition-colors"
         >
           <Plus size={11} />
-          Create custom agent
+          Add custom provider
         </button>
         {showCreateForm && (
           <CreateAgentForm onCreated={handleCreated} onCancel={() => setShowCreateForm(false)} />
@@ -428,7 +428,7 @@ export default function LearnedAgents({ onSelect, selectedId }) {
             className="flex items-center gap-1.5 text-[11px] font-ui text-text-faint hover:text-accent transition-colors"
           >
             <Plus size={11} />
-            Create custom agent
+            Add custom provider
           </button>
           {showCreateForm && (
             <CreateAgentForm onCreated={handleCreated} onCancel={() => setShowCreateForm(false)} />

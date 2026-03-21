@@ -43,7 +43,7 @@ export default function OllamaStatus({ useOllama, onToggle, compact = false }) {
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute top-full right-0 mt-1 w-72 bg-bg-elevated border border-border-mid rounded-xl shadow-soft z-50 overflow-hidden">
+        <div className="absolute top-full right-0 mt-1 w-72 max-w-[calc(100vw-32px)] bg-bg-elevated border border-border-mid rounded-xl shadow-soft z-50 overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border-subtle">
             <GitBranch size={13} className="text-accent" />

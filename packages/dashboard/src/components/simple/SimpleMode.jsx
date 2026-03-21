@@ -383,9 +383,9 @@ export default function SimpleMode({ daemon, compact = false }) {
   const AgentIcon = getIcon(agentId);
 
   return (
-    <div className="flex flex-col h-full bg-bg-base">
+    <div className="flex flex-col h-full bg-bg-base relative">
       {/* Top bar */}
-      <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border-subtle bg-bg-surface shrink-0 overflow-x-auto">
+      <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border-subtle bg-bg-surface shrink-0 relative z-50">
         {/* Agent selector */}
         <div className="relative shrink-0">
           <button
@@ -418,7 +418,7 @@ export default function SimpleMode({ daemon, compact = false }) {
           {modeOpen && (
             <>
               <div className="fixed inset-0 z-[99]" onClick={() => setModeOpen(false)} />
-              <div className="absolute bottom-full left-0 mb-1 w-44 bg-bg-elevated border border-border-mid rounded-lg shadow-soft z-[100] overflow-hidden">
+              <div className="absolute top-full left-0 mt-1 w-44 max-w-[calc(100vw-16px)] bg-bg-elevated border border-border-mid rounded-lg shadow-soft z-[100] overflow-hidden">
                 {BUILD_MODES.map(m => (
                   <button
                     key={m.id}
@@ -785,7 +785,7 @@ function AgentDropdown({ selected, onSelect, onClose }) {
   return (
     <div
       data-agent-dropdown
-      className="absolute top-full left-0 mt-1 w-72 bg-bg-elevated border border-border-mid rounded-xl shadow-soft z-[100] overflow-hidden"
+      className="absolute top-full left-0 mt-1 w-72 max-w-[calc(100vw-16px)] bg-bg-elevated border border-border-mid rounded-xl shadow-soft z-[100] overflow-hidden"
     >
       <div className="flex border-b border-border-subtle">
         {['cli', 'specialist'].map(t => (

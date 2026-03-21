@@ -30,6 +30,11 @@ if (command === 'auth') {
     process.exit(0);
 }
 
+if (command === 'supabase' || command === 'sync') {
+    await handleSupabase(args);
+    process.exit(0);
+}
+
 // Default: start the local daemon
 await startDaemon();
 
@@ -153,5 +158,63 @@ async function handleAuth([subCmd, agentId]) {
     } else {
         console.log('  Usage: soupz auth [status|login|logout] [agent-id]');
         console.log('  Example: soupz auth login gemini\n');
+    }
+}
+
+async function handleSupabase([subCmd]) {
+    const { execSync } = await import('child_process');
+    const fs = await import('fs');
+    const path = await import('path');
+
+    console.log(chalk.bold('\n  Supabase Integration  ') + chalk.dim('(automated setup)\n'));
+
+    // 1. Check if supabase CLI is installed
+    try {
+        execSync('supabase --version', { stdio: 'ignore' });
+    } catch {
+        console.error(chalk.red('  ✖ Supabase CLI not found.'));
+        console.log(chalk.dim('  Run: brew install supabase/tap/supabase or npm install -g supabase\n'));
+        process.exit(1);
+    }
+
+    // 2. Initialize project if needed
+    if (!fs.existsSync('supabase/config.toml')) {
+        console.log(chalk.dim('  Initializing Supabase project...'));
+        try {
+            execSync('supabase init', { stdio: 'inherit' });
+        } catch (err) {
+            console.error(chalk.red(`  ✖ Failed to init Supabase: ${err.message}`));
+            process.exit(1);
+        }
+    }
+
+    // 3. Link project if needed
+    const url = process.env.SUPABASE_URL || process.env.SOUPZ_SUPABASE_URL;
+    if (url) {
+        const projectRef = url.split('//')[1]?.split('.')[0];
+        if (projectRef && projectRef !== 'localhost') {
+            console.log(chalk.dim(`  Project detected: ${chalk.bold(projectRef)}`));
+            
+            // Try to link (will prompt for password if not linked)
+            try {
+                console.log(chalk.dim('  Linking to Supabase cloud...'));
+                execSync(`supabase link --project-ref ${projectRef}`, { stdio: 'inherit' });
+            } catch {
+                console.log(chalk.yellow('\n  ⚠️  Link failed or was cancelled.'));
+                console.log(chalk.dim('  If you haven\'t linked your project, run: ') + chalk.bold(`supabase link --project-ref ${projectRef}`));
+                console.log(chalk.dim('  Then run: ') + chalk.bold('soupz sync\n'));
+                process.exit(1);
+            }
+        }
+    }
+
+    // 4. Push migrations
+    console.log(chalk.dim('  Pushing migrations to Supabase...'));
+    try {
+        execSync('supabase db push', { stdio: 'inherit' });
+        console.log(chalk.green('\n  ✔ Database schema is in sync with Supabase!\n'));
+    } catch (err) {
+        console.error(chalk.red(`\n  ✖ Failed to push migrations: ${err.message}`));
+        process.exit(1);
     }
 }

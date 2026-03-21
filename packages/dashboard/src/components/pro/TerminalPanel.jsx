@@ -17,14 +17,15 @@ export default function TerminalPanel({ daemon, onClose }) {
   // Connect to daemon WS and create a real terminal
   useEffect(() => {
     const token = localStorage.getItem('soupz_daemon_token');
-    if (!token) return;
+    const isLocal = DAEMON_WS_URL.includes('localhost') || DAEMON_WS_URL.includes('127.0.0.1');
+    if (!token && !isLocal) return;
 
     const ws = new WebSocket(DAEMON_WS_URL);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      // Authenticate first
-      ws.send(JSON.stringify({ type: 'auth', token, clientType: 'terminal' }));
+      // Authenticate first (daemon will auto-approve localhost)
+      ws.send(JSON.stringify({ type: 'auth', token: token || 'local-dev', clientType: 'terminal' }));
     };
 
     ws.onmessage = (event) => {
@@ -202,7 +203,7 @@ export default function TerminalPanel({ daemon, onClose }) {
         className="flex-1 overflow-y-auto px-3 py-2 font-mono text-xs text-text-sec leading-relaxed whitespace-pre-wrap min-h-0 focus:outline-none cursor-text"
         style={{ caretColor: 'var(--accent)' }}
       >
-        {!connected && !localStorage.getItem('soupz_daemon_token') && (
+        {!connected && !localStorage.getItem('soupz_daemon_token') && !DAEMON_WS_URL.includes('localhost') && (
           <span className="text-text-faint italic">Not connected — run npx soupz and pair your device first.</span>
         )}
       </div>

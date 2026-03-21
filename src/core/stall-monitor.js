@@ -148,6 +148,33 @@ export class StallMonitor {
                 order.endTime = Date.now();
             }
         });
+
+        o.on('fleet-worker-start', (entry) => {
+            this.state.stats.totalOrders++;
+            const order = {
+                id: entry.id,
+                prompt: entry.task.length > 100 ? entry.task.slice(0, 97) + '…' : entry.task,
+                agent: entry.agentId,
+                status: 'cooking',
+                startTime: entry.startTime,
+                isFleet: true,
+            };
+            this.state.activeOrders.push(order);
+            this.state.orders.unshift(order);
+            if (this.state.orders.length > 50) this.state.orders.pop();
+        });
+
+        o.on('fleet-worker-done', (entry) => {
+            this.state.stats.completedOrders++;
+            this.state.activeOrders = this.state.activeOrders.filter(o => o.id !== entry.id);
+            const order = this.state.orders.find(o => o.id === entry.id);
+            if (order) {
+                order.status = entry.status === 'done' ? 'served' : 'burnt';
+                order.duration = entry.duration;
+                order.endTime = entry.endTime;
+            }
+            if (entry.duration) this._updateAvgCookTime(entry.duration);
+        });
     }
 
     _refreshState() {
@@ -366,7 +393,7 @@ export class StallMonitor {
                 onFloor.forEach(c => { if (!knownChefIds.has(c.id)) { knownChefIds.add(c.id); entered = true; } });
                 if (entered) { document.getElementById('door-leaf').classList.add('open'); setTimeout(() => document.getElementById('door-leaf').classList.remove('open'), 1200); }
                 assembly.innerHTML = onFloor.slice(0, 12).map(c => \`<div class="chef-unit"><div class="chef-avatar" style="\${activeIds.has(c.id) ? 'animation: bounce 0.5s infinite alternate' : ''}">\${c.icon}</div><div class="chef-tag">\${c.name.split(' ')[0]}</div></div>\`).join('');
-                document.getElementById('receipt-list').innerHTML = (data.orders || []).slice(0, 5).map(o => \`<div class="receipt-item"><div class="receipt-status" style="background: \${o.status === 'served' ? 'var(--green)' : o.status === 'burnt' ? 'var(--red)' : 'var(--yellow)'}"></div><div class="receipt-prompt">\${o.prompt}</div><div style="font-size:10px; color:var(--text-dim); text-align:right">\${o.duration ? (o.duration / 1000).toFixed(1) + 's' : '...'}</div></div>\`).join('');
+                document.getElementById('receipt-list').innerHTML = (data.orders || []).slice(0, 5).map(o => \`<div class="receipt-item"><div class="receipt-status" style="background: \${o.status === 'served' ? 'var(--green)' : o.status === 'burnt' ? 'var(--red)' : 'var(--yellow)'}"></div><div class="receipt-prompt">\${o.isFleet ? '<span style="background:rgba(168,85,247,0.2);color:#c084fc;padding:1px 4px;border-radius:3px;font-size:8px;margin-right:6px;border:1px solid rgba(168,85,247,0.3)">FLEET</span>' : ''}\${o.prompt}</div><div style="font-size:10px; color:var(--text-dim); text-align:right">\${o.duration ? (o.duration / 1000).toFixed(1) + 's' : '...'}</div></div>\`).join('');
                 document.getElementById('recommendation-list').innerHTML = (data.recommendations || []).map(r => \`<div class="rec-item" style="border-left-color: \${r.type === 'insight' ? 'var(--blue)' : 'var(--accent)'}"><div style="font-size: 9px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase;">\${r.type}</div><div style="font-size: 12px; font-weight: 600;">\${r.text}</div></div>\`).join('');
                 const top = Object.entries(data.grades).filter(([,v]) => v.usage > 0).sort((a,b) => b[1].grade - a[1].grade).slice(0, 5);
                 document.getElementById('leaderboard').innerHTML = top.map(([id, v]) => \`<div class="leader-item"><div class="leader-info"><div class="leader-name">\${v.icon} \${v.name}</div><div class="leader-bar-bg"><div class="leader-bar-fill" style="width: \${v.grade}%; background: \${v.grade > 80 ? 'var(--green)' : 'var(--blue)'}"></div></div></div><div style="font-size:11px; font-weight:800;">\${Math.round(v.grade)}</div></div>\`).join('');

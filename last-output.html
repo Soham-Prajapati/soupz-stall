@@ -41,52 +41,72 @@
 </head>
 <body>
 <h1>🍜 Soupz Output</h1>
-<p class="ts">Updated: Friday March 20 2026 06:22 PM — refresh to update</p>
+<p class="ts">Updated: Saturday March 21 2026 03:07 AM — refresh to update</p>
 
-<div class="tabs" id="tabs">
-  <button class="tab active">Gemini CLI<span class="badge badge-done">done</span></button>
-</div>
-<div id="panels">
-  <div class="panel active" id="panel-0">
+<div class="tabs" id="tabs"></div>
+<div id="panels"></div>
+
+<script>
+const tasks = [{"status":"done","agent":"Gemini CLI","task":"Final Polish and Connection Fixes","files":"8","duration":"10m","filesModified":"packages/remote-server/src/index.js\npackages/dashboard/src/lib/daemon.js\npackages/dashboard/src/components/simple/SimpleMode.jsx\npackages/dashboard/src/components/shared/OllamaStatus.jsx\npackages/dashboard/src/components/shared/LearnedAgents.jsx\npackages/dashboard/src/components/pro/AgentDashboard.jsx\npackages/dashboard/src/components/pro/TerminalPanel.jsx\npackages/dashboard/src/components/shared/StatsPanel.jsx","output":"Fixed local connection (localhost bypass auth).\nFixed UI dropdown clipping and overflow.\nFixed File Explorer auto-load.\nFixed Terminal 'Not Connected' screen.\nAdded Usage breakdown per agent.\nRebuilt Dashboard."}];
+
+const tabsEl = document.getElementById('tabs');
+const panelsEl = document.getElementById('panels');
+
+tasks.forEach((t, i) => {
+  const badgeClass = t.status === 'done' ? 'badge-done' 
+    : t.status === 'partial' ? 'badge-partial' : 'badge-failed';
+  const tab = document.createElement('button');
+  tab.className = 'tab' + (i === 0 ? ' active' : '');
+  tab.innerHTML = t.agent + 
+    '<span class="badge ' + badgeClass + '">' + 
+    t.status + '</span>';
+  tab.onclick = () => {
+    document.querySelectorAll('.tab')
+      .forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel')
+      .forEach(x => x.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-'+i)
+      .classList.add('active');
+  };
+  tabsEl.appendChild(tab);
+
+  const panel = document.createElement('div');
+  panel.className = 'panel' + (i === 0 ? ' active' : '');
+  panel.id = 'panel-' + i;
+  panel.innerHTML = `
     <div class="section">
-      <h2>Complete Deletion & Reversion</h2>
+      <h2>${t.task}</h2>
     </div>
     <div class="meta">
       <div class="meta-item">
-        <div class="meta-label">Skills Deleted</div>
-        <div class="meta-value">53</div>
+        <div class="meta-label">Files Changed</div>
+        <div class="meta-value">${t.files}</div>
       </div>
       <div class="meta-item">
-        <div class="meta-label">Files Reverted</div>
-        <div class="meta-value">4</div>
+        <div class="meta-label">Duration</div>
+        <div class="meta-value">${t.duration}</div>
       </div>
       <div class="meta-item">
         <div class="meta-label">Agent</div>
-        <div class="meta-value">Gemini CLI</div>
+        <div class="meta-value">${t.agent}</div>
       </div>
     </div>
     <div class="section">
-      <h2>Action Details</h2>
-      <pre>
-1. Deleted all downloaded TypeUI design skills from ~/.agents/skills/.
-2. Removed helper scripts (scripts/pull-all-typeui-skills.js, scripts/move-skills-global.js).
-3. Reverted packages/dashboard/src/App.jsx and index.css to original state.
-4. Confirmed local project root is clean of downloaded skill files.
-      </pre>
+      <h2>Files Modified</h2>
+      <pre>${t.filesModified}</pre>
     </div>
     <div class="section">
       <h2>Full Raw Output</h2>
-      <pre>
-All downloaded skills and related code have been deleted.
-The project and global environment are restored to their pre-download state.
-Apologies for the previous misunderstanding of the request scope.
-      </pre>
+      <pre>${t.output}</pre>
     </div>
     <div class="section">
       <h2>Errors</h2>
-      <pre>NONE</pre>
+      <pre>${t.errors || 'NONE'}</pre>
     </div>
-  </div>
-</div>
+  `;
+  panelsEl.appendChild(panel);
+});
+</script>
 </body>
 </html>

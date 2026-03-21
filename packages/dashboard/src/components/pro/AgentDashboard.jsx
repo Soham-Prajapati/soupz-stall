@@ -72,8 +72,17 @@ export default function AgentDashboard({ daemon }) {
   }, []);
 
   async function handleTeamRun(teamId) {
-    console.log(`Running team: ${teamId}`);
-    // Wired in Batch 2
+    const team = AGENT_TEAMS.find(t => t.id === teamId);
+    if (!team) return;
+    try {
+      await daemon.sendPrompt({
+        prompt: `Execute team workflow: ${team.name}`,
+        agentId: 'auto',
+        buildMode: 'planned'
+      });
+    } catch (err) {
+      console.error('Failed to run team:', err);
+    }
   }
 
   function truncatePrompt(prompt, maxChars = 60) {
@@ -90,7 +99,7 @@ export default function AgentDashboard({ daemon }) {
   }
 
   return (
-    <div className="border-t border-border-subtle space-y-0">
+    <div className="h-full overflow-y-auto border-t border-border-subtle space-y-0 pb-12">
       {/* Section 1: Agent Status */}
       <button
         onClick={() => setAgentsCollapsed(v => !v)}
@@ -120,9 +129,13 @@ export default function AgentDashboard({ daemon }) {
               const installed = agentStatus[agent.id];
               const Icon = agent.icon;
               return (
-                <div
+                <button
                   key={agent.id}
-                  className="flex items-center gap-3 p-2 rounded-md bg-bg-elevated/50 border border-border-subtle"
+                  onClick={() => {
+                    // Dispatch event to open stats and highlight agent
+                    window.dispatchEvent(new CustomEvent('soupz_show_agent_stats', { detail: { agentId: agent.id } }));
+                  }}
+                  className="w-full flex items-center gap-3 p-2 rounded-md bg-bg-elevated/50 border border-border-subtle hover:border-border-mid transition-all text-left"
                 >
                   <Icon size={16} style={{ color: agent.color }} />
                   <div className="flex-1 min-w-0">
@@ -134,7 +147,7 @@ export default function AgentDashboard({ daemon }) {
                   ) : (
                     <XCircle size={14} className="text-error shrink-0" />
                   )}
-                </div>
+                </button>
               );
             })
           )}
@@ -180,8 +193,9 @@ export default function AgentDashboard({ daemon }) {
                       <p className="text-xs font-mono text-text-pri truncate">
                         {truncatePrompt(order.prompt)}
                       </p>
-                      <p className="text-[9px] text-text-faint">
-                        {formatDuration(order.duration)} • {order.agent || 'unknown'}
+                      <p className="text-[9px] text-text-faint flex items-center gap-1.5 mt-0.5">
+                        <span>{formatDuration(order.duration)} • {order.agent || 'unknown'}</span>
+                        {order.isFleet && <span className="px-1 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30 text-[8px] font-bold leading-none py-0.5">FLEET</span>}
                       </p>
                     </div>
                     <span className={cn('text-[9px] font-ui font-medium px-1.5 py-0.5 rounded', statusInfo.bg, statusInfo.text)}>

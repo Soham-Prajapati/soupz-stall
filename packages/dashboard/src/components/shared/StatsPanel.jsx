@@ -72,6 +72,21 @@ function getDailyActivity(messages) {
 export default function StatsPanel() {
   const [collapsed, setCollapsed] = useState(false);
   const [lbCollapsed, setLbCollapsed] = useState(false);
+  const [highlightedAgent, setHighlightedAgent] = useState(null);
+
+  // Listen for agent click events
+  useState(() => {
+    function handleShowStats(e) {
+      setCollapsed(false);
+      setHighlightedAgent(e.detail.agentId);
+      // Auto-scroll to stats panel if needed
+      setTimeout(() => {
+        document.querySelector('[data-stats-panel]')?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+    window.addEventListener('soupz_show_agent_stats', handleShowStats);
+    return () => window.removeEventListener('soupz_show_agent_stats', handleShowStats);
+  }, []);
 
   const messages   = readJSON(STORAGE_KEY, []);
   const usage      = readJSON(USAGE_KEY, {});
@@ -85,7 +100,7 @@ export default function StatsPanel() {
   const locked = ACHIEVEMENTS.filter(a => !a.req(totalMsgs, agentCount, streak));
 
   return (
-    <div className="border-t border-border-subtle">
+    <div className="border-t border-border-subtle" data-stats-panel>
       {/* Header / collapse toggle */}
       <button
         onClick={() => setCollapsed(v => !v)}
@@ -151,6 +166,27 @@ export default function StatsPanel() {
                   <Bar dataKey="count" fill="var(--accent)" radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Usage breakdown */}
+          {agentCount > 0 && (
+            <div>
+              <p className="text-[11px] text-text-faint font-ui mb-2">Usage Breakdown</p>
+              <div className="space-y-1.5">
+                {Object.entries(usage).sort((a,b) => b[1] - a[1]).map(([id, count]) => (
+                  <div key={id} className={cn(
+                    "flex items-center justify-between py-1 px-2 rounded transition-colors",
+                    highlightedAgent === id ? "bg-accent/10 border border-accent/20" : ""
+                  )}>
+                    <span className={cn(
+                      "text-[11px] font-mono uppercase",
+                      highlightedAgent === id ? "text-accent font-bold" : "text-text-sec"
+                    )}>{id}</span>
+                    <span className="text-[11px] font-mono text-accent">{count} calls</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

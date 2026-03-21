@@ -5,7 +5,7 @@
 
 import { supabase } from './supabase.js';
 
-const LOCAL_DAEMON_URL  = import.meta.env.VITE_DAEMON_URL || 'http://localhost:7533';
+const LOCAL_DAEMON_URL  = localStorage.getItem('soupz_daemon_url') || import.meta.env.VITE_DAEMON_URL || 'http://localhost:7533';
 const LOCAL_DAEMON_WS   = LOCAL_DAEMON_URL.replace(/^http/, 'ws');
 
 let daemonChannel = null;
@@ -105,6 +105,31 @@ export async function listDirectories(path) {
 }
 
 /**
+ * Initialize a new project directory.
+ */
+export async function initProject({ name, path, supabase, github }) {
+  const t = getStoredToken();
+  if (!t) return null;
+  try {
+    const res = await fetch(`${LOCAL_DAEMON_URL}/api/fs/init`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Soupz-Token': t,
+      },
+      body: JSON.stringify({ name, path, supabase, github }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Initialization failed');
+    }
+    return await res.json();
+  } catch (err) {
+    throw err;
+  }
+}
+
+/**
  * Check which CLI agents are installed on the host machine.
  * @returns {Promise<Record<string, boolean>>}
  */
@@ -145,11 +170,11 @@ export async function checkDaemonHealth() {
  */
 export async function sendAgentPrompt(prompt, agentId, mode, userId, onChunk) {
   const token = getStoredToken();
-  const isLocal = !!token; // has a paired session token
+  const isLocal = !!token || isLocalDaemon; // has a paired session token or is running on localhost
 
   if (isLocal) {
     // Connect/reuse WS
-    const ws = connectDaemonWS(token);
+    const ws = connectDaemonWS(token); // For local access without token, daemon will accept it if IP is localhost
 
     if (ws && ws.readyState <= 1) {
       // Wait for WS to be ready
@@ -291,9 +316,55 @@ export async function getOrderDetail(orderId) {
   }
 }
 
+/**
+ * Check which system CLIs are installed (git, docker, etc)
+ * @returns {Promise<Array<{ name: string, installed: boolean, version?: string }>>}
+ */
+export async function checkSystemCLIs() {
+  const t = getStoredToken();
+  if (!t) return [];
+  try {
+    const res = await fetch(`${LOCAL_DAEMON_URL}/api/system/check-clis`, {
+      headers: { 'X-Soupz-Token': t },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Object.entries(data).map(([name, info]) => ({ name, ...info }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Install or update a system CLI via the daemon.
+ * @param {string} name - cli name (e.g. 'git')
+ * @param {'install'|'update'} action
+ * @returns {Promise<{ success: boolean, output?: string }>}
+ */
+export async function manageSystemCLI(name, action = 'install') {
+  const t = getStoredToken();
+  if (!t) throw new Error('Not authenticated');
+  try {
+    const res = await fetch(`${LOCAL_DAEMON_URL}/api/system/manage-cli`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Soupz-Token': t,
+      },
+      body: JSON.stringify({ name, action }),
+    });
+    return await res.json();
+  } catch (err) {
+    return { success: false, output: err.message };
+  }
+}
+
 // ─── FS & Git helpers ─────────────────────────────────────────────────────────
 
 const token = () => getStoredToken();
+
+const isLocalDaemon = LOCAL_DAEMON_URL.includes('localhost') || LOCAL_DAEMON_URL.includes('127.0.0.1');
 
 async function localGet(path) {
   const t = token();
@@ -318,41 +389,41 @@ async function localPost(path, body) {
 }
 
 export async function getFileTree(rootPath, userId) {
-  if (token()) return localGet(`/api/fs/tree${rootPath ? `?root=${encodeURIComponent(rootPath)}` : ''}`);
+  if (token() || isLocalDaemon) return localGet(`/api/fs/tree${rootPath ? `?root=${encodeURIComponent(rootPath)}` : ''}`);
   return sendCommand('FILE_TREE', { path: rootPath }, userId);
 }
 
 export async function readFile(filePath, userId) {
-  if (token()) return localGet(`/api/fs/file?path=${encodeURIComponent(filePath)}`);
+  if (token() || isLocalDaemon) return localGet(`/api/fs/file?path=${encodeURIComponent(filePath)}`);
   return sendCommand('FILE_READ', { path: filePath }, userId);
 }
 
 export async function writeFile(filePath, content, userId) {
-  if (token()) return localPost('/api/fs/file', { path: filePath, content });
+  if (token() || isLocalDaemon) return localPost('/api/fs/file', { path: filePath, content });
   return sendCommand('FILE_WRITE', { path: filePath, content }, userId);
 }
 
 export async function getGitStatus(repoPath, userId) {
-  if (token()) return localGet('/api/changes');
+  if (token() || isLocalDaemon) return localGet('/api/changes');
   return sendCommand('GIT_STATUS', { path: repoPath }, userId);
 }
 
 export async function getGitDiff(filePath, userId) {
-  if (token()) return localGet(`/api/changes/diff?file=${encodeURIComponent(filePath || '')}`);
+  if (token() || isLocalDaemon) return localGet(`/api/changes/diff?file=${encodeURIComponent(filePath || '')}`);
   return sendCommand('GIT_DIFF', { path: filePath }, userId);
 }
 
 export async function gitStage(filePath, userId) {
-  if (token()) return localPost('/api/git/stage', { path: filePath });
+  if (token() || isLocalDaemon) return localPost('/api/git/stage', { path: filePath });
   return sendCommand('GIT_STAGE', { path: filePath }, userId);
 }
 
 export async function gitCommit(message, userId) {
-  if (token()) return localPost('/api/git/commit', { message });
+  if (token() || isLocalDaemon) return localPost('/api/git/commit', { message });
   return sendCommand('GIT_COMMIT', { message }, userId);
 }
 
 export async function gitPush(userId) {
-  if (token()) return localPost('/api/git/push', {});
+  if (token() || isLocalDaemon) return localPost('/api/git/push', {});
   return sendCommand('GIT_PUSH', {}, userId);
 }

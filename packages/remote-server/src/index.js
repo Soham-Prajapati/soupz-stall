@@ -79,6 +79,24 @@ function createPairingCode() {
 
     pairingCodes.set(code, { token, createdAt: now, expiresAt });
 
+    // Register in Supabase for remote pairing if available
+    if (supabase) {
+        supabase
+            .from('soupz_pairing')
+            .upsert({
+                code,
+                token,
+                hostname: os.hostname(),
+                lan_ips: getLocalIPs(),
+                port: activePort,
+                created_at: new Date(now).toISOString(),
+                expires_at: new Date(expiresAt).toISOString(),
+            })
+            .then(({ error }) => {
+                if (error) console.error(`[supabase] pairing register failed: ${error.message}`);
+            });
+    }
+
     return { code, expiresAt, expiresIn: Math.round(PAIRING_CODE_EXPIRY_MS / 1000) };
 }
 
@@ -135,6 +153,13 @@ function revokeSession(token) {
 
 // Middleware: require auth token for REST endpoints (except pairing)
 function requireAuth(req, res, next) {
+    // Bypass auth for requests originating from the local machine
+    const clientIP = req.ip || req.connection?.remoteAddress;
+    const isLocal = clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === '::ffff:127.0.0.1';
+    if (isLocal) {
+        return next();
+    }
+
     const token = req.headers['x-soupz-token'] || req.query.token;
     if (!token || !isValidSession(token)) {
         return res.status(401).json({ error: 'Unauthorized. Use /pair to get a pairing code.' });
@@ -396,6 +421,81 @@ app.post('/api/pair', (req, res) => {
     res.json({ success: true, token, hostname: os.hostname(), expiresIn: Math.round(SESSION_EXPIRY_MS / 1000) });
 });
 
+// AUTHENTICATED: Check installed CLIs for the onboarding flow
+app.get('/api/system/check-clis', requireAuth, (req, res) => {
+    const clis = {
+        gemini: 'gemini',
+        claude: 'claude',
+        copilot: 'gh',
+        supabase: 'supabase',
+        vercel: 'vercel',
+        git: 'git'
+    };
+
+    const results = {};
+    for (const [key, bin] of Object.entries(clis)) {
+        try {
+            execSync(`which ${bin}`, { timeout: 1000 });
+            results[key] = { installed: true };
+            if (key === 'copilot') {
+                try {
+                    const exts = execSync('gh extension list 2>/dev/null', { timeout: 3000 }).toString();
+                    results[key].ready = exts.includes('copilot');
+                } catch {
+                    results[key].ready = false;
+                }
+            } else if (key === 'supabase' || key === 'vercel' || key === 'git' || key === 'gemini' || key === 'claude') {
+                results[key].ready = true; // Assume ready if installed for now
+            }
+        } catch {
+            results[key] = { installed: false, ready: false };
+        }
+    }
+    res.json(results);
+});
+
+// AUTHENTICATED: Manage CLI (Install/Uninstall)
+app.post('/api/system/manage-cli', express.json(), requireAuth, (req, res) => {
+    const { action, cli } = req.body;
+    
+    const packages = {
+        gemini: '@google/gemini-cli',
+        claude: '@anthropic-ai/claude-code',
+        supabase: 'supabase',
+        vercel: 'vercel',
+        copilot: '@github/copilot' // GitHub copilot extension handled separately if needed
+    };
+
+    if (!packages[cli] && cli !== 'copilot') {
+        return res.status(400).json({ error: 'Unsupported CLI' });
+    }
+
+    try {
+        if (action === 'install') {
+            if (cli === 'copilot') {
+                execSync('gh extension install github/gh-copilot', { stdio: 'inherit' });
+            } else if (cli === 'supabase') {
+                execSync('brew install supabase/tap/supabase || npm install -g supabase', { stdio: 'inherit' });
+            } else {
+                execSync(`npm install -g ${packages[cli]}`, { stdio: 'inherit' });
+            }
+        } else if (action === 'uninstall') {
+            if (cli === 'copilot') {
+                execSync('gh extension remove github/gh-copilot', { stdio: 'inherit' });
+            } else if (cli === 'supabase') {
+                execSync('brew uninstall supabase || npm uninstall -g supabase', { stdio: 'inherit' });
+            } else {
+                execSync(`npm uninstall -g ${packages[cli]}`, { stdio: 'inherit' });
+            }
+        } else {
+            return res.status(400).json({ error: 'Invalid action' });
+        }
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // PUBLIC: List available CLI agents with detailed status
 app.get('/api/agents', (req, res) => {
     const binaries = {
@@ -409,7 +509,8 @@ app.get('/api/agents', (req, res) => {
     const results = {};
     for (const [key, bin] of Object.entries(binaries)) {
         try {
-            execSync(`which ${bin}`, { timeout: 1000 });
+            // Use --version to ensure the binary is actually executable, not just a broken symlink
+            execSync(`${bin} --version`, { timeout: 1500, stdio: 'ignore' });
             results[key] = true;
         } catch {
             results[key] = false;
@@ -862,12 +963,54 @@ app.post('/terminal', requireAuth, (req, res) => {
 // FILE SYSTEM & GIT API (for web IDE)
 // ═══════════════════════════════════════════════════════════
 
-import { readdir, readFile, writeFile, stat } from 'fs/promises';
+import { readdir, readFile, writeFile, stat, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
-import { resolve, relative, extname } from 'path';
+import { resolve, relative, extname, join } from 'path';
 
 const IGNORED_DIRS = new Set(['.git', 'node_modules', '.next', 'dist', 'build', '__pycache__', '.DS_Store']);
 const MAX_FILE_SIZE = 1024 * 1024; // 1MB max for editor
+
+// POST /api/fs/init — initialize a new project directory (authenticated)
+app.post('/api/fs/init', express.json(), requireAuth, async (req, res) => {
+    const { name, path: parentPath, supabase: useSupabase, github: useGithub } = req.body;
+    const parent = resolve(parentPath || os.homedir());
+    const projectPath = join(parent, name);
+
+    if (existsSync(projectPath)) {
+        return res.status(400).json({ error: 'Directory already exists' });
+    }
+
+    try {
+        await mkdir(projectPath, { recursive: true });
+
+        if (useGithub) {
+            try {
+                execSync('git init', { cwd: projectPath, timeout: 5000 });
+            } catch (e) {
+                console.error('Git init failed:', e.message);
+            }
+        }
+
+        if (useSupabase) {
+            try {
+                // Initialize supabase project via CLI
+                execSync('supabase init', { cwd: projectPath, timeout: 10000 });
+            } catch (e) {
+                console.error('Supabase init failed:', e.message);
+                // Fallback basic structure if CLI fails
+                await mkdir(join(projectPath, 'supabase'), { recursive: true });
+                await writeFile(join(projectPath, 'supabase/config.toml'), '# Supabase configuration\\n', 'utf8');
+            }
+        }
+
+        // Create a basic README.md
+        await writeFile(join(projectPath, 'README.md'), `# ${name}\n\nProject initialized by Soupz.\n`, 'utf8');
+
+        res.json({ ok: true, path: projectPath });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 async function buildFileTree(dirPath, rootPath, depth = 0) {
     if (depth > 6) return null;
@@ -911,6 +1054,15 @@ app.get('/api/dev-server', requireAuth, async (req, res) => {
     }
 });
 
+// GET /api/fs/roots — returns homedir and root drives (authenticated)
+app.get('/api/fs/roots', requireAuth, (req, res) => {
+    res.json({
+        homedir: os.homedir(),
+        cwd: process.cwd(),
+        platform: os.platform()
+    });
+});
+
 // GET /api/fs/dirs?path=/home — list directories for folder picker (authenticated)
 app.get('/api/fs/dirs', requireAuth, async (req, res) => {
     const dirPath = resolve(req.query.path || os.homedir());
@@ -936,8 +1088,12 @@ app.get('/api/fs/dirs', requireAuth, async (req, res) => {
 // GET /api/fs/tree?root=/path (authenticated)
 app.get('/api/fs/tree', requireAuth, async (req, res) => {
     const rootPath = resolve(req.query.root || REPO_ROOT || process.cwd());
-    if (!existsSync(rootPath)) return res.status(404).json({ error: 'Path not found' });
+    if (!existsSync(rootPath)) {
+        console.error(`  ✖ File tree requested for non-existent path: ${rootPath}`);
+        return res.status(404).json({ error: 'Path not found' });
+    }
     try {
+        console.log(`  📂 Loading file tree for: ${rootPath}`);
         const tree = await buildFileTree(rootPath, rootPath);
         // Get changed files from git
         let changedFiles = [];
@@ -947,6 +1103,7 @@ app.get('/api/fs/tree', requireAuth, async (req, res) => {
         } catch { /* not a git repo */ }
         res.json({ tree, changedFiles });
     } catch (err) {
+        console.error(`  ✖ Failed to build file tree: ${err.message}`);
         res.status(500).json({ error: err.message });
     }
 });
@@ -1057,10 +1214,31 @@ wss.on('connection', (ws) => {
     ws.on('message', (raw) => {
         try {
             const msg = JSON.parse(raw);
+            
+            // Bypass auth for local browser connections
+            const clientIP = req?.socket?.remoteAddress; // We don't have req here easily, we need to get IP from ws object
+            // Actually, ws._socket.remoteAddress
+            const remoteAddress = ws._socket?.remoteAddress;
+            const isLocal = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
 
             // FIRST MESSAGE MUST BE AUTH
             if (!wsAuthenticated) {
                 if (msg.type === 'auth') {
+                    if (isLocal) {
+                        // Auto-authenticate localhost
+                        wsAuthenticated = true;
+                        wsToken = 'local-dev-token';
+                        authenticatedClients.add(ws);
+                        clearTimeout(authTimeout);
+                        ws.send(JSON.stringify({
+                            type: 'auth_success',
+                            hostname: os.hostname(),
+                            health: getSystemHealth(),
+                        }));
+                        console.log(`  💻 Local dashboard authenticated automatically`);
+                        return;
+                    }
+
                     if (msg.token && isValidSession(msg.token)) {
                         wsAuthenticated = true;
                         wsToken = msg.token;
@@ -1333,15 +1511,25 @@ export function startRemoteServer(port = DEFAULT_PORT, opts = {}) {
 async function startCommandListener() {
     if (!supabase) return;
 
-    const { data: pending } = await supabase
-        .from('soupz_commands')
-        .select('*')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: true })
-        .limit(20);
+    try {
+        const { data: pending, error } = await supabase
+            .from('soupz_commands')
+            .select('*')
+            .eq('status', 'pending')
+            .order('created_at', { ascending: true })
+            .limit(20);
 
-    for (const cmd of pending || []) {
-        executeCommand(cmd).catch(() => {});
+        if (error && error.code === '42P01') {
+            console.error('\n  ✖ Supabase tables not found.');
+            console.log('  Run: soupz sync to setup your database.\n');
+            return;
+        }
+
+        for (const cmd of pending || []) {
+            executeCommand(cmd).catch(() => {});
+        }
+    } catch (err) {
+        // Silently fail if DB is not ready
     }
 
     supabase
