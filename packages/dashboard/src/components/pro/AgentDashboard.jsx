@@ -125,31 +125,9 @@ export default function AgentDashboard({ daemon }) {
               <Loader2 size={14} className="text-text-faint animate-spin" />
             </div>
           ) : (
-            CLI_AGENTS.map(agent => {
-              const installed = agentStatus[agent.id];
-              const Icon = agent.icon;
-              return (
-                <button
-                  key={agent.id}
-                  onClick={() => {
-                    // Dispatch event to open stats and highlight agent
-                    window.dispatchEvent(new CustomEvent('soupz_show_agent_stats', { detail: { agentId: agent.id } }));
-                  }}
-                  className="w-full flex items-center gap-3 p-2 rounded-md bg-bg-elevated/50 border border-border-subtle hover:border-border-mid transition-all text-left"
-                >
-                  <Icon size={16} style={{ color: agent.color }} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-ui font-medium text-text-pri">{agent.name}</p>
-                    <p className="text-[10px] text-text-faint">{agent.tier}</p>
-                  </div>
-                  {installed ? (
-                    <CheckCircle2 size={14} className="text-success shrink-0" />
-                  ) : (
-                    <XCircle size={14} className="text-error shrink-0" />
-                  )}
-                </button>
-              );
-            })
+            CLI_AGENTS.map(agent => (
+              <AgentRow key={agent.id} agent={agent} installed={agentStatus[agent.id]} />
+            ))
           )}
         </div>
       )}
@@ -297,6 +275,58 @@ export default function AgentDashboard({ daemon }) {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+function AgentRow({ agent, installed }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const Icon = agent.icon;
+
+  return (
+    <div className="space-y-1">
+      <button
+        onClick={() => {
+          if (agent.models) setIsExpanded(!isExpanded);
+          window.dispatchEvent(new CustomEvent('soupz_show_agent_stats', { detail: { agentId: agent.id } }));
+        }}
+        className="w-full flex items-center gap-3 p-2 rounded-md bg-bg-elevated/50 border border-border-subtle hover:border-border-mid transition-all text-left group"
+      >
+        <Icon size={16} style={{ color: agent.color }} />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-ui font-medium text-text-pri">{agent.name}</p>
+          <p className="text-[10px] text-text-faint">{agent.tier}</p>
+        </div>
+        {agent.models && (
+          <ChevronDown size={12} className={cn("text-text-faint transition-transform", isExpanded && "rotate-180")} />
+        )}
+        {installed ? (
+          <CheckCircle2 size={14} className="text-success shrink-0" />
+        ) : (
+          <XCircle size={14} className="text-error shrink-0" />
+        )}
+      </button>
+
+      {isExpanded && agent.models && (
+        <div className="ml-4 pl-4 border-l border-border-subtle space-y-2 py-1 animate-fade-in">
+          {agent.models.map(model => (
+            <div key={model.id} className="space-y-1">
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-text-sec font-mono">{model.name}</span>
+                {model.usage !== undefined && <span className="text-text-faint">{model.usage}%</span>}
+              </div>
+              {model.usage !== undefined && (
+                <div className="h-1 bg-border-subtle rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-accent transition-all duration-500" 
+                    style={{ width: `${model.usage}%`, backgroundColor: agent.color }} 
+                  />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

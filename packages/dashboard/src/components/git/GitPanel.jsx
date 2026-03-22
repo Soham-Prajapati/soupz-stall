@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   GitBranch, Plus, Minus, Check, Upload, RefreshCw, ChevronDown, ChevronRight,
   Sparkles, Loader2,
@@ -15,6 +15,12 @@ export default function GitPanel({ daemon }) {
   const [expandDiff, setExpandDiff] = useState(true);
   const [branch, setBranch]     = useState('main');
   const [generatingMsg, setGeneratingMsg] = useState(false);
+
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, 15000); // Refresh every 15s
+    return () => clearInterval(interval);
+  }, [daemon]);
 
   async function refresh() {
     setLoading(true);

@@ -152,13 +152,13 @@ function AnimTerminal() {
         </div>
       </div>
       {/* Body */}
-      <div className="p-4 font-mono text-xs leading-[1.8] min-h-[180px]">
+      <div className="p-4 font-mono text-xs leading-[1.8] min-h-[180px] overflow-x-hidden">
         {TERM_LINES.slice(0, count).map((line, i) => {
           if (line.t === 'pair') {
             return (
               <div key={i} className="my-3 text-center">
                 <div
-                  className="inline-block tracking-[0.3em] font-medium text-base px-6 py-2.5 rounded-lg border"
+                  className="inline-block tracking-[0.2em] md:tracking-[0.3em] font-medium text-sm md:text-base px-3 md:px-6 py-2.5 rounded-lg border max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
                   style={{
                     color: 'var(--accent)',
                     borderColor: 'rgba(99,102,241,0.25)',
@@ -175,6 +175,7 @@ function AnimTerminal() {
             <div
               key={i}
               className={cn(
+                'break-words whitespace-pre-wrap',
                 line.t === 'cmd' && 'text-text-pri',
                 line.t === 'out' && 'text-text-faint',
                 line.t === 'ok'  && 'text-success',
@@ -299,7 +300,7 @@ export default function LandingPage({ navigate }) {
             <a href="#agents" className="hover:text-text-pri transition-colors">Agents</a>
           </nav>
 
-          <div className="flex items-center gap-3 ml-6">
+          <div className="flex items-center gap-4 ml-8 lg:ml-12">
             <a
               href="https://github.com/soupz"
               target="_blank"
@@ -371,24 +372,24 @@ export default function LandingPage({ navigate }) {
               </div>
 
               {/* Social proof */}
-              <div className="fade-up fade-up-4 flex items-center gap-4 text-text-faint text-xs font-ui">
-                <span className="flex items-center gap-1"><Star size={11} className="text-warning/60" /> 2.4k stars</span>
-                <span className="w-px h-3 bg-border-subtle" />
+              <div className="fade-up fade-up-4 flex flex-wrap items-center gap-4 sm:gap-6 text-text-faint text-xs font-ui leading-relaxed mt-2">
+                <span className="flex items-center gap-1.5"><Star size={12} className="text-warning" /> <span className="text-text-sec font-medium">2.4k</span> stars</span>
+                <span className="hidden sm:block w-px h-3 bg-border-subtle" />
                 <span>MIT License</span>
-                <span className="w-px h-3 bg-border-subtle" />
+                <span className="hidden sm:block w-px h-3 bg-border-subtle" />
                 <span>macOS &middot; Linux &middot; Windows</span>
               </div>
             </div>
 
             {/* Right — Visual: Terminal + Phone overlapping */}
             <div className="fade-up fade-up-5 relative hidden md:block">
-              <div className="w-[400px]">
+              <div className="w-[420px] relative z-0">
                 <AnimTerminal />
               </div>
               {/* Phone floating over terminal */}
               <div
-                className="absolute -bottom-8 -right-6"
-                style={{ animation: 'float 4s ease-in-out infinite' }}
+                className="absolute -bottom-16 -right-16 lg:-right-24 z-10"
+                style={{ animation: 'float 5s ease-in-out infinite' }}
               >
                 <PhoneMockup />
               </div>
@@ -559,13 +560,13 @@ export default function LandingPage({ navigate }) {
                 </div>
                 <div className="flex justify-center">
                   {/* IDE mockup */}
-                  <div className="w-full max-w-sm rounded-xl border border-border-subtle bg-bg-surface overflow-hidden">
-                    <div className="flex items-center gap-2 px-3 py-2 border-b border-border-subtle bg-bg-elevated/50 text-[10px] font-mono text-text-faint">
-                      <Code2 size={11} className="text-text-sec" />
-                      <span>App.jsx</span>
-                      <span className="ml-auto text-accent/60">Ln 42, Col 8</span>
+                  <div className="w-full max-w-[280px] md:max-w-sm rounded-xl border border-border-subtle bg-bg-surface overflow-hidden">
+                    <div className="flex items-center flex-wrap gap-2 px-3 py-2 border-b border-border-subtle bg-bg-elevated/50 text-[10px] font-mono text-text-faint">
+                      <Code2 size={11} className="text-text-sec shrink-0" />
+                      <span className="shrink-0">App.jsx</span>
+                      <span className="ml-auto text-accent/60 shrink-0">Ln 42, Col 8</span>
                     </div>
-                    <div className="p-3 font-mono text-[10px] leading-[1.8] text-text-sec min-h-[120px]">
+                    <div className="p-3 font-mono text-[10px] leading-[1.8] text-text-sec min-h-[120px] overflow-x-auto whitespace-pre">
                       <div><span className="text-accent/60">1</span>  <span className="text-[#C586C0]">import</span> {'{'} useState {'}'} <span className="text-[#C586C0]">from</span> <span className="text-[#CE9178]">'react'</span>;</div>
                       <div><span className="text-accent/60">2</span></div>
                       <div><span className="text-accent/60">3</span>  <span className="text-[#C586C0]">export default function</span> <span className="text-[#DCDCAA]">App</span>() {'{'}</div>

@@ -1,5 +1,18 @@
 #!/usr/bin/env node
 
+// ─── Memory Boost ───────────────────────────────────────────────────────────
+// If we haven't boosted the heap memory yet, re-spawn with 4GB.
+if (process.env.SOUPZ_BOOSTED !== 'true' && (!process.env.NODE_OPTIONS || !process.env.NODE_OPTIONS.includes('--max-old-space-size'))) {
+    const { spawnSync } = await import('child_process');
+    const env = { 
+        ...process.env, 
+        SOUPZ_BOOSTED: 'true',
+        NODE_OPTIONS: (process.env.NODE_OPTIONS || '') + ' --max-old-space-size=4096' 
+    };
+    const res = spawnSync(process.argv[0], process.argv.slice(1), { env, stdio: 'inherit' });
+    process.exit(res.status ?? 0);
+}
+
 import '../src/env.js';
 
 import chalk from 'chalk';

@@ -7,13 +7,13 @@
         "soupz": "./bin/soupz.js"
     },
     "scripts": {
-        "setup": "node scripts/setup.js",
-        "start": "node bin/soupz.js",
-        "dev": "node bin/soupz.js",
-        "dev:web": "node scripts/dev-web-stack.js",
-        "dev:web:pnpm": "SOUPZ_PM=pnpm node scripts/dev-web-stack.js",
-        "dev:web:npm": "SOUPZ_PM=npm node scripts/dev-web-stack.js",
-        "postinstall": "node src/auto-import.js && (cd packages/remote-server && npm install --silent 2>/dev/null) || true"
+        "setup": "node --max-old-space-size=4096 scripts/setup.js",
+        "start": "node --max-old-space-size=4096 bin/soupz.js",
+        "dev": "node --max-old-space-size=4096 bin/soupz.js",
+        "dev:web": "node --max-old-space-size=4096 scripts/dev-web-stack.js",
+        "dev:web:pnpm": "SOUPZ_PM=pnpm node --max-old-space-size=4096 scripts/dev-web-stack.js",
+        "dev:web:npm": "SOUPZ_PM=npm node --max-old-space-size=4096 scripts/dev-web-stack.js",
+        "postinstall": "node --max-old-space-size=4096 src/auto-import.js && (cd packages/remote-server && npm install --silent 2>/dev/null) || true"
     },
     "optionalDependencies": {
         "node-pty": "^1.0.0"

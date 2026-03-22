@@ -109,11 +109,8 @@ export default function StatusBar({
     if (!workspaceOnline) {
       items.push({ id: 'offline', type: 'warning', text: 'Workspace disconnected. Run npx soupz to connect.' });
     }
-    if (totalMsgs >= 100 && !readJSON('soupz_notif_100_dismissed', false)) {
-      items.push({ id: '100msgs', type: 'info', text: 'Milestone: 100 messages sent!' });
-    }
     return items;
-  }, [workspaceOnline, totalMsgs]);
+  }, [workspaceOnline]);
 
   return (
     <div className={cn('h-[22px] flex items-center shrink-0 select-none z-20', barBg, textColor)}>

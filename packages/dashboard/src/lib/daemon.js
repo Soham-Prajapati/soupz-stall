@@ -434,7 +434,8 @@ export async function getFileTree(rootPath, userId) {
 export async function readFile(filePath, userId) {
   if (token() || isLocalDaemon) {
     try {
-      return await localGet(`/api/fs/file?path=${encodeURIComponent(filePath)}`);
+      const res = await localGet(`/api/fs/file?path=${encodeURIComponent(filePath)}`);
+      return res?.content || '';
     } catch (e) {
       if (!userId) throw e;
     }
@@ -443,7 +444,8 @@ export async function readFile(filePath, userId) {
   // GitHub Fallback
   if (userId) {
     try {
-      return await localGet(`/api/git/mirror/file?path=${encodeURIComponent(filePath)}`);
+      const res = await localGet(`/api/git/mirror/file?path=${encodeURIComponent(filePath)}`);
+      return res?.content || '';
     } catch {
       return sendCommand('FILE_READ', { path: filePath }, userId);
     }

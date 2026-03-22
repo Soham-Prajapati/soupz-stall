@@ -205,6 +205,16 @@ export class Session {
         writeFileSync(p, JSON.stringify(this.modelPrefs, null, 2));
     }
 
+    /** Add a message to the persistent conversation log with a size safety limit */
+    pushToLog(entry) {
+        // Limit individual entry text size to 50KB to prevent OOM during JSON.stringify (session saving)
+        const MAX_LOG_SIZE = 50000;
+        if (entry.text && entry.text.length > MAX_LOG_SIZE) {
+            entry.text = entry.text.slice(0, MAX_LOG_SIZE) + `\n\n... [Log truncated for session saving, original size: ${entry.text.length} chars]`;
+        }
+        this.conversationLog.push(entry);
+    }
+
     /** Get cost multiplier for a model ID (0 = free, 30 = expensive) */
     getModelCost(modelId) {
         const m = COPILOT_MODELS.find(m => m.id === modelId);
@@ -364,7 +374,7 @@ export class Session {
                 this.stopSpinner();
                 const a = this.registry.get(agentId);
                 this.getAgentTokens(agentId).out += Math.ceil(parsed.text.length / 4);
-                this.conversationLog.push({ role: 'assistant', agent: agentId, text: parsed.text, ts: Date.now() });
+                this.pushToLog({ role: 'assistant', agent: agentId, text: parsed.text, ts: Date.now() });
                 
                 // Supabase Relay: Stream chunk to cloud
                 if (this.currentOrderId) {
@@ -1162,7 +1172,7 @@ export class Session {
         const inToks = Math.ceil(resolved.length / 4);
         if (toolId) { this.getAgentTokens(toolId).in += inToks; this.getAgentTokens(toolId).prompts++; }
         this.totalPromptsSent++;
-        this.conversationLog.push({ role: 'user', text: input, ts: Date.now() });
+        this.pushToLog({ role: 'user', text: input, ts: Date.now() });
 
         if (resolved.startsWith('@auto ')) { await this.autoRoute(resolved.slice(6).trim()); return; }
         const mm = resolved.match(/^@(\w+)\s+([\s\S]+)/);
@@ -2263,7 +2273,7 @@ export class Session {
         const toolAgent = this.registry.get(toolId);
         this.getAgentTokens(toolId).in += Math.ceil(prompt.length / 4);
         this.getAgentTokens(toolId).prompts++;
-        this.conversationLog.push({ role: 'user', persona: personaId, text: prompt, ts: Date.now() });
+        this.pushToLog({ role: 'user', persona: personaId, text: prompt, ts: Date.now() });
         console.log(chalk.hex(persona.color)(`  ${persona.icon} ${persona.name}`) +
             chalk.dim(` → `) + chalk.hex(toolAgent?.color || '#888')(`${toolAgent?.icon} ${toolId}`) +
             (this.activeModel ? chalk.dim(` (${this.activeModel})`) : ''));

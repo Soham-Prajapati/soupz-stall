@@ -1,6 +1,6 @@
 /**
  * Soupz Skills Registry
- * A set of 10 skills that enhance prompts sent to ANY CLI agent.
+ * A set of 16 skills that enhance prompts sent to ANY CLI agent.
  * Each skill has a system prompt that gets prepended to the user's message.
  */
 
@@ -83,6 +83,60 @@ DOCUMENTATION:
 3. Document API endpoints with request/response examples
 
 When asked to build something, start by asking clarifying questions about requirements, then examine the codebase, then implement the feature following all patterns above. Your code should feel like it was written by the original team.`,
+  },
+  {
+    id: 'compact',
+    name: 'Compact',
+    icon: 'Minimize2',
+    color: 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-400',
+    description: 'Condense and optimize code to be more concise',
+    triggers: ['compact', 'shorten', 'refactor', 'clean'],
+    systemPrompt: 'You are an expert at refactoring code to be as compact and efficient as possible without sacrificing readability or functionality. Remove redundant logic and simplify expressions.',
+  },
+  {
+    id: 'explain',
+    name: 'Explain Code',
+    icon: 'BookOpen',
+    color: 'bg-blue-500/20 text-blue-600 dark:text-blue-400',
+    description: 'Explain how the code works step by step',
+    triggers: ['explain', 'how', 'walkthrough'],
+    systemPrompt: 'Explain the following code step-by-step in clear, easy-to-understand language. Focus on the core logic and any non-obvious patterns.',
+  },
+  {
+    id: 'fix',
+    name: 'Fix Bugs',
+    icon: 'Bug',
+    color: 'bg-red-500/20 text-red-600 dark:text-red-400',
+    description: 'Propose a fix for bugs in the selected code',
+    triggers: ['fix', 'bug', 'error', 'broken'],
+    systemPrompt: 'Analyze the provided code for bugs, logic errors, or syntax issues. Provide a detailed explanation of what is wrong and exactly how to fix it, followed by the corrected code.',
+  },
+  {
+    id: 'new',
+    name: 'New File/Project',
+    icon: 'PlusSquare',
+    color: 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400',
+    description: 'Scaffold a new file, component, or project',
+    triggers: ['new', 'create', 'scaffold'],
+    systemPrompt: 'You are an expert project scaffolder. Generate the exact boilerplate code needed for the requested new file or project structure, using modern best practices.',
+  },
+  {
+    id: 'tests',
+    name: 'Generate Tests',
+    icon: 'TestTube',
+    color: 'bg-amber-500/20 text-amber-600 dark:text-amber-400',
+    description: 'Generate unit tests for the code',
+    triggers: ['tests', 'test', 'spec'],
+    systemPrompt: 'Generate robust unit tests for the provided code. Use the standard testing framework for the language. Include edge cases and happy paths.',
+  },
+  {
+    id: 'plan',
+    name: 'Research & Plan',
+    icon: 'ClipboardList',
+    color: 'bg-purple-500/20 text-purple-600 dark:text-purple-400',
+    description: 'Research and plan with the Plan agent',
+    triggers: ['plan', 'research', 'outline'],
+    systemPrompt: 'You are a staff-level software architect. Before writing code, outline a comprehensive step-by-step plan for implementing the requested feature. Consider architecture, edge cases, and required dependencies.',
   },
   {
     id: 'design',
@@ -1456,7 +1510,14 @@ When writing tests, remember: tests are insurance against regressions. Write tes
 ];
 
 /**
- * Detect which skill matches the prompt best by scanning for trigger keywords
+ * Get a skill by its ID
+ */
+export function getSkillById(skillId) {
+  return SKILLS.find((skill) => skill.id === skillId) || null;
+}
+
+/**
+ * Detect which skill matches the prompt best by scanning for trigger keywords or slash commands
  */
 export function detectSkill(prompt) {
   if (!prompt || typeof prompt !== 'string') {
@@ -1464,7 +1525,17 @@ export function detectSkill(prompt) {
   }
 
   const lowerPrompt = prompt.toLowerCase();
+  const trimmedPrompt = prompt.trim();
+  
+  // 1. Check for explicit slash command (highest priority)
+  if (trimmedPrompt.startsWith('/')) {
+    const words = trimmedPrompt.split(/\s+/);
+    const command = words[0].slice(1);
+    const skill = SKILLS.find(s => s.id === command);
+    if (skill) return skill;
+  }
 
+  // 2. Fallback to keyword scoring
   let bestMatch = null;
   let bestScore = 0;
 
@@ -1472,15 +1543,17 @@ export function detectSkill(prompt) {
     let score = 0;
 
     // Check for trigger keywords
-    for (const trigger of skill.triggers) {
-      const triggerRegex = new RegExp(`\\b${trigger}\\b`, 'i');
-      if (triggerRegex.test(lowerPrompt)) {
-        score += 10;
+    if (skill.triggers) {
+      for (const trigger of skill.triggers) {
+        const triggerRegex = new RegExp(`\\b${trigger}\\b`, 'i');
+        if (triggerRegex.test(lowerPrompt)) {
+          score += 10;
+        }
       }
     }
 
-    // Bonus for skill ID mentioned explicitly
-    if (lowerPrompt.includes(`/${skill.id}`) || lowerPrompt.includes(skill.name.toLowerCase())) {
+    // Bonus for skill name mentioned explicitly
+    if (lowerPrompt.includes(skill.name.toLowerCase())) {
       score += 50;
     }
 
@@ -1494,13 +1567,6 @@ export function detectSkill(prompt) {
 }
 
 /**
- * Get a skill by its ID
- */
-export function getSkillById(skillId) {
-  return SKILLS.find((skill) => skill.id === skillId) || null;
-}
-
-/**
  * Apply a skill to a prompt by prepending the system prompt
  */
 export function applySkill(skillId, userPrompt) {
@@ -1510,5 +1576,8 @@ export function applySkill(skillId, userPrompt) {
     return userPrompt;
   }
 
-  return `${skill.systemPrompt}\n\n---\n\nUser Request:\n${userPrompt}`;
+  // Remove the /command from the prompt text if it was used to trigger it
+  const cleanPrompt = userPrompt.replace(new RegExp(`^/${skillId}\\s*`, 'i'), '').trim();
+
+  return `[SYSTEM INSTRUCTION: ${skill.systemPrompt}]\n\nUSER REQUEST:\n${cleanPrompt}`;
 }

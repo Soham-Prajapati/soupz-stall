@@ -1,7 +1,0 @@
-{
-  "env": {
-    "GEMINI_EXPERIMENTAL_AGENT_TEAMS": "1"
-  },
-  "teammateMode": "tmux",
-  "tokenOptimization": "rtk-proxy"
-}

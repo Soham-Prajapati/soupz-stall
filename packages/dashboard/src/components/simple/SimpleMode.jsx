@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Send, Mic, MicOff, ChevronDown, Check, X, Paperclip,
   Cpu, Palette, Code2, Search, TrendingUp, Server, DollarSign, Bot,
   Zap, BrainCircuit, Sparkles, Github, RotateCcw, Copy, CheckCheck,
-  Square, Volume2, VolumeX, Loader2, User,
+  Square, Volume2, VolumeX, Loader2, User, Terminal
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS, SPECIALISTS, BUILD_MODES, getAgentById } from '../../lib/agents';
@@ -11,23 +11,17 @@ import { SKILLS, detectSkill, applySkill, getSkillById } from '../../lib/skills'
 import { getAutoSelection } from '../../lib/routing';
 import { checkAgentAvailability } from '../../lib/daemon';
 import { detectTeamTrigger, getTeamById } from '../../lib/teams';
-import OllamaStatus from '../shared/OllamaStatus';
 import InteractiveQuestions from './InteractiveQuestions';
-import LearnedAgents, { SuggestionDot } from '../shared/LearnedAgents';
 import PreviewPanel from '../shared/PreviewPanel';
-import { usePreviewExtractor } from '../../hooks/usePreviewExtractor';
 import { getDevServerUrl } from '../../lib/daemon';
-import { trackUsage, getCustomAgents } from '../../lib/learning';
-import { getMemoryContext, saveMemoryShard } from '../../lib/memory';
+import { trackUsage } from '../../lib/learning';
+import { getMemoryContext } from '../../lib/memory';
 import { useKokoroTTS } from '../../hooks/useKokoroTTS';
-// Sarvam STT available as optional upgrade - import only if needed
-// import { useSarvamSTT } from '../../hooks/useSarvamSTT';
 
 const STORAGE_KEY = 'soupz_chat_history';
 const AGENT_KEY   = 'soupz_agent';
 const MODE_KEY    = 'soupz_build_mode';
 
-// Map specialist ids → Lucide icon overrides for display
 const ICON_MAP = {
   auto: Cpu, designer: Palette, dev: Code2, researcher: Search,
   strategist: TrendingUp, devops: Server, finance: DollarSign,
@@ -40,15 +34,11 @@ function getIcon(id) {
   return ICON_MAP[id] || entry?.icon || Bot;
 }
 
-// Minimal markdown: bold, inline code, code blocks
 function renderMarkdown(text) {
   const parts = [];
-  let i = 0;
-  const src = text || '';
-
-  // Split by code fences first
-  const blockRe = /```(\w*)\n?([\s\S]*?)```/g;
   let last = 0;
+  const src = text || '';
+  const blockRe = /```(\w*)\n?([\s\S]*?)```/g;
   let m;
   while ((m = blockRe.exec(src)) !== null) {
     if (m.index > last) parts.push({ type: 'text', content: src.slice(last, m.index) });
@@ -59,21 +49,16 @@ function renderMarkdown(text) {
 
   return parts.map((p, i) => {
     if (p.type === 'code') return (
-      <div key={i} className="msg-code my-2 rounded-lg overflow-hidden">
-        {p.lang && (
-          <div className="msg-code-header">
-            <span className="text-text-faint text-xs font-mono">{p.lang}</span>
-          </div>
-        )}
-        <pre className="px-3 py-2.5 text-xs font-mono text-text-sec overflow-x-auto">{p.content}</pre>
+      <div key={i} className="my-3 rounded-md overflow-hidden border border-border-subtle bg-bg-base">
+        {p.lang && <div className="px-3 py-1.5 border-b border-border-subtle bg-white/5 text-[10px] font-mono text-text-faint uppercase">{p.lang}</div>}
+        <pre className="p-3 text-[12px] font-mono text-text-sec overflow-x-auto leading-relaxed">{p.content}</pre>
       </div>
     );
-    // inline: **bold**, `code`
     const inline = p.content.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).map((chunk, j) => {
       if (chunk.startsWith('`') && chunk.endsWith('`'))
-        return <code key={j} className="font-mono text-accent text-[11px] bg-bg-elevated px-1 py-0.5 rounded">{chunk.slice(1,-1)}</code>;
+        return <code key={j} className="font-mono text-accent text-[11px] bg-white/5 px-1 rounded">{chunk.slice(1,-1)}</code>;
       if (chunk.startsWith('**') && chunk.endsWith('**'))
-        return <strong key={j} className="font-semibold text-text-pri">{chunk.slice(2,-2)}</strong>;
+        return <strong key={j} className="font-bold text-text-pri">{chunk.slice(2,-2)}</strong>;
       return chunk;
     });
     return <span key={i}>{inline}</span>;
@@ -81,576 +66,239 @@ function renderMarkdown(text) {
 }
 
 function parseQuestionBlock(content) {
-  const SOUPZ_Q_RE = /\[SOUPZ_Q\]([\s\S]*?)\[\/SOUPZ_Q\]/;
-  const match = content.match(SOUPZ_Q_RE);
+  const match = content.match(/\[SOUPZ_Q\]([\s\S]*?)\[\/SOUPZ_Q\]/);
   if (!match) return null;
-  try {
-    return JSON.parse(match[1]);
-  } catch (e) {
-    return null;
-  }
+  try { return JSON.parse(match[1]); } catch { return null; }
 }
 
 export default function SimpleMode({ daemon, compact = false }) {
   const [messages, setMessages] = useState(() => {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
   });
-  const [input, setInput]       = useState('');
-  const [agentId, setAgentId]   = useState(() => localStorage.getItem(AGENT_KEY) || 'auto');
+  const [input, setInput] = useState('');
+  const [agentId, setAgentId] = useState(() => localStorage.getItem(AGENT_KEY) || 'auto');
   const [buildMode, setBuildMode] = useState(() => localStorage.getItem(MODE_KEY) || 'quick');
   const [isStreaming, setIsStreaming] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
-  const [modeOpen, setModeOpen]   = useState(false);
+  const [modeOpen, setModeOpen] = useState(false);
   const [listening, setListening] = useState(false);
-  const [fileChanges, setFileChanges] = useState([]);
-  const [copiedId, setCopiedId]   = useState(null);
-  const [useOllama, setUseOllama] = useState(
-    () => localStorage.getItem('soupz_use_ollama') !== 'false',
-  );
-  const [speakingId, setSpeakingId] = useState(null); // id of message being read aloud
   const [activeSkill, setActiveSkill] = useState(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [devServerUrl, setDevServerUrl] = useState(null);
+  const allCommands = useMemo(() => {
+    return [
+      ...SKILLS.map(s => ({ ...s, type: 'skill' })),
+      ...CLI_AGENTS.map(a => ({ id: a.id, name: a.name, description: a.description || 'CLI Agent', color: a.color, type: 'agent' })),
+      ...SPECIALISTS.map(a => ({ id: a.id, name: a.name, description: a.desc || 'Specialist Agent', color: a.color, type: 'agent' })),
+    ];
+  }, []);
 
+  const [slashCommandOpen, setSlashCommandOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [filteredCommands, setFilteredCommands] = useState(allCommands);
+  const [slashIndex, setSlashIndex] = useState(0);
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
-  const recogRef = useRef(null);
-  // abortRef lets pauseStreaming() stop mid-flight chunk processing
-  const abortRef = useRef(false);
 
-  const { speak: kokoroSpeak, stop: kokoroStop, speaking: kokoroSpeaking, modelLoading, loadProgress, ttsError, ttsEngine } = useKokoroTTS();
-  const [sttError, setSttError] = useState(null);
-
-  // Persist messages
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-100)));
-  }, [messages]);
+    if (input.startsWith('/')) {
+      const q = input.slice(1).toLowerCase();
+      const filtered = allCommands.filter(c => 
+        c.name.toLowerCase().includes(q) || 
+        c.id.toLowerCase().includes(q) || 
+        c.description.toLowerCase().includes(q)
+      );
+      setFilteredCommands(filtered);
+      setSlashCommandOpen(true);
+      setSlashIndex(0);
+    } else {
+      setSlashCommandOpen(false);
+    }
+  }, [input, allCommands]);
 
-  useEffect(() => { localStorage.setItem(AGENT_KEY, agentId); }, [agentId]);
-  useEffect(() => { localStorage.setItem(MODE_KEY, buildMode); }, [buildMode]);
+  async function handleCommandSelect(cmd) {
+    if (cmd.type === 'skill') {
+      setActiveSkill(cmd.id);
+    } else if (cmd.type === 'agent') {
+      setAgentId(cmd.id);
+    }
+    setInput('');
+    setSlashCommandOpen(false);
+  }
 
-  // Scroll to bottom on new message
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  // Listen for file changes from daemon
-  useEffect(() => {
-    if (!daemon?.onFileChange) return;
-    return daemon.onFileChange(changes => setFileChanges(prev => [...prev, ...changes]));
-  }, [daemon]);
-
-  // Detect dev server on mount
-  useEffect(() => {
-    if (compact) return; // No preview in compact mode
-    getDevServerUrl().then(d => d?.url && setDevServerUrl(d.url));
-  }, [compact]);
-
-  async function sendMessage(overrideText) {
-    const text = (overrideText !== undefined ? overrideText : input).trim();
+  async function sendMessage() {
+    const text = input.trim();
     if (!text || isStreaming) return;
-    if (overrideText === undefined) setInput('');
-
-    // Resolve the effective agent — run auto-selection when agentId is 'auto'
+    setInput('');
+    
     let effectiveAgentId = agentId;
     let autoLabel = null;
 
     if (agentId === 'auto') {
       try {
         const avail = await checkAgentAvailability();
-        const { cliAgent, specialist, fallbackReason } = await getAutoSelection(text, avail, useOllama);
+        const { cliAgent, fallbackReason } = await getAutoSelection(text, avail, true);
         effectiveAgentId = cliAgent;
-        const agentEntry = getAgentById(cliAgent);
-        autoLabel = fallbackReason
-          ? `Auto → ${agentEntry?.name || cliAgent} (${fallbackReason})`
-          : `Auto → ${agentEntry?.name || cliAgent}`;
+        autoLabel = `Auto → ${getAgentById(cliAgent)?.name || cliAgent}${fallbackReason ? ` (${fallbackReason})` : ''}`;
       } catch {
-        // Try gemini first (free), then claude-code (premium)
         effectiveAgentId = 'gemini';
         autoLabel = 'Auto → Gemini (fallback)';
       }
     }
 
-    // Check if this prompt triggers a team workflow
-    const teamTrigger = agentId === 'auto' ? detectTeamTrigger(text) : null;
-    const teamInfo = teamTrigger ? getTeamById(teamTrigger.teamId) : null;
-
-    // Prepend relevant memory context to the prompt sent to the daemon
-    const memoryCtx  = getMemoryContext(text);
-    let promptForDaemon = memoryCtx ? memoryCtx + text : text;
-
-    // Apply skill if explicitly selected, else try auto-detection
     let appliedSkill = activeSkill;
-    if (!appliedSkill) {
-      const detected = detectSkill(text);
-      if (detected && detected.confidence > 0.6) {
-        appliedSkill = detected.skillId;
-      }
-    }
-    if (appliedSkill) {
-      promptForDaemon = applySkill(appliedSkill, promptForDaemon);
-    }
+    let promptForDaemon = text;
+    if (appliedSkill) promptForDaemon = applySkill(appliedSkill, text);
 
-    const userMsg = { id: Date.now(), role: 'user', content: text };
-    const aiMsg   = {
-      id: Date.now() + 1,
-      role: 'ai',
-      content: '',
-      agentId: effectiveAgentId,
-      autoLabel: appliedSkill
-        ? (teamInfo ? `Team: ${teamInfo.name}` : `${autoLabel || ''} [${getSkillById(appliedSkill)?.name || appliedSkill}]`).trim()
-        : teamInfo ? `Team: ${teamInfo.name}` : autoLabel,
-      streaming: true,
-    };
-    setMessages(prev => [...prev, userMsg, aiMsg]);
+    const aiMsg = { id: Date.now() + 1, role: 'ai', content: '', agentId: effectiveAgentId, autoLabel, streaming: true };
+    setMessages(prev => [...prev, { id: Date.now(), role: 'user', content: text }, aiMsg]);
     setIsStreaming(true);
-    abortRef.current = false;
 
     try {
       if (daemon?.sendPrompt) {
-        // If a team was triggered, enhance the prompt with team context
-        const finalPrompt = teamInfo
-          ? `[Team Workflow: ${teamInfo.name}]\n${teamInfo.description}\nMembers: ${teamInfo.members.join(', ')}\n\nUser request: ${promptForDaemon}\n\nExecute this as a coordinated team effort. Run each member's analysis, then synthesize results.`
-          : promptForDaemon;
-
-        await daemon.sendPrompt({ prompt: finalPrompt, agentId: effectiveAgentId, buildMode }, chunk => {
-          if (abortRef.current) return;
-          setMessages(prev => prev.map(m =>
-            m.id === aiMsg.id ? { ...m, content: m.content + chunk } : m
-          ));
+        await daemon.sendPrompt({ prompt: promptForDaemon, agentId: effectiveAgentId, buildMode }, chunk => {
+          setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: m.content + chunk } : m));
         });
-      } else {
-        // No workspace connected — show helpful message
-        await new Promise(r => setTimeout(r, 600));
-        if (!abortRef.current) {
-          setMessages(prev => prev.map(m =>
-            m.id === aiMsg.id
-              ? { ...m, content: `**Not connected to your machine.**\n\nRun \`npx soupz\` in your terminal and enter the pairing code to connect.` }
-              : m
-          ));
-        }
       }
     } catch (err) {
-      setMessages(prev => prev.map(m =>
-        m.id === aiMsg.id ? { ...m, content: `Error: ${err.message}` } : m
-      ));
+      setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: `Error: ${err.message}` } : m));
     } finally {
       setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, streaming: false } : m));
       setIsStreaming(false);
-      abortRef.current = false;
-      // Track usage for learning system — runs after stream completes
-      trackUsage(text, effectiveAgentId, 'auto', buildMode, 'sent');
-
-      // Auto-save a memory shard from the last exchange
-      try {
-        setMessages(prev => {
-          const recent = prev.slice(-4); // last few messages for context
-          const aiContent = prev.find(m => m.id === aiMsg.id)?.content || '';
-          if (aiContent && aiContent.length > 20 && !aiContent.startsWith('Error:') && !aiContent.startsWith('**Not connected')) {
-            const summary = text.slice(0, 120) + (aiContent.length > 80 ? ' — ' + aiContent.slice(0, 80) : '');
-            const keywords = text
-              .toLowerCase()
-              .replace(/[^a-z0-9\s]/g, ' ')
-              .split(/\s+/)
-              .filter(w => w.length > 3)
-              .slice(0, 6);
-            saveMemoryShard(summary, keywords, effectiveAgentId, 'general', recent.length);
-          }
-          return prev; // no mutation
-        });
-      } catch {
-        // Memory save is non-critical — fail silently
-      }
+      setActiveSkill(null);
     }
   }
 
-  // Stop the current stream and let user type a new message to redirect
-  function pauseStreaming() {
-    abortRef.current = true;
-    setIsStreaming(false);
-    setMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m));
-  }
-
-  // Called when user submits answers to a SOUPZ_Q block
-  function handleQuestionSubmit(questions, answers) {
-    // Format: "[User answers] q1: PostgreSQL | q2: Vercel, AWS"
-    const formatted = Object.entries(answers)
-      .map(([qId, selected]) => {
-        const labels = Array.isArray(selected) ? selected.join(', ') : selected;
-        return `${qId}: ${labels}`;
-      })
-      .join(' | ');
-
-    sendMessage(`[User answers] ${formatted}`);
-  }
-
-  function startVoice() {
-    const SpeechRecog = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecog) {
-      const isMac = navigator.platform?.includes('Mac');
-      setSttError(isMac
-        ? 'Press Fn twice to use Mac dictation (works in any browser).'
-        : 'Voice input requires Chrome or Edge. Use your OS dictation instead.'
-      );
-      setTimeout(() => setSttError(null), 6000);
-      return;
-    }
-
-    // If already listening, stop
-    if (listening) {
-      recogRef.current?.stop();
-      setListening(false);
-      return;
-    }
-
-    // Clear any previous errors
-    setSttError(null);
-
-    const r = new SpeechRecog();
-    r.continuous = true;        // Keep listening until stopped
-    r.interimResults = true;    // Show partial results as user speaks
-    r.lang = 'en-US';
-
-    let finalTranscript = '';
-
-    r.onresult = e => {
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) {
-          finalTranscript += t + ' ';
-        } else {
-          interim = t;
-        }
-      }
-      // Show the accumulated final + current interim in the textarea
-      setInput((finalTranscript + interim).trim());
-    };
-
-    r.onerror = (e) => {
-      setListening(false);
-      const errorMessages = {
-        'not-allowed': 'Microphone access denied. Allow microphone in browser settings.',
-        'no-speech': 'No speech detected. Try again.',
-        'audio-capture': 'No microphone found. Check your audio device.',
-        'network': 'Network error. Speech recognition requires internet.',
-        'aborted': null, // User cancelled, no error
-        'service-not-allowed': 'Speech service not allowed. Try using Chrome.',
-      };
-      const msg = errorMessages[e.error] ?? `Speech error: ${e.error}`;
-      if (msg) {
-        setSttError(msg);
-        setTimeout(() => setSttError(null), 5000);
-      }
-    };
-
-    r.onend = () => {
-      setListening(false);
-      // Trim final result
-      setInput(prev => prev.trim());
-    };
-
-    recogRef.current = r;
-
-    try {
-      r.start();
-      setListening(true);
-    } catch (err) {
-      setSttError(`Failed to start: ${err.message}`);
-      setTimeout(() => setSttError(null), 4000);
-    }
-  }
-
-  function copyMessage(content, id) {
-    navigator.clipboard.writeText(content).then(() => {
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 1500);
-    });
-  }
-
-  function speakMessage(content, id) {
-    // Toggle off if already speaking this message.
-    if (speakingId === id) {
-      kokoroStop();
-      setSpeakingId(null);
-      return;
-    }
-
-    // Stop any previously-playing message before starting a new one.
-    kokoroStop();
-    setSpeakingId(id);
-
-    kokoroSpeak(content).then(() => {
-      // Only clear the speakingId for the message we started — the user may
-      // have already toggled to a different one.
-      setSpeakingId((prev) => (prev === id ? null : prev));
-    });
-  }
-
-  function stopSpeaking() {
-    kokoroStop();
-    setSpeakingId(null);
-  }
-
-  function clearHistory() {
-    setMessages([]);
-    localStorage.removeItem(STORAGE_KEY);
-  }
-
-  const currentAgent = getAgentById(agentId) || { name: 'Auto', id: 'auto' };
+  const currentAgent = getAgentById(agentId) || { name: 'Auto', color: '#6366F1' };
   const AgentIcon = getIcon(agentId);
 
   return (
-    <div className="flex flex-col h-full bg-bg-base relative">
-      {/* Top bar */}
-      <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border-subtle bg-bg-surface shrink-0 relative z-50">
-        {/* Agent selector */}
-        <div className="relative shrink-0">
-          <button
-            onClick={() => { setAgentOpen(v => !v); setModeOpen(false); }}
-            className="relative flex items-center gap-1 px-2 py-1 rounded-md bg-bg-elevated border border-border-subtle hover:border-border-mid text-text-pri text-xs font-ui transition-all whitespace-nowrap"
-          >
-            <AgentIcon size={11} style={{ color: currentAgent.color }} />
-            <span>{currentAgent.name}</span>
-            <ChevronDown size={9} className="text-text-faint" />
-            <SuggestionDot />
-          </button>
-          {agentOpen && (
-            <AgentDropdown
-              selected={agentId}
-              onSelect={id => { setAgentId(id); setAgentOpen(false); }}
-              onClose={() => setAgentOpen(false)}
-            />
-          )}
-        </div>
-
-        {/* Build mode */}
-        <div className="relative shrink-0">
-          <button
-            onClick={() => { setModeOpen(v => !v); setAgentOpen(false); }}
-            className="flex items-center gap-1 px-2 py-1 rounded-md bg-bg-elevated border border-border-subtle hover:border-border-mid text-text-sec text-xs font-ui transition-all whitespace-nowrap"
-          >
-            <span>{compact ? (BUILD_MODES.find(m => m.id === buildMode)?.label || 'Quick').split(' ')[0] : BUILD_MODES.find(m => m.id === buildMode)?.label || 'Quick Build'}</span>
-            <ChevronDown size={9} className="text-text-faint" />
-          </button>
-          {modeOpen && (
-            <>
-              <div className="fixed inset-0 z-[99]" onClick={() => setModeOpen(false)} />
-              <div className="absolute top-full left-0 mt-1 w-44 max-w-[calc(100vw-16px)] bg-bg-elevated border border-border-mid rounded-lg shadow-soft z-[100] overflow-hidden">
-                {BUILD_MODES.map(m => (
-                  <button
-                    key={m.id}
-                    onClick={() => { setBuildMode(m.id); setModeOpen(false); }}
-                    className={cn(
-                      'w-full text-left px-3 py-2 text-xs font-ui hover:bg-bg-overlay transition-colors',
-                      buildMode === m.id ? 'text-accent' : 'text-text-sec hover:text-text-pri',
-                    )}
-                  >
-                    <div className="font-medium">{m.label}</div>
-                    <div className="text-text-faint text-[11px]">{m.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="ml-auto flex items-center gap-1 shrink-0">
-          {/* Pause button — only visible while streaming */}
-          {isStreaming && (
-            <button
-              onClick={pauseStreaming}
-              title="Pause generation"
-              className="flex items-center gap-1 px-1.5 py-1 rounded border border-transparent text-text-faint hover:text-warning hover:bg-warning/10 hover:border-warning/20 text-xs font-ui transition-all"
-            >
-              <Square size={11} />
+    <div className="flex flex-col h-full bg-bg-surface">
+      {/* Header */}
+      <div className="h-10 px-4 border-b border-border-subtle flex items-center justify-between shrink-0 bg-bg-surface">
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <button onClick={() => setAgentOpen(!agentOpen)} className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 transition-colors">
+              <AgentIcon size={14} style={{ color: currentAgent.color }} />
+              <span className="text-[12px] font-bold text-text-pri">{currentAgent.name}</span>
+              <ChevronDown size={12} className="text-text-faint" />
             </button>
-          )}
-          {/* Preview toggle — only on desktop and when not compact */}
-          {!compact && devServerUrl && (
-            <button
-              onClick={() => setPreviewOpen(v => !v)}
-              className={cn(
-                'px-2 py-1 rounded-md text-xs font-ui transition-all border',
-                previewOpen
-                  ? 'bg-accent/15 border-accent/30 text-accent'
-                  : 'bg-bg-elevated border-border-subtle text-text-sec hover:border-border-mid'
-              )}
-              title="Toggle preview"
-            >
+          </div>
+          <div className="w-px h-4 bg-border-subtle mx-1" />
+          <button onClick={() => setModeOpen(!modeOpen)} className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 transition-colors">
+            <span className="text-[11px] font-medium text-text-sec uppercase tracking-wider">{buildMode} Build</span>
+            <ChevronDown size={12} className="text-text-faint" />
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          {!compact && (
+            <button onClick={() => setPreviewOpen(!previewOpen)} className={cn("px-2 py-1 rounded text-[11px] font-medium transition-all", previewOpen ? "bg-accent/20 text-accent border border-accent/30" : "text-text-faint hover:text-text-pri")}>
               Preview
             </button>
           )}
-          <OllamaStatus
-            useOllama={useOllama}
-            onToggle={v => {
-              setUseOllama(v);
-              localStorage.setItem('soupz_use_ollama', String(v));
-            }}
-            compact={compact}
-          />
-          <button
-            onClick={clearHistory}
-            title="Clear history"
-            className="p-1.5 rounded text-text-faint hover:text-text-sec hover:bg-bg-elevated transition-all"
-          >
-            <RotateCcw size={13} />
+          <button onClick={() => setMessages([])} className="p-1.5 text-text-faint hover:text-text-pri hover:bg-white/5 rounded transition-all">
+            <RotateCcw size={14} />
           </button>
         </div>
       </div>
 
-      {/* File changes panel */}
-      {fileChanges.length > 0 && (
-        <div className="px-3 py-2 border-b border-border-subtle bg-bg-surface shrink-0">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-text-faint text-xs font-ui">File changes</span>
-            <span className="text-text-faint text-xs bg-bg-elevated px-1.5 py-0.5 rounded">{fileChanges.length}</span>
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {messages.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
+            <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center border border-accent/20">
+              <AgentIcon size={24} style={{ color: currentAgent.color }} />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-text-pri uppercase tracking-widest">What would you like to build?</h3>
+              <p className="text-xs text-text-faint mt-1 max-w-xs mx-auto">Describe your task and the agent will help you execute it.</p>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {fileChanges.map((f, i) => (
-              <div key={i} className="flex items-center gap-1 bg-bg-elevated border border-border-subtle rounded px-2 py-1">
-                <span className="font-mono text-xs text-warning">{f.path}</span>
-                <button
-                  onClick={() => { daemon?.acceptChange?.(f); setFileChanges(p => p.filter((_, j) => j !== i)); }}
-                  className="text-success hover:text-success/80 transition-colors"
-                  title="Accept"
-                >
-                  <Check size={11} />
-                </button>
-                <button
-                  onClick={() => { daemon?.rejectChange?.(f); setFileChanges(p => p.filter((_, j) => j !== i)); }}
-                  className="text-danger hover:text-danger/80 transition-colors"
-                  title="Reject"
-                >
-                  <X size={11} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Main chat/preview split container */}
-      <div className={cn(
-        "flex-1 flex min-h-0",
-        previewOpen && !compact && 'gap-0'
-      )}>
-        {/* Chat panel */}
-        <div className={cn(
-          "flex flex-col min-h-0",
-          previewOpen && !compact ? "flex-1 border-r border-border-subtle" : "w-full"
-        )}>
-          {/* Messages */}
-          <div className={cn(
-            "flex-1 overflow-y-auto px-3 min-h-0",
-            messages.length === 0 ? "flex flex-col items-center justify-center" : "space-y-4 py-4",
-          )}>
-            {messages.length === 0 && (
-              <EmptyState agentName={currentAgent.name} AgentIcon={AgentIcon} agentColor={currentAgent.color} />
-            )}
-            {messages.map(msg => (
-              <Message
-                key={msg.id}
-                msg={msg}
-                onCopy={copyMessage}
-                copied={copiedId === msg.id}
-                onSpeak={speakMessage}
-                speaking={speakingId === msg.id}
-                modelLoading={modelLoading && speakingId === msg.id}
-                loadProgress={loadProgress}
-                getIcon={getIcon}
-                autoLabel={msg.autoLabel}
-                onQuestionSubmit={handleQuestionSubmit}
-              />
-            ))}
-            <div ref={bottomRef} />
-          </div>
-        </div>
-
-        {/* Preview panel — only on desktop */}
-        {previewOpen && !compact && devServerUrl && (
-          <PreviewPanel url={devServerUrl} />
+        ) : (
+          messages.map(msg => (
+            <Message key={msg.id} msg={msg} getIcon={getIcon} onCopy={() => {}} onSpeak={() => {}} />
+          ))
         )}
+        <div ref={bottomRef} />
       </div>
 
-      {/* Speech error banner */}
-      {(sttError || ttsError) && (
-        <div className="mx-3 mb-0 px-3 py-1.5 bg-danger/10 border border-danger/20 rounded-lg flex items-center gap-2">
-          <span className="text-danger text-[11px] font-ui flex-1">{sttError || ttsError}</span>
-          <button
-            onClick={() => { setSttError(null); }}
-            className="text-danger/60 hover:text-danger transition-colors shrink-0"
-          >
-            <X size={11} />
-          </button>
-        </div>
-      )}
-
-      {/* Skill pills bar */}
-      {SKILLS.length > 0 && (
-        <div className="px-3 py-2 border-b border-border-subtle bg-bg-surface shrink-0 overflow-x-auto">
-          <div className="flex gap-2">
-            {SKILLS.map(skill => (
+      {/* Slash Command Dropdown */}
+      {slashCommandOpen && filteredCommands.length > 0 && (
+        <div className="mx-4 mb-2 bg-bg-elevated border border-border-subtle rounded-md shadow-2xl overflow-hidden z-50 animate-fade-up">
+          <div className="px-3 py-1.5 border-b border-border-subtle bg-white/5 flex items-center justify-between">
+            <span className="text-[10px] font-bold text-text-faint uppercase tracking-widest">Commands & Agents</span>
+            <span className="text-[9px] text-text-faint">↑↓ to navigate · Enter to select</span>
+          </div>
+          <div className="max-h-80 overflow-y-auto custom-scrollbar">
+            {filteredCommands.map((c, i) => (
               <button
-                key={skill.id}
-                onClick={() => setActiveSkill(activeSkill === skill.id ? null : skill.id)}
+                key={`${c.type}-${c.id}`}
+                onClick={() => handleCommandSelect(c)}
+                onMouseEnter={() => setSlashIndex(i)}
                 className={cn(
-                  'px-2.5 py-1 rounded-full text-xs font-ui whitespace-nowrap transition-all flex items-center gap-1.5 border',
-                  activeSkill === skill.id
-                    ? 'bg-accent/15 border-accent/30 text-accent'
-                    : 'bg-bg-elevated border-border-subtle text-text-sec hover:border-border-mid'
+                  "w-full px-3 py-2 flex items-center gap-3 text-left transition-colors border-l-2",
+                  i === slashIndex ? "bg-accent/10 text-text-pri border-accent" : "text-text-sec hover:bg-white/5 border-transparent"
                 )}
-                title={skill.description}
               >
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: skill.color || '#8B5CF6' }} />
-                {skill.name}
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color || '#8B5CF6' }} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-bold font-ui flex items-center gap-2">
+                    /{c.id}
+                    <span className={cn(
+                      "text-[8px] px-1 rounded uppercase tracking-tighter",
+                      c.type === 'skill' ? "bg-purple-500/20 text-purple-400" : "bg-blue-500/20 text-blue-400"
+                    )}>
+                      {c.type}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-text-faint truncate">{c.description}</div>
+                </div>
+                {i === slashIndex && <span className="text-[9px] text-accent font-mono border border-accent/30 px-1 rounded">ENTER</span>}
               </button>
             ))}
           </div>
         </div>
       )}
 
+      {/* Active Skill Indicator */}
+      {activeSkill && (
+        <div className="mx-4 mb-2 flex items-center gap-2 px-2 py-1 bg-accent/10 border border-accent/20 rounded text-accent text-[11px] font-medium w-fit">
+          <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+          Active: /{activeSkill}
+          <button onClick={() => setActiveSkill(null)} className="hover:text-text-pri ml-1"><X size={10} /></button>
+        </div>
+      )}
+
       {/* Input area */}
-      <div className="border-t border-border-subtle bg-bg-surface px-3 py-2.5 shrink-0">
-        <div className="flex items-center gap-1.5 bg-bg-elevated border border-border-subtle rounded-xl px-3 py-1 focus-within:border-accent transition-colors">
+      <div className="p-4 bg-bg-surface border-t border-border-subtle shrink-0">
+        <div className="flex items-end gap-2 bg-bg-elevated border border-border-subtle rounded px-3 py-2 focus-within:border-accent transition-colors">
           <textarea
             ref={textareaRef}
             value={input}
             onChange={e => {
               setInput(e.target.value);
               e.target.style.height = 'auto';
-              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+              e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
             }}
             onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (slashCommandOpen && filteredCommands.length > 0) {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIndex(i => (i + 1) % filteredCommands.length); }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length); }
+                else if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault();
+                  const cmd = filteredCommands[slashIndex];
+                  handleCommandSelect(cmd);
+                }
+                else if (e.key === 'Escape') { setSlashCommandOpen(false); }
+              } else if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (listening) { recogRef.current?.stop(); setListening(false); }
                 sendMessage();
               }
             }}
-            placeholder={compact ? "Ask anything..." : "What would you like to build?"}
+            placeholder={compact ? "Ask anything..." : "What would you like to build? (type / for skills)"}
             rows={1}
-            className="flex-1 bg-transparent text-sm font-ui text-text-pri placeholder:text-text-faint focus:outline-none resize-none max-h-28 py-2 min-w-0"
+            className="flex-1 bg-transparent text-[13px] font-ui text-text-pri placeholder:text-text-faint focus:outline-none resize-none max-h-48 py-1 min-w-0"
             style={{ lineHeight: '1.5' }}
           />
-          <button
-            onClick={startVoice}
-            className={cn(
-              'shrink-0 p-1.5 rounded-lg transition-all relative',
-              listening ? 'text-danger animate-pulse' : 'text-text-faint hover:text-text-sec',
-            )}
-            title={listening ? 'Stop' : 'Speak'}
-          >
-            {listening ? <MicOff size={16} /> : <Mic size={16} />}
-          </button>
-          <button
-            onClick={sendMessage}
-            disabled={!input.trim() || isStreaming}
-            className={cn(
-              'shrink-0 p-1.5 rounded-lg transition-all',
-              input.trim() && !isStreaming ? 'text-accent hover:text-accent-hover' : 'text-text-faint/30',
-            )}
-          >
+          <button onClick={sendMessage} disabled={!input.trim() || isStreaming} className={cn("p-1.5 rounded transition-all", input.trim() && !isStreaming ? "text-accent hover:text-accent-hover" : "text-text-faint/30")}>
             <Send size={16} />
           </button>
         </div>
@@ -659,205 +307,28 @@ export default function SimpleMode({ daemon, compact = false }) {
   );
 }
 
-function Message({ msg, onCopy, copied, onSpeak, speaking, modelLoading, loadProgress, getIcon, autoLabel, onQuestionSubmit }) {
+function Message({ msg, getIcon, onCopy, onSpeak }) {
   const isUser = msg.role === 'user';
   const Icon = getIcon(msg.agentId || 'auto');
   const questionData = !isUser && !msg.streaming ? parseQuestionBlock(msg.content) : null;
 
   return (
-    <div className={cn(
-      'group px-4 py-6 border-b border-border-subtle/50 transition-colors hover:bg-bg-surface/30',
-      isUser ? 'bg-bg-base' : 'bg-bg-surface/50'
-    )}>
-      <div className="max-w-3xl mx-auto flex gap-4">
-        <div className={cn(
-          'w-7 h-7 rounded-md flex items-center justify-center shrink-0 border transition-all',
-          isUser 
-            ? 'bg-bg-elevated border-border-mid text-text-sec' 
-            : 'bg-accent/10 border-accent/20 text-accent group-hover:scale-105'
-        )}>
-          {isUser ? <User size={14} /> : <Icon size={14} />}
+    <div className={cn("group px-4 py-4 border-b border-border-subtle/30 transition-colors", !isUser && "bg-white/[0.02]")}>
+      <div className="flex gap-3">
+        <div className={cn("w-6 h-6 rounded flex items-center justify-center shrink-0 mt-0.5 border", isUser ? "bg-transparent border-border-subtle text-text-sec" : "bg-accent/10 border-accent/20 text-accent")}>
+          {isUser ? <User size={13} /> : <Icon size={14} />}
         </div>
-        
-        <div className="flex-1 min-w-0 space-y-3">
+        <div className="flex-1 min-w-0 space-y-1">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-ui font-semibold uppercase tracking-wider text-text-faint">
-              {isUser ? 'You' : (msg.agentId || 'Soupz')}
-            </span>
-            {(autoLabel || msg.autoLabel) && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-elevated border border-border-subtle text-text-sec font-mono">
-                {autoLabel || msg.autoLabel}
-              </span>
-            )}
+            <span className="text-[12px] font-bold text-text-pri uppercase tracking-wider">{isUser ? 'You' : (msg.agentId || 'Soupz')}</span>
+            {msg.autoLabel && <span className="text-[10px] text-text-faint font-mono">{msg.autoLabel}</span>}
           </div>
-
-          <div className="text-sm text-text-pri leading-relaxed font-ui whitespace-pre-wrap break-words">
-            {msg.streaming && !msg.content ? (
-              <div className="flex items-center gap-1 py-1">
-                {[0,1,2].map(i => <span key={i} className="thinking-dot" style={i ? { animationDelay: `${i * 0.2}s` } : {}} />)}
-              </div>
-            ) : (
-              <div>
-                {renderMarkdown(msg.content)}
-                {questionData && (
-                  <InteractiveQuestions 
-                    data={questionData} 
-                    onAnswer={(answers) => onQuestionSubmit(questionData.questions, answers)} 
-                  />
-                )}
-              </div>
-            )}
+          <div className="text-[13px] text-[#CCCCCC] leading-relaxed font-ui whitespace-pre-wrap break-words">
+            {msg.streaming && !msg.content ? <div className="flex items-center gap-1 py-1"><span className="thinking-dot" /><span className="thinking-dot animate-delay-100" /><span className="thinking-dot animate-delay-200" /></div> : renderMarkdown(msg.content)}
+            {questionData && <InteractiveQuestions data={questionData} onAnswer={() => {}} />}
           </div>
-
-          {!msg.streaming && msg.content && (
-            <div className="flex items-center gap-3 pt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                onClick={() => onCopy(msg.content, msg.id)}
-                className="text-text-faint hover:text-text-sec transition-colors"
-                title="Copy"
-              >
-                {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
-              </button>
-              <button
-                onClick={() => onSpeak(msg.content, msg.id)}
-                className={cn(
-                  'transition-colors',
-                  speaking ? 'text-accent' : 'text-text-faint hover:text-text-sec',
-                )}
-                title="Read aloud"
-              >
-                {speaking ? <VolumeX size={12} /> : <Volume2 size={12} />}
-              </button>
-            </div>
-          )}
         </div>
       </div>
     </div>
-  );
-}
-
-function EmptyState({ agentName, AgentIcon, agentColor }) {
-  return (
-    <div className="flex flex-col items-center text-center gap-4 max-w-sm mx-auto">
-      <div className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
-        <AgentIcon size={24} style={{ color: agentColor }} className="opacity-80" />
-      </div>
-      <div>
-        <p className="text-text-pri text-base font-ui font-semibold">What would you like to build?</p>
-        <p className="text-text-faint text-xs mt-1.5 leading-relaxed">
-          Describe your idea and {agentName} will help you build it.
-        </p>
-      </div>
-      <div className="flex flex-wrap gap-2 justify-center">
-        {['Build a landing page', 'Fix a bug', 'Refactor code', 'Write tests'].map(suggestion => (
-          <button
-            key={suggestion}
-            onClick={() => {
-              setInput(suggestion);
-              setTimeout(() => sendMessage(suggestion), 100);
-            }}
-            className="px-3 py-1.5 text-[11px] font-ui text-text-sec bg-bg-elevated border border-border-subtle rounded-lg hover:border-accent/30 hover:text-text-pri transition-all"
-          >
-            {suggestion}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AgentDropdown({ selected, onSelect, onClose }) {
-  const [tab, setTab] = useState('cli');
-  const [customAgents, setCustomAgents] = useState(() => getCustomAgents());
-
-  useEffect(() => {
-    function onClickOutside(e) {
-      if (!e.target.closest('[data-agent-dropdown]')) onClose();
-    }
-    document.addEventListener('mousedown', onClickOutside);
-    return () => document.removeEventListener('mousedown', onClickOutside);
-  }, [onClose]);
-
-  // Refresh custom agents list when dropdown opens or storage changes
-  useEffect(() => {
-    setCustomAgents(getCustomAgents());
-    function onStorage(e) {
-      if (e.key === 'soupz_custom_agents') setCustomAgents(getCustomAgents());
-    }
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
-
-  return (
-    <div
-      data-agent-dropdown
-      className="absolute top-full left-0 mt-1 w-72 max-w-[calc(100vw-16px)] bg-bg-elevated border border-border-mid rounded-xl shadow-soft z-[100] overflow-hidden"
-    >
-      <div className="flex border-b border-border-subtle">
-        {['cli', 'specialist'].map(t => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={cn(
-              'flex-1 py-2 text-xs font-ui font-medium transition-colors',
-              tab === t ? 'text-text-pri border-b-2 border-accent -mb-px' : 'text-text-faint hover:text-text-sec',
-            )}
-          >
-            {t === 'cli' ? 'CLI Agents' : 'Specialists'}
-          </button>
-        ))}
-      </div>
-      <div className="max-h-80 overflow-y-auto py-1">
-        {tab === 'cli' ? (
-          <>
-            <AgentOption agent={{ id: 'auto', name: 'Auto', color: '#A855F7', description: 'AI picks best agent', icon: Cpu }} selected={selected} onSelect={onSelect} />
-            {CLI_AGENTS.map(a => <AgentOption key={a.id} agent={a} selected={selected} onSelect={onSelect} />)}
-            {/* Custom agents surfaced under CLI tab */}
-            {customAgents.length > 0 && (
-              <>
-                <div className="mx-3 my-1 border-t border-border-subtle" />
-                {customAgents.map(a => (
-                  <AgentOption
-                    key={a.id}
-                    agent={{ ...a, description: a.description }}
-                    selected={selected}
-                    onSelect={onSelect}
-                  />
-                ))}
-              </>
-            )}
-          </>
-        ) : (
-          SPECIALISTS.filter(s => s.id !== 'auto' && s.id !== 'orchestrator').map(a => (
-            <AgentOption key={a.id} agent={{ ...a, description: a.desc }} selected={selected} onSelect={onSelect} />
-          ))
-        )}
-      </div>
-      {/* Learned agents section — frequently used, suggestions, my agents */}
-      <LearnedAgents
-        selectedId={selected}
-        onSelect={id => { onSelect(id); onClose(); }}
-      />
-    </div>
-  );
-}
-
-function AgentOption({ agent, selected, onSelect }) {
-  const Icon = getIcon(agent.id) || agent.icon || Bot;
-  return (
-    <button
-      onClick={() => onSelect(agent.id)}
-      className={cn(
-        'w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-bg-overlay transition-colors',
-        selected === agent.id ? 'bg-bg-overlay' : '',
-      )}
-    >
-      <Icon size={14} style={{ color: agent.color }} className="shrink-0" />
-      <div className="flex-1 min-w-0">
-        <div className="text-xs font-ui font-medium text-text-pri">{agent.name}</div>
-        <div className="text-[11px] text-text-faint truncate">{agent.description || agent.desc}</div>
-      </div>
-      {selected === agent.id && <Check size={11} className="text-accent shrink-0" />}
-    </button>
   );
 }

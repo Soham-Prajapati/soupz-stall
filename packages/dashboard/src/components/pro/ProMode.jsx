@@ -33,7 +33,7 @@ loader.init().then(monaco => {
 import {
   Files, GitBranch, Settings, ChevronLeft, ChevronRight,
   Play, Loader2, PanelRightClose, PanelRightOpen, X, Package,
-  Terminal, Search, Trophy, Code2, Bot,
+  Terminal, Search, Trophy, Code2, Bot, Columns
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import FileTree from '../filetree/FileTree';
@@ -77,6 +77,9 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
     try { return JSON.parse(localStorage.getItem(OPEN_FILES_KEY) || '[]'); } catch { return []; }
   });
   const [activeFile, setActiveFile] = useState(null);
+  const [splitMode, setSplitMode] = useState(false);
+  const [activeFileRight, setActiveFileRight] = useState(null);
+  const [activePane, setActivePane] = useState('left'); // 'left' | 'right'
   const [fileContents, setFileContents] = useState({});
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
   const [running, setRunning] = useState(false);
@@ -84,8 +87,11 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [chatWidth, setChatWidth] = useState(320);
   const [terminalHeight, setTerminalHeight] = useState(192);
+  const [terminalMaximized, setTerminalMaximized] = useState(false);
+  const [mobileTab, setMobileTab] = useState('chat');
 
   const editorRef = useRef(null);
+  const saveTimeoutRef = useRef(null);
 
   useEffect(() => { localStorage.setItem(SIDEBAR_KEY, String(sidebarOpen)); }, [sidebarOpen]);
   useEffect(() => { localStorage.setItem(CHAT_KEY, String(chatOpen)); }, [chatOpen]);
@@ -109,7 +115,13 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
 
   async function openFile(node) {
     if (!node || node.children) return;
-    setActiveFile(node);
+    
+    if (splitMode && activePane === 'right') {
+      setActiveFileRight(node);
+    } else {
+      setActiveFile(node);
+    }
+
     if (!openFiles.find(f => f.path === node.path)) {
       setOpenFiles(prev => [...prev, node]);
     }
@@ -134,6 +146,12 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
   function handleEditorChange(value) {
     if (!activeFile) return;
     setFileContents(prev => ({ ...prev, [activeFile.path]: value }));
+    
+    // Autosave
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      daemon?.writeFile?.(activeFile.path, value);
+    }, 1000);
   }
 
   function handleEditorMount(editor, monaco) {
@@ -186,7 +204,6 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
 
   // Mobile: tab-based layout with bottom navigation
   if (isMobile) {
-    const [mobileTab, setMobileTab] = useState('chat');
     return (
       <div className="h-full flex flex-col">
         <div className="flex-1 overflow-hidden min-h-0">
@@ -313,6 +330,15 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                 changedPaths={changedPaths}
                 onSelect={openFile}
                 selectedPath={activeFile?.path}
+                onCreateFile={async (name) => {
+                  await daemon?.writeFile?.(name, '');
+                  await daemon?.refreshTree?.();
+                }}
+                onCreateFolder={async (name) => {
+                  await daemon?.runFile?.(`mkdir -p ${name}`);
+                  await daemon?.refreshTree?.();
+                }}
+                onRefresh={() => daemon?.refreshTree?.()}
               />
             )}
             {activeActivity === 'search' && (
@@ -350,7 +376,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             )}
             {activeActivity === 'stats' && (
               <Suspense fallback={<PanelLoader />}>
-                <StatsPanel />
+                <StatsPanel workspace={daemon} />
               </Suspense>
             )}
             {activeActivity === 'settings' && (
@@ -439,17 +465,17 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             ))}
           </div>
 
-          {/* Run button */}
-          {activeFile && (
-            <button
-              onClick={runFile}
-              disabled={running}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-success/10 border border-success/20 text-success text-xs font-ui hover:bg-success/20 transition-all disabled:opacity-50"
-            >
-              {running ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
-              Run
-            </button>
-          )}
+          {/* Split Editor toggle */}
+          <button
+            onClick={() => setSplitMode(v => !v)}
+            className={cn(
+              'text-text-faint hover:text-text-sec transition-colors',
+              splitMode && 'text-text-pri',
+            )}
+            title={splitMode ? 'Close split editor' : 'Split editor right'}
+          >
+            <Columns size={15} />
+          </button>
 
           {/* Terminal toggle */}
           <button
@@ -474,68 +500,149 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
         </div>
 
         {/* Breadcrumbs */}
-        {activeFile && (
-          <div className="h-6 flex items-center px-3 bg-bg-base border-b border-border-subtle shrink-0 overflow-x-auto">
-            {activeFile.path.split('/').filter(Boolean).map((seg, i, arr) => (
+        <div className="h-6 flex items-center bg-bg-base border-b border-border-subtle shrink-0">
+          <div className="flex-1 flex items-center px-3 overflow-x-auto" onClick={() => setActivePane('left')}>
+            {activeFile ? activeFile.path.split('/').filter(Boolean).map((seg, i, arr) => (
               <span key={i} className="flex items-center shrink-0">
                 {i > 0 && <span className="text-text-faint text-[10px] mx-1">/</span>}
                 <span className={cn(
                   'text-[11px] font-ui',
-                  i === arr.length - 1 ? 'text-text-pri' : 'text-text-faint hover:text-text-sec cursor-pointer',
+                  i === arr.length - 1 ? (activePane === 'left' ? 'text-text-pri font-bold' : 'text-text-sec') : 'text-text-faint hover:text-text-sec cursor-pointer',
                 )}>
                   {seg}
                 </span>
               </span>
-            ))}
+            )) : <span className="text-[11px] font-ui text-text-faint italic">No file selected</span>}
           </div>
-        )}
+          {splitMode && (
+            <div className="flex-1 flex items-center px-3 border-l border-border-subtle overflow-x-auto" onClick={() => setActivePane('right')}>
+              {activeFileRight ? activeFileRight.path.split('/').filter(Boolean).map((seg, i, arr) => (
+                <span key={i} className="flex items-center shrink-0">
+                  {i > 0 && <span className="text-text-faint text-[10px] mx-1">/</span>}
+                  <span className={cn(
+                    'text-[11px] font-ui',
+                    i === arr.length - 1 ? (activePane === 'right' ? 'text-text-pri font-bold' : 'text-text-sec') : 'text-text-faint hover:text-text-sec cursor-pointer',
+                  )}>
+                    {seg}
+                  </span>
+                </span>
+              )) : <span className="text-[11px] font-ui text-text-faint italic">Select a file from Explorer</span>}
+            </div>
+          )}
+        </div>
 
         {/* Editor */}
-        <div className="flex-1 min-h-0 overflow-hidden">
-          {activeFile ? (
-            <Editor
-              path={activeFile.path}
-              value={String(fileContents[activeFile.path] || '')}
-              language={lang}
-              theme="soupz-dark"
-              onChange={handleEditorChange}
-              onMount={handleEditorMount}
-              options={{
-                fontSize: 13,
-                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                fontLigatures: true,
-                lineHeight: 1.7,
-                minimap: { enabled: true, scale: 1, showSlider: 'mouseover' },
-                scrollBeyondLastLine: false,
-                padding: { top: 12, bottom: 12 },
-                renderLineHighlight: 'line',
-                smoothScrolling: true,
-                cursorBlinking: 'smooth',
-                cursorSmoothCaretAnimation: 'on',
-                roundedSelection: true,
-                tabSize: 2,
-                wordWrap: 'off',
-              }}
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-text-faint">
-              <Files size={32} className="opacity-30" />
-              <p className="text-sm font-ui">Select a file to edit</p>
+        <div className="flex-1 min-h-0 overflow-hidden flex">
+          {/* Left Pane */}
+          <div className="flex-1 h-full min-w-0" onClick={() => setActivePane('left')}>
+            {activeFile ? (
+              <Editor
+                path={activeFile.path}
+                value={String(fileContents[activeFile.path] || '')}
+                language={getLang(activeFile.name)}
+                theme="soupz-dark"
+                onChange={(value) => {
+                  setFileContents(prev => ({ ...prev, [activeFile.path]: value }));
+                }}
+                onMount={handleEditorMount}
+                options={{
+                  fontSize: 13,
+                  fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                  fontLigatures: true,
+                  lineHeight: 1.7,
+                  minimap: { enabled: true, scale: 1, showSlider: 'mouseover' },
+                  scrollBeyondLastLine: false,
+                  padding: { top: 12, bottom: 12 },
+                  renderLineHighlight: 'line',
+                  smoothScrolling: true,
+                  cursorBlinking: 'smooth',
+                  cursorSmoothCaretAnimation: 'on',
+                  roundedSelection: true,
+                  tabSize: 2,
+                  wordWrap: 'off',
+                }}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-text-faint bg-bg-surface/30">
+                <Files size={32} className="opacity-30" />
+                <p className="text-sm font-ui">Select a file to edit</p>
+              </div>
+            )}
+          </div>
+
+          {/* Right Pane (Split Mode) */}
+          {splitMode && (
+            <div className="flex-1 h-full min-w-0 border-l border-border-subtle" onClick={() => setActivePane('right')}>
+              {activeFileRight ? (
+                <Editor
+                  path={activeFileRight.path + '_right'} // Unique path to prevent model clash if same file
+                  value={String(fileContents[activeFileRight.path] || '')}
+                  language={getLang(activeFileRight.name)}
+                  theme="soupz-dark"
+                  onChange={(value) => {
+                    setFileContents(prev => ({ ...prev, [activeFileRight.path]: value }));
+                    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+                    saveTimeoutRef.current = setTimeout(() => {
+                      daemon?.writeFile?.(activeFileRight.path, value);
+                    }, 1000);
+                  }}
+                  onMount={(editor, monaco) => {
+                    // Cmd/Ctrl+S to save
+                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+                      if (activeFileRight) {
+                        daemon?.writeFile?.(activeFileRight.path, editor.getValue());
+                      }
+                    });
+                  }}
+                  options={{
+                    fontSize: 13,
+                    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                    fontLigatures: true,
+                    lineHeight: 1.7,
+                    minimap: { enabled: true, scale: 1, showSlider: 'mouseover' },
+                    scrollBeyondLastLine: false,
+                    padding: { top: 12, bottom: 12 },
+                    renderLineHighlight: 'line',
+                    smoothScrolling: true,
+                    cursorBlinking: 'smooth',
+                    cursorSmoothCaretAnimation: 'on',
+                    roundedSelection: true,
+                    tabSize: 2,
+                    wordWrap: 'off',
+                  }}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-text-faint bg-bg-surface/30">
+                  <Columns size={32} className="opacity-30" />
+                  <p className="text-sm font-ui">Select a file for the right pane</p>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         {/* Terminal panel — resizable */}
         {terminalOpen && (
-          <>
-            <ResizeHandle
-              direction="vertical"
-              onResize={(delta) => setTerminalHeight(prev => Math.max(100, Math.min(500, prev - delta)))}
+          <div 
+            className={cn(
+              "flex flex-col shrink-0 min-h-0",
+              terminalMaximized ? "absolute inset-0 z-50 bg-bg-base" : "relative"
+            )}
+            style={terminalMaximized ? {} : { height: terminalHeight }}
+          >
+            {!terminalMaximized && (
+              <ResizeHandle
+                direction="vertical"
+                onResize={(delta) => setTerminalHeight(prev => Math.max(100, Math.min(800, prev - delta)))}
+              />
+            )}
+            <TerminalPanel 
+              daemon={daemon} 
+              onClose={() => { setTerminalOpen(false); setTerminalMaximized(false); }} 
+              maximized={terminalMaximized}
+              onMaximize={() => setTerminalMaximized(!terminalMaximized)}
             />
-            <div style={{ height: terminalHeight }}>
-              <TerminalPanel daemon={daemon} onClose={() => setTerminalOpen(false)} />
-            </div>
-          </>
+          </div>
         )}
       </div>
 

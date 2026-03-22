@@ -1,6 +1,6 @@
 ---
 
-# Soupz Stall — Master Project Overview
+# Soupz Stall — Master Project Overview (Updated: March 22, 2026)
 
 ## 1. What Is This Project?
 Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme speed, observability, and cost-efficiency. It solves the 'monolithic LLM' problem by utilizing a coordinated swarm of specialized agents (chefs) operating within a 'kitchen' metaphor, allowing local-first terminal execution with a remote real-time web dashboard. What makes it different is its local-first PTY bridging, automatic plan decomposition via DAGs, and 3-layer semantic routing that significantly reduces API costs by using local models (Ollama) when possible.

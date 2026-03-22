@@ -6,6 +6,7 @@ import {
   Activity, Loader2, Settings
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { CLI_AGENTS } from '../../lib/agents';
 import LeaderboardPanel from './LeaderboardPanel';
 
 const STORAGE_KEY = 'soupz_chat_history';
@@ -70,7 +71,8 @@ function getDailyActivity(messages) {
   return Object.entries(counts).map(([day, count]) => ({ day, count }));
 }
 
-export default function StatsPanel({ daemon }) {
+export default function StatsPanel({ workspace }) {
+  const activeFleet = workspace?.activeFleet || [];
   const [collapsed, setCollapsed] = useState(false);
   const [lbCollapsed, setLbCollapsed] = useState(false);
   const [highlightedAgent, setHighlightedAgent] = useState(null);
@@ -96,6 +98,19 @@ export default function StatsPanel({ daemon }) {
   const totalMsgs  = messages.filter(m => m.role === 'user').length;
   const agentCount = Object.keys(usage).length;
   const dailyData  = useMemo(() => getDailyActivity(messages), []);
+
+  const topAgents = useMemo(() => {
+    return Object.entries(usage)
+      .filter(([, count]) => count > 0)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([id, count]) => {
+        const agent = CLI_AGENTS.find(a => a.id === id);
+        return { id, name: agent?.name || id, color: agent?.color || '#888', count };
+      });
+  }, [usage]);
+
+  const maxUsage = topAgents.length > 0 ? topAgents[0].count : 1;
 
   const earned = ACHIEVEMENTS.filter(a => a.req(totalMsgs, agentCount, streak));
   const locked = ACHIEVEMENTS.filter(a => !a.req(totalMsgs, agentCount, streak));
@@ -123,24 +138,39 @@ export default function StatsPanel({ daemon }) {
       </button>
 
       {!collapsed && (
-        <div className="px-4 pb-4 space-y-4">
-          {/* Active Fleet (Universal Parallelism) */}
-          {activeFleet.length > 0 && (
-            <div className="bg-accent/5 border border-accent/20 rounded-xl p-3 space-y-2 animate-pulse">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold text-accent uppercase tracking-widest">Active Fleet ({activeFleet.length})</span>
-                <Loader2 size={10} className="animate-spin text-accent" />
-              </div>
-              <div className="space-y-1.5">
-                {activeFleet.map((f, i) => (
-                  <div key={i} className="flex items-center justify-between bg-bg-surface/50 rounded-lg px-2 py-1.5 border border-border-subtle">
-                    <span className="text-[11px] font-mono text-text-pri uppercase">{f.agent}</span>
-                    <span className="text-[10px] text-text-faint italic truncate ml-4 max-w-[120px]">{f.prompt}</span>
+        <div className="px-4 pb-4 space-y-6">
+          {/* Agent Usage — Flat VS Code Style */}
+          <div>
+            <p className="text-[10px] font-bold text-[#858585] uppercase tracking-[0.1em] mb-4">Agent Usage</p>
+            <div className="space-y-5">
+              {topAgents.map(agent => (
+                <div key={agent.id} className="space-y-2">
+                  <div className="flex items-center justify-between text-[13px]">
+                    <div className="flex items-center gap-2 text-[#D4D4D4]">
+                      <Bot size={14} style={{ color: agent.color }} />
+                      <span className="font-medium">{agent.name}</span>
+                    </div>
+                    <div className="text-right leading-tight">
+                      <div className="text-[#858585] text-[11px] font-mono">{agent.count} msg</div>
+                      <div className="text-[#666666] text-[10px] font-mono">~{(agent.count * 800 / 1000).toFixed(1)}k tok</div>
+                    </div>
                   </div>
-                ))}
-              </div>
+                  <div className="h-1.5 bg-[#2D2D30] rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-700"
+                      style={{
+                        width: `${Math.max((agent.count / maxUsage) * 100, 4)}%`,
+                        backgroundColor: '#40A6FF', // Using your screenshot's blue bar color
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+              {topAgents.length === 0 && (
+                <p className="text-xs text-[#858585] italic py-2">No agent shards active in this quadrant.</p>
+              )}
             </div>
-          )}
+          </div>
 
           {/* Quick-stats row */}
           <div className="grid grid-cols-3 gap-2">

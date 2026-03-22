@@ -46,4 +46,7 @@ _bmad-output
 .vercel
 .DS_Store
 .claude
-.gemini
+gemini
+.agents
+
+.imported_skills

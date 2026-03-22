@@ -84,11 +84,11 @@ export default function SearchPanel({ daemon, fileTree, onOpenFile }) {
 
       for (const { file, text } of contents) {
         if (controller.abort) return;
-        if (!text) continue;
-
-        const lines = text.split('\n');
+        
+        const lines = text ? text.split('\n') : [];
         const matches = [];
 
+        // 1. Search content
         for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
           const line = lines[lineIdx];
           const compareLine = cs ? line : line.toLowerCase();
@@ -105,7 +105,20 @@ export default function SearchPanel({ daemon, fileTree, onOpenFile }) {
           }
         }
 
-        if (matches.length > 0) {
+        // 2. Search filename (if no content match or as extra context)
+        const nameMatch = cs ? file.path.includes(q) : file.path.toLowerCase().includes(searchQuery);
+        
+        if (matches.length > 0 || nameMatch) {
+          // If no content matches but filename matches, add a virtual entry
+          if (matches.length === 0 && nameMatch) {
+            matches.push({
+              lineNum: 0,
+              col: 0,
+              text: 'Filename match',
+              matchStart: 0,
+              raw: file.name
+            });
+          }
           fileResults.push({ file, matches });
           count += matches.length;
         }

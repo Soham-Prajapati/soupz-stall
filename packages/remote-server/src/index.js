@@ -995,8 +995,24 @@ app.post('/terminal', requireAuth, (req, res) => {
 // FILE SYSTEM & GIT API (for web IDE)
 // ═══════════════════════════════════════════════════════════
 
-import { readdir, readFile, writeFile, stat, mkdir } from 'fs/promises';
+import { readdir, readFile, writeFile, stat, mkdir, watch } from 'fs/promises';
 import { existsSync } from 'fs';
+
+// File Watcher for Real-time IDE updates
+async function startFileWatcher() {
+    try {
+        const watcher = watch(REPO_ROOT, { recursive: true });
+        console.log(`  👁  Watcher active on: ${REPO_ROOT}`);
+        for await (const event of watcher) {
+            if (event.filename && !event.filename.includes('node_modules') && !event.filename.includes('.git')) {
+                broadcast({ type: 'FILE_CHANGED', path: event.filename });
+            }
+        }
+    } catch (err) {
+        console.error('  ✖ File watcher failed:', err.message);
+    }
+}
+startFileWatcher();
 
 const IGNORED_DIRS = new Set(['.git', 'node_modules', '.next', 'dist', 'build', '__pycache__', '.DS_Store']);
 const MAX_FILE_SIZE = 1024 * 1024; // 1MB max for editor
@@ -1046,18 +1062,22 @@ app.post('/api/fs/init', express.json(), requireAuth, async (req, res) => {
 async function buildFileTree(dirPath, rootPath, depth = 0) {
     if (depth > 6) return null;
     const entries = await readdir(dirPath, { withFileTypes: true });
-    const children = [];
-    for (const entry of entries) {
-        if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+    
+    const childrenPromises = entries.map(async (entry) => {
+        if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) return null;
         const fullPath = join(dirPath, entry.name);
         const relPath = relative(rootPath, fullPath);
         if (entry.isDirectory()) {
             const subtree = await buildFileTree(fullPath, rootPath, depth + 1);
-            if (subtree) children.push({ name: entry.name, path: relPath, type: 'directory', children: subtree.children });
+            if (subtree) return { name: entry.name, path: relPath, type: 'directory', children: subtree.children };
         } else {
-            children.push({ name: entry.name, path: relPath, type: 'file' });
+            return { name: entry.name, path: relPath, type: 'file' };
         }
-    }
+        return null;
+    });
+
+    const children = (await Promise.all(childrenPromises)).filter(Boolean);
+
     children.sort((a, b) => {
         if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
         return a.name.localeCompare(b.name);

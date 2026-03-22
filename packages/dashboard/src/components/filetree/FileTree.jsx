@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   Folder, FolderOpen, ChevronRight, ChevronDown,
   FileCode2, FileText, FileJson, Globe, Palette,
-  Lock, GitBranch, Image, File, Search, FolderOpen as FolderOpenIcon,
+  Lock, GitBranch, Image, File, Search,
   FilePlus, FolderPlus, RotateCcw, MinusSquare
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
@@ -28,16 +28,22 @@ function getFileIcon(name) {
 
 function getGitStatus(path, changedPaths = []) {
   const paths = Array.isArray(changedPaths) ? changedPaths : [];
-  const entry = paths.find(p => p.slice(3) === path || p === path);
+  // porcelain uses 'M path', '?? path', etc.
+  // We trim and check if the second part matches path
+  const entry = paths.find(p => {
+    const parts = p.match(/^(\S+\s+)(.*)$/);
+    return parts && parts[2] === path;
+  });
+
   if (!entry) return null;
-  if (entry.startsWith('M')) return { label: 'M', color: 'text-warning', bg: 'bg-warning/20' };
-  if (entry.startsWith('??')) return { label: 'U', color: 'text-success', bg: 'bg-success/20' };
-  if (entry.startsWith('A')) return { label: 'A', color: 'text-success', bg: 'bg-success/20' };
+  const status = entry.slice(0, 2);
+  if (status.includes('M')) return { label: 'M', color: 'text-warning', bg: 'bg-warning/20' };
+  if (status.includes('??')) return { label: 'U', color: 'text-success', bg: 'bg-success/20' };
+  if (status.includes('A')) return { label: 'A', color: 'text-success', bg: 'bg-success/20' };
   return { label: 'M', color: 'text-warning', bg: 'bg-warning/20' };
 }
 
 function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, collapsedAll }) {
-  // Start collapsed by default (open: false)
   const [open, setOpen] = useState(false);
   
   useMemo(() => {
@@ -50,9 +56,14 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
   const gitStatus = !isDir ? getGitStatus(node.path, paths) : null;
   const isSelected = selectedPath === node.path;
 
-  // For folders, check if any child has changes to show a dot
-  const hasModified = isDir && paths.some(p => p.startsWith('M') && p.includes(node.path));
-  const hasUntracked = isDir && !hasModified && paths.some(p => p.startsWith('??') && p.includes(node.path));
+  const hasModified = isDir && paths.some(p => {
+    const parts = p.match(/^(\S+\s+)(.*)$/);
+    return parts && parts[1].includes('M') && parts[2].startsWith(node.path);
+  });
+  const hasUntracked = isDir && !hasModified && paths.some(p => {
+    const parts = p.match(/^(\S+\s+)(.*)$/);
+    return parts && parts[1].includes('??') && parts[2].startsWith(node.path);
+  });
 
   return (
     <div>
@@ -60,9 +71,9 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
         onClick={() => isDir ? setOpen(v => !v) : onSelect?.(node)}
         style={{ paddingLeft: `${depth * 12 + 12}px` }}
         className={cn(
-          'flex items-center gap-1.5 py-1.5 pr-2 cursor-pointer group select-none border-l-[3px] transition-all relative',
+          'flex items-center gap-1.5 py-1 pr-2 cursor-pointer group select-none border-l-[2px] transition-all relative h-7',
           isSelected
-            ? 'bg-accent/20 text-text-pri border-accent font-bold shadow-[inset_0_0_10px_rgba(99,102,241,0.1)]'
+            ? 'bg-bg-elevated text-text-pri border-accent font-medium'
             : cn('text-text-sec border-transparent hover:bg-bg-elevated hover:text-text-pri', gitStatus?.color)
         )}
       >
@@ -73,7 +84,7 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
             </span>
           )}
         </div>
-        <Icon size={14} className={cn('shrink-0', isDir ? 'text-warning/80' : (isSelected ? 'text-accent' : ''))} />
+        <Icon size={14} className={cn('shrink-0', isDir ? 'text-[#EAB308]/80' : (isSelected ? 'text-accent' : ''))} />
         <span className="text-[13px] font-ui truncate flex-1">{node.name}</span>
         
         {gitStatus && (
@@ -83,13 +94,13 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
         )}
         {isDir && !open && (
           <div className="flex gap-1 absolute right-2 shrink-0">
-            {hasModified && <div className="w-1.5 h-1.5 rounded-full bg-warning shadow-[0_0_5px_rgba(245,158,11,0.5)]" />}
-            {hasUntracked && <div className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_5px_rgba(34,197,94,0.5)]" />}
+            {hasModified && <div className="w-1.5 h-1.5 rounded-full bg-warning" />}
+            {hasUntracked && <div className="w-1.5 h-1.5 rounded-full bg-success" />}
           </div>
         )}
       </div>
       {isDir && open && node.children && (
-        <div className="animate-fade-up">
+        <div className="">
           {node.children.map(child => (
             <TreeNode
               key={child.path}
@@ -107,46 +118,55 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
   );
 }
 
-export default function FileTree({ tree, changedPaths = [], onSelect, selectedPath, rootName = 'PROJECT' }) {
-  const [search, setSearch] = useState('');
+export default function FileTree({ tree, changedPaths = [], onSelect, selectedPath, rootName = 'PROJECT', onCreateFile, onCreateFolder, onRefresh }) {
   const [collapsedAll, setCollapsedAll] = useState(0);
-  const changedSet = new Set(changedPaths);
+  const [creating, setCreating] = useState(null); // { type: 'file' | 'folder' }
+  const [newName, setNewName] = useState('');
 
-  function filterTree(nodes, q) {
-    if (!q) return nodes;
-    return nodes.reduce((acc, node) => {
-      if (node.children) {
-        const filtered = filterTree(node.children, q);
-        if (filtered.length) acc.push({ ...node, children: filtered });
-      } else if (node.name.toLowerCase().includes(q.toLowerCase())) {
-        acc.push(node);
-      }
-      return acc;
-    }, []);
+  function handleCreate(e) {
+    if (e.key === 'Enter' && newName.trim()) {
+      if (creating.type === 'file') onCreateFile?.(newName.trim());
+      else onCreateFolder?.(newName.trim());
+      setCreating(null);
+      setNewName('');
+    } else if (e.key === 'Escape') {
+      setCreating(null);
+      setNewName('');
+    }
   }
 
-  const displayTree = search && tree ? filterTree(tree, search) : tree;
-
   return (
-    <div className="flex flex-col h-full bg-bg-surface">
+    <div className="flex flex-col h-full bg-bg-base">
       {/* VS Code Style Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border-subtle group/header">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-subtle group">
         <span className="text-[11px] font-ui font-bold text-text-pri uppercase tracking-widest truncate">
           {rootName}
         </span>
-        <div className="flex items-center gap-1 opacity-0 group-hover/header:opacity-100 transition-opacity">
-          <button className="p-1 hover:bg-bg-elevated rounded text-text-faint hover:text-text-pri transition-colors" title="New File">
+        <div className="flex items-center gap-0.5">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setCreating({ type: 'file' }); }}
+            className="p-1 hover:bg-white/10 rounded text-text-faint hover:text-text-pri transition-colors" 
+            title="New File"
+          >
             <FilePlus size={13} />
           </button>
-          <button className="p-1 hover:bg-bg-elevated rounded text-text-faint hover:text-text-pri transition-colors" title="New Folder">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setCreating({ type: 'folder' }); }}
+            className="p-1 hover:bg-white/10 rounded text-text-faint hover:text-text-pri transition-colors" 
+            title="New Folder"
+          >
             <FolderPlus size={13} />
           </button>
-          <button className="p-1 hover:bg-bg-elevated rounded text-text-faint hover:text-text-pri transition-colors" title="Refresh Explorer">
+          <button 
+            onClick={(e) => { e.stopPropagation(); onRefresh?.(); }}
+            className="p-1 hover:bg-white/10 rounded text-text-faint hover:text-text-pri transition-colors" 
+            title="Refresh Explorer"
+          >
             <RotateCcw size={13} />
           </button>
           <button 
             onClick={() => setCollapsedAll(v => v + 1)}
-            className="p-1 hover:bg-bg-elevated rounded text-text-faint hover:text-text-pri transition-colors" 
+            className="p-1 hover:bg-white/10 rounded text-text-faint hover:text-text-pri transition-colors" 
             title="Collapse All"
           >
             <MinusSquare size={13} />
@@ -154,33 +174,33 @@ export default function FileTree({ tree, changedPaths = [], onSelect, selectedPa
         </div>
       </div>
 
-      {/* Search */}
-      <div className="px-3 py-2 border-b border-border-subtle shrink-0">
-        <div className="relative">
-          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" />
+      {creating && (
+        <div className="px-3 py-1.5 flex items-center gap-2 bg-accent/5 border-b border-accent/20">
+          {creating.type === 'file' ? <FileCode2 size={12} className="text-accent" /> : <Folder size={12} className="text-warning" />}
           <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search files…"
-            className="w-full pl-7 pr-3 py-1 bg-bg-base border border-border-subtle rounded text-[13px] font-ui text-text-pri placeholder:text-text-faint focus:outline-none focus:border-accent transition-colors"
+            autoFocus
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={handleCreate}
+            onBlur={() => setCreating(null)}
+            placeholder={`Enter ${creating.type} name...`}
+            className="flex-1 bg-transparent text-xs font-ui text-text-pri outline-none"
           />
         </div>
-      </div>
+      )}
 
-      {/* Tree */}
-      <div className="flex-1 overflow-y-auto min-h-0 py-1">
-        {!tree || !displayTree?.length ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-text-faint px-4">
-            <FolderOpenIcon size={28} className="opacity-20" />
-            <p className="text-[13px] font-ui text-center opacity-60">
-              {search ? 'No files match' : 'Empty workspace'}
-            </p>
+      {/* Tree container */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
+        {(!tree || tree.length === 0) ? (
+          <div className="px-4 py-8 text-center">
+            <p className="text-[11px] text-text-faint font-ui italic">No files in project</p>
           </div>
         ) : (
-          displayTree.map(node => (
+          tree.map(node => (
             <TreeNode
               key={node.path}
               node={node}
+              depth={0}
               changedPaths={changedPaths}
               onSelect={onSelect}
               selectedPath={selectedPath}

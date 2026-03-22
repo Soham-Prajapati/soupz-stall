@@ -1,28 +1,21 @@
-# 🍜 Soupz Tasks
+# Tasks
 
-## 🚀 Priority (Launch Ready)
-- [x] Landing page: marketing site — soupz.app
-- [x] Connect page: pairing flow + QR support
-- [x] Anonymous pairing: internet-relay via Supabase
-- [x] Expert Skills: 10 prompts for /build, /design, etc.
-- [x] Agent Dashboard: activity tracking & fleet status
-- [x] Dev Server detection: live preview in split view
-- [x] NPM publishing: .npmignore + bin logic verified
-
-## 🛠 Infrastructure
-- [x] Supabase: migrations + schema.sql (includes pairing table)
-- [x] Supabase: RLS policies + Realtime enabled
-- [x] Supabase: Automated sync command (soupz sync)
-- [x] Relay: CLI command listener
-- [x] Terminal: node-pty WebSocket bridge
-- [x] Auth: Google & GitHub OAuth configured
-- [x] PWA: Manifest + icons for mobile
-
-## 📋 Backlog
-- [/] Browser extension bridge to CLI
-- [x] Team Lead skill: /team-lead + parallel orchestration
-- [x] Fleet status in dashboard timeline
-- [ ] Supabase sync for MemoryPool
-- [ ] AST/WASM agent booster
-- [ ] Mobile-responsive polish for Simple Mode
-- [ ] Offline queue (SQLite)
+- [x] Fix major application crashes (`o.split`, `changedPaths`, `topAgents`, `Users`, `runDatabaseCleanup`).
+- [x] Execute "Anti-Slop" UI/UX overhaul (VS Code theme, flat chat, xterm, hover states, `/` commands).
+- [x] Secure Admin Panel and synchronize identity strictly to GitHub username.
+- [x] Remove remaining mock data (Leaderboard now uses Supabase profiles, Admin stats use dynamic user counts).
+- [x] Implement Social features (Followers/Following, Community Search).
+- [x] Fix Terminal: Remove useless tabs, inherit theme, fix OhMyZsh visibility.
+- [x] Implement Slash Commands: `/compact`, `/fix`, `/explain`, etc. without losing original skills.
+- [x] Fix FileTree: Show 'U' for untracked, fix git parsing, remove extra search.
+- [x] Implement Agent sub-menus for Gemini models in sidebar.
+- [x] Add 1s Debounced Autosave to Editor.
+- [x] Fix `GitPanel.jsx`: Missing `useEffect` import.
+- [x] Slash Commands: Expand `/` menu to include all 40+ agents and specialists in Dashboard UI.
+- [x] Dashboard: Synchronize `lib/agents.js` specialists with the actual personas in `defaults/agents/`.
+- [x] Skills Registry: Update skills count to 16 and expand dropdown height in UI.
+- [ ] Finalize and test the backend synchronization logic for GitHub Mirroring (Shadow Manifest) when the daemon goes offline.
+- [x] Create Antigravity-compatible workflows for team-lead, architect, etc.
+- [x] Fix Dashboard rendering hooks crashes.
+- [x] Redesign ProfilePage and wire up AdminPage tabs.
+- [x] Fix LandingPage mockup UI overlap bugs.

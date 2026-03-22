@@ -233,6 +233,13 @@ export default function App() {
       setFileTree(response.payload?.tree);
       setChangedFiles(response.payload?.changedFiles || []);
     }
+    if (response.type === 'FILE_CHANGED') {
+      const path = response.path;
+      setChangedFiles(prev => {
+        if (prev.includes(path)) return prev;
+        return [...prev, `M  ${path}`]; // Add mock git status for dot
+      });
+    }
   }
 
   // Workspace interface object passed to components
@@ -240,6 +247,19 @@ export default function App() {
     online: workspaceOnline,
     machine: workspaceMachine,
     activeFleet,
+    async refreshTree() {
+      try {
+        const root = workspaceRoot || localStorage.getItem('soupz_workspace_root') || '';
+        const treeData = await getFileTree(root);
+        if (treeData?.tree) {
+          const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
+          setFileTree(children);
+          setChangedFiles(treeData.changedFiles || []);
+        }
+      } catch (err) {
+        console.error('Failed to auto-fetch file tree:', err);
+      }
+    },
     async sendPrompt({ prompt, agentId, buildMode }, onChunk) {
       return sendAgentPrompt(prompt, agentId, buildMode, user?.id, onChunk);
     },
@@ -276,11 +296,12 @@ export default function App() {
     </div>
   );
 
-  // AUTH GUARD: If not logged in and Supabase is active, only allow Landing/Connect
+  // AUTH GUARD: If not logged in and using Supabase, block internal routes
   const isAuthRequired = isSupabaseConfigured();
-  if (isAuthRequired && !user && !authLoading) {
-    if (path === '/landing') return <Suspense fallback={routeLoader}><LandingPage navigate={navigate} /></Suspense>;
-    if (path === '/connect') return <Suspense fallback={routeLoader}><ConnectPage getParam={getParam} navigate={navigate} /></Suspense>;
+  const isInternalRoute = path !== '/landing' && path !== '/connect' && path !== '/auth';
+  
+  if (isAuthRequired && !user && !authLoading && isInternalRoute) {
+    if (path === '/') return <Suspense fallback={routeLoader}><LandingPage navigate={navigate} /></Suspense>;
     return <AuthScreen supabase={supabase} onAuth={() => {}} />;
   }
 
