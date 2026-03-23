@@ -182,6 +182,40 @@ function requireAuth(req, res, next) {
 const terminals = new Map();
 let terminalCounter = 0;
 
+function buildTerminalSummary(id, terminal) {
+    const startedAt = terminal?.createdAt || Date.now();
+    return {
+        id,
+        pid: terminal?.proc?.pid,
+        alive: !!terminal?.proc,
+        lines: Array.isArray(terminal?.buffer) ? terminal.buffer.length : 0,
+        startedAt,
+        ageSec: Math.max(0, Math.floor((Date.now() - startedAt) / 1000)),
+    };
+}
+
+function terminateTerminal(terminalId) {
+    const id = Number.parseInt(String(terminalId), 10);
+    if (!Number.isFinite(id)) return { ok: false, reason: 'invalid_id' };
+    const terminal = terminals.get(id);
+    if (!terminal) return { ok: false, reason: 'not_found' };
+
+    try {
+        terminal.proc?.kill();
+    } catch {
+        // Ignore kill errors and continue cleanup.
+    }
+
+    for (const ws of terminal.listeners || []) {
+        if (ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'exit', terminalId: id, code: -1, reason: 'terminated' }));
+        }
+    }
+
+    terminals.delete(id);
+    return { ok: true, id };
+}
+
 // Track active parallel processes (Fleet)
 const activeFleet = new Map(); // commandId -> { agent, prompt, startTime }
 
@@ -205,7 +239,7 @@ function broadcast(msg) {
 }
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const REPO_ROOT = join(__dirname, '../../../');
+const REPO_ROOT = resolve(__dirname, '../../../');
 const CLI_ENTRY = join(REPO_ROOT, 'bin/soupz.js');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -687,7 +721,7 @@ app.get('/health/full', requireAuth, (req, res) => {
 app.get('/terminals', requireAuth, (req, res) => {
     const list = [];
     for (const [id, t] of terminals) {
-        list.push({ id, pid: t.proc?.pid, alive: true, lines: t.buffer.length });
+        list.push(buildTerminalSummary(id, t));
     }
     res.json(list);
 });
@@ -700,6 +734,10 @@ const AGENT_BINARY_MAP = {
     'kiro': 'kiro-cli',
     'ollama': 'ollama',
 };
+
+const AUTO_ENABLE_KIRO = process.env.SOUPZ_ENABLE_KIRO_AUTO === 'true';
+const DEFAULT_DEEP_WORKERS = Math.max(1, Number.parseInt(process.env.SOUPZ_DEEP_WORKER_COUNT || '4', 10) || 4);
+const DEFAULT_SPECIALIST_SEQUENCE = ['architect', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance'];
 
 // Ordered fallback chain — try free agents first
 const AGENT_FALLBACK_CHAIN = ['gemini', 'copilot', 'ollama', 'claude-code'];
@@ -726,15 +764,503 @@ function resolveRunAgent(requestedAgent) {
     return { agent: envAgent, fallback: true, originalRequest: requestedAgent };
 }
 
+function getInstalledAgentsInPriorityOrder() {
+    const ordered = ['gemini', 'copilot', 'ollama', 'claude-code', 'kiro'];
+    return ordered.filter((id) => isAgentInstalled(id));
+}
+
+function isPathInside(parent, candidate) {
+    try {
+        const rel = relative(resolve(parent), resolve(candidate));
+        return rel === '' || (!rel.startsWith('..') && !rel.includes(':'));
+    } catch {
+        return false;
+    }
+}
+
+function inferExecutionRole(agentId, prompt = '') {
+    const text = String(prompt || '').toLowerCase();
+
+    if (/\b(ui|ux|design|visual|layout|css|theme|accessibility)\b/.test(text)) {
+        return agentId === 'ollama' ? 'researcher' : 'designer';
+    }
+    if (/\b(devops|infra|infrastructure|docker|k8s|kubernetes|deploy|ci\/cd|pipeline|aws|gcp|azure)\b/.test(text)) {
+        return 'devops';
+    }
+    if (/\b(test|qa|quality|regression|edge case|risk|checklist)\b/.test(text)) {
+        return 'qa';
+    }
+    if (/\b(architecture|tradeoff|module|boundary|system design)\b/.test(text)) {
+        return 'architect';
+    }
+
+    const defaults = {
+        copilot: 'developer',
+        gemini: 'analyst',
+        ollama: 'researcher',
+        'claude-code': 'architect',
+        kiro: 'devops',
+    };
+    return defaults[agentId] || 'developer';
+}
+
+function inferSpecialistsFromPrompt(prompt = '', count = DEFAULT_DEEP_WORKERS) {
+    const text = String(prompt || '').toLowerCase();
+    const picked = [];
+
+    const maybePush = (name, condition) => {
+        if (condition && !picked.includes(name)) picked.push(name);
+    };
+
+    maybePush('architect', /\b(architecture|module|boundary|tradeoff|system design)\b/.test(text));
+    maybePush('designer', /\b(ui|ux|design|visual|layout|css|accessibility)\b/.test(text));
+    maybePush('qa', /\b(test|qa|checklist|edge case|risk|validation)\b/.test(text));
+    maybePush('devops', /\b(devops|infra|docker|k8s|deploy|pipeline|ci\/cd|aws|gcp|azure)\b/.test(text));
+    maybePush('analyst', /\b(analysis|benchmark|metrics|performance|investigate|compare)\b/.test(text));
+    maybePush('finance', /\b(cost|budget|pricing|financial|economics)\b/.test(text));
+    maybePush('evaluator', /\b(evaluate|review|score|audit|judge)\b/.test(text));
+    maybePush('developer', true);
+
+    for (const specialist of DEFAULT_SPECIALIST_SEQUENCE) {
+        if (picked.length >= count) break;
+        if (!picked.includes(specialist)) picked.push(specialist);
+    }
+
+    return picked.slice(0, count);
+}
+
+function specialistFocusSummary(specialist) {
+    const map = {
+        architect: 'define architecture and module boundaries',
+        developer: 'implement core functionality and code paths',
+        designer: 'own UI/UX behavior and accessibility details',
+        qa: 'validate edge cases, regressions, and testability',
+        devops: 'handle runtime, infra, and deployment concerns',
+        analyst: 'analyze structure, tradeoffs, and performance',
+        evaluator: 'review quality and decision robustness',
+        finance: 'optimize cost and resource usage decisions',
+    };
+    return map[specialist] || 'deliver concrete implementation guidance';
+}
+
+function toTitleToken(text = '') {
+    return String(text)
+        .split(/[-_\s]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+}
+
+function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
+    if (!isAgentInstalled(agentId)) {
+        return { ready: false, reason: 'not_installed' };
+    }
+
+    if (agentId === 'gemini' && !isPathInside(REPO_ROOT, cwd)) {
+        return { ready: false, reason: 'workspace_mismatch' };
+    }
+
+    if (agentId === 'claude-code') {
+        try {
+            const out = execSync('claude auth status', { timeout: 2000, encoding: 'utf8' }).trim();
+            const parsed = JSON.parse(out || '{}');
+            if (parsed && parsed.loggedIn === false) {
+                return { ready: false, reason: 'not_logged_in' };
+            }
+        } catch {
+            return { ready: false, reason: 'auth_status_unavailable' };
+        }
+    }
+
+    if (agentId === 'kiro' && !AUTO_ENABLE_KIRO) {
+        return { ready: false, reason: 'disabled_by_default' };
+    }
+
+    return { ready: true, reason: 'ready' };
+}
+
+function getReadyAgentsInPriorityOrder(cwd = REPO_ROOT) {
+    const installed = getInstalledAgentsInPriorityOrder();
+    const ready = [];
+    const skipped = [];
+
+    for (const agent of installed) {
+        const state = getAgentRuntimeReadiness(agent, cwd);
+        if (state.ready) {
+            ready.push(agent);
+        } else {
+            skipped.push({ agent, reason: state.reason });
+        }
+    }
+
+    return { installed, ready, skipped };
+}
+
+async function resolveAutoRunAgent(prompt, cwd = REPO_ROOT) {
+    const { installed, ready, skipped } = getReadyAgentsInPriorityOrder(cwd);
+
+    if (installed.length === 0) {
+        const fallback = resolveRunAgent('auto');
+        return { agent: fallback.agent, method: 'fallback-chain', available: [] };
+    }
+
+    if (ready.length === 0) {
+        return { agent: installed[0], method: 'installed-not-ready-fallback', available: installed, ready: [], skipped };
+    }
+
+    try {
+        const picked = await selectAgent(prompt, ready);
+        if (picked && ready.includes(picked)) {
+            return { agent: picked, method: 'classifier', available: installed, ready, skipped };
+        }
+    } catch {
+        // Fall through to deterministic fallback.
+    }
+
+    return { agent: ready[0], method: 'priority-fallback', available: installed, ready, skipped };
+}
+
+function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WORKERS, cwd = REPO_ROOT) {
+    const { ready, skipped } = getReadyAgentsInPriorityOrder(cwd);
+    const count = Math.max(1, maxWorkers);
+    const readySet = new Set(ready);
+    const workerSlots = [];
+    const perAgentCounts = {};
+
+    const pushSlot = (agent) => {
+        if (!agent) return;
+        perAgentCounts[agent] = (perAgentCounts[agent] || 0) + 1;
+        workerSlots.push({ workerId: `${agent}-${perAgentCounts[agent]}`, agent });
+    };
+
+    const canUsePrimary = primaryAgent && readySet.has(primaryAgent);
+    if (canUsePrimary) {
+        // Always fan out at least 2 subagents for the selected primary model.
+        const primaryCopies = Math.min(2, count);
+        for (let i = 0; i < primaryCopies; i++) pushSlot(primaryAgent);
+    }
+
+    const others = ready.filter((agent) => agent !== primaryAgent);
+    for (const agent of others) {
+        if (workerSlots.length >= count) break;
+        pushSlot(agent);
+    }
+
+    while (workerSlots.length < count && canUsePrimary) {
+        pushSlot(primaryAgent);
+    }
+
+    if (workerSlots.length === 0 && ready.length > 0) {
+        pushSlot(ready[0]);
+    }
+
+    return { workers: workerSlots, skipped };
+}
+
+function startSingleAgentOrder(order, runAgent, mcpServers) {
+    const args = [CLI_ENTRY, 'ask', runAgent, order.prompt];
+
+    const spawnEnv = { ...process.env };
+    if (mcpServers.length > 0) {
+        spawnEnv.SOUPZ_MCP_SERVERS = JSON.stringify(mcpServers);
+    }
+
+    const child = spawn(process.execPath, args, {
+        cwd: order.cwd,
+        env: spawnEnv,
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let settled = false;
+
+    const finalize = (status, payload = {}) => {
+        if (settled) return;
+        settled = true;
+        order.finishedAt = nowIso();
+        if (payload.exitCode !== undefined) order.exitCode = payload.exitCode;
+        order.status = status;
+        pushOrderEvent(order, status === 'completed' ? 'order.completed' : 'order.failed', {
+            mode: 'single',
+            ...payload,
+        });
+        void persistOrder(order);
+        broadcastOrderUpdate(order);
+    };
+
+    order.pid = child.pid;
+    order.status = 'running';
+    order.startedAt = nowIso();
+    pushOrderEvent(order, 'chef.started', { pid: child.pid, mode: 'ask', agent: runAgent });
+    void persistOrder(order);
+    broadcastOrderUpdate(order);
+
+    child.stdout.on('data', (chunk) => {
+        const text = chunk.toString();
+        order.stdout += text;
+        if (order.stdout.length > 200000) order.stdout = order.stdout.slice(-200000);
+        pushOrderEvent(order, 'chef.output.delta', { stream: 'stdout', chars: text.length, agent: runAgent });
+        const streamMsg = JSON.stringify({ type: 'agent_chunk', orderId: order.id, chunk: text, agentId: runAgent });
+        for (const client of wss.clients) {
+            if (client.readyState === 1 && authenticatedClients.has(client)) {
+                client.send(streamMsg);
+            }
+        }
+    });
+
+    child.stderr.on('data', (chunk) => {
+        const text = chunk.toString();
+        order.stderr += text;
+        if (order.stderr.length > 120000) order.stderr = order.stderr.slice(-120000);
+        pushOrderEvent(order, 'chef.output.delta', { stream: 'stderr', chars: text.length, agent: runAgent });
+    });
+
+    child.on('error', (err) => {
+        finalize('failed', { message: err.message, exitCode: 1 });
+    });
+
+    child.on('close', (code) => {
+        if (code === 0) {
+            finalize('completed', { exitCode: code });
+        } else {
+            finalize('failed', { exitCode: code });
+        }
+    });
+}
+
+async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStderr }) {
+    const args = [CLI_ENTRY, 'ask', agent, prompt];
+    const spawnEnv = { ...process.env };
+    if (mcpServers.length > 0) {
+        spawnEnv.SOUPZ_MCP_SERVERS = JSON.stringify(mcpServers);
+    }
+
+    return await new Promise((resolve) => {
+        const child = spawn(process.execPath, args, {
+            cwd,
+            env: spawnEnv,
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+
+        const finish = (payload) => {
+            if (settled) return;
+            settled = true;
+            resolve(payload);
+        };
+
+        child.stdout.on('data', (chunk) => {
+            const text = chunk.toString();
+            stdout += text;
+            onStdout?.(text, child.pid);
+        });
+
+        child.stderr.on('data', (chunk) => {
+            const text = chunk.toString();
+            stderr += text;
+            onStderr?.(text, child.pid);
+        });
+
+        child.on('error', (err) => {
+            finish({ code: 1, stdout, stderr: `${stderr}\n${err.message}`.trim(), pid: child.pid });
+        });
+
+        child.on('close', (code) => {
+            finish({ code: code ?? 1, stdout, stderr, pid: child.pid });
+        });
+    });
+}
+
+async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
+    const { workers, skipped } = selectParallelWorkers(runAgent, DEFAULT_DEEP_WORKERS, order.cwd);
+    const workerRoles = Object.fromEntries(workers.map((w) => [w.workerId, inferExecutionRole(w.agent, order.prompt)]));
+    const workerAgents = Object.fromEntries(workers.map((w) => [w.workerId, w.agent]));
+    const specialistPlan = inferSpecialistsFromPrompt(order.prompt, workers.length);
+    const labelCounts = {};
+    const workerMeta = Object.fromEntries(workers.map((w, idx) => {
+        const specialist = specialistPlan[idx] || 'developer';
+        const focus = specialistFocusSummary(specialist);
+        const base = `${toTitleToken(w.agent)} · ${toTitleToken(specialist)}`;
+        labelCounts[base] = (labelCounts[base] || 0) + 1;
+        const workerLabel = labelCounts[base] > 1 ? `${base} #${labelCounts[base]}` : base;
+        return [w.workerId, { workerLabel, specialist, focus }];
+    }));
+    order.status = 'running';
+    order.startedAt = nowIso();
+    pushOrderEvent(order, 'parallel.plan', {
+        workers: workers.map((w) => w.workerId),
+        workerAgents,
+        workerRoles,
+        workerMeta,
+        workerCount: workers.length,
+        mode: 'deep',
+        skippedWorkers: skipped,
+    });
+    void persistOrder(order);
+    broadcastOrderUpdate(order);
+
+    if (workers.length === 0) {
+        order.status = 'failed';
+        order.finishedAt = nowIso();
+        pushOrderEvent(order, 'order.failed', { mode: 'deep', reason: 'no_ready_workers' });
+        void persistOrder(order);
+        broadcastOrderUpdate(order);
+        return;
+    }
+
+    const workerRuns = workers.map(async (worker, idx) => {
+        const { workerId, agent } = worker;
+        const meta = workerMeta[workerId] || { workerLabel: workerId, specialist: 'developer', focus: 'deliver concrete implementation guidance' };
+        const workerPrompt = [
+            `You are worker ${idx + 1}/${workers.length} (${meta.workerLabel}; id=${workerId}; agent=${agent}).`,
+            `Assigned specialist persona: ${meta.specialist}.`,
+            `Assigned focus: ${meta.focus}.`,
+            'Focus on a distinct implementation strategy and return concrete, actionable output.',
+            'If coding is needed, provide exact file paths and code blocks.',
+            `Original task:\n${order.prompt}`,
+        ].join('\n\n');
+
+        pushOrderEvent(order, 'worker.started', {
+            workerId,
+            workerLabel: meta.workerLabel,
+            specialist: meta.specialist,
+            focus: meta.focus,
+            agent,
+            role: workerRoles[workerId],
+            index: idx + 1,
+        });
+        const result = await runChildAgent({
+            agent,
+            prompt: workerPrompt,
+            cwd: order.cwd,
+            mcpServers,
+            onStdout: (text, pid) => {
+                const tagged = `[worker:${workerId}|agent:${agent}] ${text}`;
+                order.stdout += tagged;
+                if (order.stdout.length > 300000) order.stdout = order.stdout.slice(-300000);
+                pushOrderEvent(order, 'worker.output.delta', { workerId, agent, stream: 'stdout', chars: text.length, pid });
+                const streamMsg = JSON.stringify({ type: 'agent_chunk', orderId: order.id, chunk: tagged, agentId: workerId });
+                for (const client of wss.clients) {
+                    if (client.readyState === 1 && authenticatedClients.has(client)) {
+                        client.send(streamMsg);
+                    }
+                }
+            },
+            onStderr: (text, pid) => {
+                const tagged = `[worker:${workerId}|agent:${agent}:stderr] ${text}`;
+                order.stderr += tagged;
+                if (order.stderr.length > 180000) order.stderr = order.stderr.slice(-180000);
+                pushOrderEvent(order, 'worker.output.delta', { workerId, agent, stream: 'stderr', chars: text.length, pid });
+            },
+        });
+
+        pushOrderEvent(order, 'worker.finished', {
+            workerId,
+            workerLabel: meta.workerLabel,
+            specialist: meta.specialist,
+            focus: meta.focus,
+            agent,
+            role: workerRoles[workerId],
+            exitCode: result.code,
+        });
+        return { workerId, agent, ...result };
+    });
+
+    const workerResults = await Promise.all(workerRuns);
+    const successfulWorkers = workerResults.filter((r) => r.code === 0);
+    const primaryWorker = workerResults.find((r) => r.agent === runAgent && r.code === 0);
+
+    pushOrderEvent(order, 'parallel.collected', {
+        workerCount: workerResults.length,
+        successfulWorkers: successfulWorkers.length,
+    });
+
+    const synthesisAgent = (primaryWorker && primaryWorker.code === 0)
+        ? runAgent
+        : (successfulWorkers[0]?.agent || workers[0]);
+    const synthesisPrompt = [
+        'You are the lead synthesizer. Merge worker outputs into a single final answer.',
+        'Prioritize correctness, concrete file paths, and executable steps.',
+        `Original task:\n${order.prompt}`,
+        'Worker outputs:',
+        ...workerResults.map((r) => `\n--- ${r.workerId} via ${r.agent} (exit ${r.code}) ---\n${(r.stdout || r.stderr || '').slice(0, 40000)}`),
+    ].join('\n');
+
+    pushOrderEvent(order, 'synthesis.started', { agent: synthesisAgent, role: 'lead-synthesizer' });
+    const synth = await runChildAgent({
+        agent: synthesisAgent,
+        prompt: synthesisPrompt,
+        cwd: order.cwd,
+        mcpServers,
+        onStdout: (text, pid) => {
+            const tagged = `[synthesis:${synthesisAgent}] ${text}`;
+            order.stdout += tagged;
+            if (order.stdout.length > 350000) order.stdout = order.stdout.slice(-350000);
+            pushOrderEvent(order, 'synthesis.output.delta', { stream: 'stdout', chars: text.length, pid });
+            const streamMsg = JSON.stringify({ type: 'agent_chunk', orderId: order.id, chunk: tagged, agentId: synthesisAgent });
+            for (const client of wss.clients) {
+                if (client.readyState === 1 && authenticatedClients.has(client)) {
+                    client.send(streamMsg);
+                }
+            }
+        },
+        onStderr: (text, pid) => {
+            order.stderr += text;
+            if (order.stderr.length > 200000) order.stderr = order.stderr.slice(-200000);
+            pushOrderEvent(order, 'synthesis.output.delta', { stream: 'stderr', chars: text.length, pid });
+        },
+    });
+
+    pushOrderEvent(order, 'synthesis.finished', { agent: synthesisAgent, role: 'lead-synthesizer', exitCode: synth.code });
+
+    order.exitCode = synth.code;
+    order.finishedAt = nowIso();
+    if (synth.code === 0 && successfulWorkers.length > 0) {
+        order.status = 'completed';
+        pushOrderEvent(order, 'order.completed', { exitCode: synth.code, mode: 'deep', workers: workers.map((w) => w.workerId) });
+    } else {
+        order.status = 'failed';
+        pushOrderEvent(order, 'order.failed', { exitCode: synth.code, mode: 'deep', workers: workers.map((w) => w.workerId) });
+    }
+
+    void persistOrder(order);
+    broadcastOrderUpdate(order);
+}
+
 // AUTHENTICATED: Create a new orchestrated order from web dashboard
-app.post('/api/orders', requireAuth, (req, res) => {
+app.post('/api/orders', requireAuth, async (req, res) => {
     const prompt = (req.body?.prompt || '').toString().trim();
     const requestedAgent = (req.body?.agent || 'auto').toString().trim() || 'auto';
     const agent = WEB_AGENT_ALIASES.get(requestedAgent) || requestedAgent;
     const modelPolicy = (req.body?.modelPolicy || 'balanced').toString().trim() || 'balanced';
+    const orchestrationMode = (req.body?.orchestrationMode || '').toString().trim() || (modelPolicy === 'deep' ? 'parallel' : 'single');
     const mcpServers = Array.isArray(req.body?.mcpServers) ? req.body.mcpServers : [];
-    const resolved = resolveRunAgent(agent);
-    const runAgent = resolved.agent;
+    const orderCwd = (req.body?.cwd || '').toString().trim() || REPO_ROOT;
+    let runAgent = null;
+    let routeMeta = { method: 'fallback-chain', available: [] };
+
+    if (agent === 'auto') {
+        const auto = await resolveAutoRunAgent(prompt, orderCwd);
+        runAgent = auto.agent;
+        routeMeta = {
+            method: auto.method,
+            available: auto.available || [],
+            ready: auto.ready || [],
+            skipped: auto.skipped || [],
+        };
+    } else {
+        const resolved = resolveRunAgent(agent);
+        runAgent = resolved.agent;
+        routeMeta = {
+            method: resolved.fallback ? 'explicit-fallback' : 'explicit',
+            fallback: resolved.fallback || false,
+            originalRequest: resolved.originalRequest || null,
+            available: getInstalledAgentsInPriorityOrder(),
+            ready: getReadyAgentsInPriorityOrder(orderCwd).ready,
+        };
+    }
 
     if (!prompt) {
         return res.status(400).json({ error: 'Missing prompt' });
@@ -749,6 +1275,8 @@ app.post('/api/orders', requireAuth, (req, res) => {
         agent,
         runAgent,
         modelPolicy,
+        orchestrationMode,
+        cwd: orderCwd,
         status: 'queued',
         createdAt,
         startedAt: null,
@@ -760,84 +1288,31 @@ app.post('/api/orders', requireAuth, (req, res) => {
         pid: null,
     };
 
-    pushOrderEvent(order, 'order.created', { prompt, agent, modelPolicy });
+    pushOrderEvent(order, 'order.created', { prompt, agent, modelPolicy, orchestrationMode, cwd: orderCwd });
     pushOrderEvent(order, 'route.selected', {
         agent: runAgent,
+        primaryRole: inferExecutionRole(runAgent, prompt),
+        specialistsPlanned: inferSpecialistsFromPrompt(prompt, DEFAULT_DEEP_WORKERS),
         requested: requestedAgent,
         resolved: agent,
-        fallback: resolved.fallback || false,
-        originalRequest: resolved.originalRequest || null,
+        routeMethod: routeMeta.method,
+        fallback: routeMeta.fallback || false,
+        originalRequest: routeMeta.originalRequest || null,
+        available: routeMeta.available || [],
+        ready: routeMeta.ready || [],
+        skipped: routeMeta.skipped || [],
     });
     orders.set(id, order);
     void persistOrder(order);
     broadcastOrderUpdate(order);
 
-    const args = [CLI_ENTRY];
-    // Web dashboard path is intentionally single-agent to avoid accidental fan-out.
-    args.push('ask', runAgent, prompt);
-
-    const spawnEnv = { ...process.env };
-    if (mcpServers.length > 0) {
-        spawnEnv.SOUPZ_MCP_SERVERS = JSON.stringify(mcpServers);
+    if (orchestrationMode === 'parallel') {
+        void startDeepOrchestratedOrder(order, runAgent, mcpServers);
+    } else {
+        startSingleAgentOrder(order, runAgent, mcpServers);
     }
 
-    const child = spawn(process.execPath, args, {
-        cwd: REPO_ROOT,
-        env: spawnEnv,
-        stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    order.pid = child.pid;
-    order.status = 'running';
-    order.startedAt = nowIso();
-    pushOrderEvent(order, 'chef.started', { pid: child.pid, mode: 'ask', agent: runAgent });
-    void persistOrder(order);
-    broadcastOrderUpdate(order);
-
-    child.stdout.on('data', (chunk) => {
-        const text = chunk.toString();
-        order.stdout += text;
-        if (order.stdout.length > 200000) order.stdout = order.stdout.slice(-200000);
-        pushOrderEvent(order, 'chef.output.delta', { stream: 'stdout', chars: text.length });
-        // Stream chunks to WebSocket clients in real-time
-        const streamMsg = JSON.stringify({ type: 'agent_chunk', orderId: id, chunk: text, agentId: runAgent });
-        for (const client of wss.clients) {
-            if (client.readyState === 1 && authenticatedClients.has(client)) {
-                client.send(streamMsg);
-            }
-        }
-    });
-
-    child.stderr.on('data', (chunk) => {
-        const text = chunk.toString();
-        order.stderr += text;
-        if (order.stderr.length > 120000) order.stderr = order.stderr.slice(-120000);
-        pushOrderEvent(order, 'chef.output.delta', { stream: 'stderr', chars: text.length });
-    });
-
-    child.on('error', (err) => {
-        order.status = 'failed';
-        order.finishedAt = nowIso();
-        pushOrderEvent(order, 'order.failed', { message: err.message });
-        void persistOrder(order);
-        broadcastOrderUpdate(order);
-    });
-
-    child.on('close', (code) => {
-        order.exitCode = code;
-        order.finishedAt = nowIso();
-        if (code === 0) {
-            order.status = 'completed';
-            pushOrderEvent(order, 'order.completed', { exitCode: code });
-        } else {
-            order.status = 'failed';
-            pushOrderEvent(order, 'order.failed', { exitCode: code });
-        }
-        void persistOrder(order);
-        broadcastOrderUpdate(order);
-    });
-
-    return res.status(202).json({ order: toOrderSummary(order) });
+    return res.status(202).json({ id: order.id, ...toOrderSummary(order) });
 });
 
 // AUTHENTICATED: List latest orders for queue/history (DB-first, memory fallback)
@@ -872,12 +1347,11 @@ app.get('/api/orders/:id', requireAuth, async (req, res) => {
     const memOrder = orders.get(req.params.id);
     // Memory is canonical for live/recent orders (has events, stdout, stderr)
     if (memOrder) {
+        const summary = toOrderSummary(memOrder);
         return res.json({
-            order: {
-                ...toOrderSummary(memOrder),
-                pid: memOrder.pid, exitCode: memOrder.exitCode,
-                events: memOrder.events, stdout: memOrder.stdout, stderr: memOrder.stderr,
-            },
+            ...summary,
+            pid: memOrder.pid, exitCode: memOrder.exitCode,
+            events: memOrder.events, stdout: memOrder.stdout, stderr: memOrder.stderr,
         });
     }
     // Fall back to DB for historical orders not in current memory
@@ -890,13 +1364,11 @@ app.get('/api/orders/:id', requireAuth, async (req, res) => {
                 .single();
             if (!error && data) {
                 return res.json({
-                    order: {
-                        id: data.id, prompt: data.prompt, agent: data.agent, runAgent: data.run_agent,
-                        modelPolicy: data.model_policy, status: data.status, createdAt: data.created_at,
-                        startedAt: data.started_at, finishedAt: data.finished_at, durationMs: data.duration_ms,
-                        exitCode: data.exit_code, events: data.events || [], stdout: data.stdout || '',
-                        stderr: data.stderr || '', eventCount: (data.events || []).length,
-                    },
+                    id: data.id, prompt: data.prompt, agent: data.agent, runAgent: data.run_agent,
+                    modelPolicy: data.model_policy, status: data.status, createdAt: data.created_at,
+                    startedAt: data.started_at, finishedAt: data.finished_at, durationMs: data.duration_ms,
+                    exitCode: data.exit_code, events: data.events || [], stdout: data.stdout || '',
+                    stderr: data.stderr || '', eventCount: (data.events || []).length,
                 });
             }
         } catch { /* fall through */ }
@@ -907,25 +1379,36 @@ app.get('/api/orders/:id', requireAuth, async (req, res) => {
 // AUTHENTICATED: Changed files for dashboard drawer
 app.get('/api/changes', requireAuth, (req, res) => {
     try {
-        const out = execSync('git -C "$PWD" status --porcelain', { cwd: REPO_ROOT, timeout: 4000 }).toString();
+        const out = execSync('git status --porcelain', { cwd: REPO_ROOT, timeout: 4000 }).toString();
         const lines = out.split('\n').map((l) => l.trimEnd()).filter(Boolean);
-        const changes = lines.map((line) => {
-            const statusCode = line.slice(0, 2).trim() || '??';
+        const staged = [];
+        const unstaged = [];
+        
+        lines.forEach((line) => {
+            const statusCode = line.slice(0, 2);
             const path = line.slice(3).trim();
-            let status = 'modified';
-            if (statusCode === 'M') status = 'modified';
-            else if (statusCode === 'A') status = 'added';
-            else if (statusCode === 'D') status = 'deleted';
-            else if (statusCode.includes('R')) status = 'renamed';
-            else if (statusCode.includes('?')) status = 'untracked';
-            return { file: path, status };
+            const indexStatus = statusCode[0];
+            const workTreeStatus = statusCode[1];
+
+            if (indexStatus !== ' ' && indexStatus !== '?') {
+                staged.push({ path, type: indexStatus });
+            }
+            if (workTreeStatus !== ' ' && workTreeStatus !== '?') {
+                unstaged.push({ path, type: workTreeStatus });
+            }
+            if (statusCode === '??') {
+                unstaged.push({ path, type: 'U' });
+            }
         });
+
         // Get current branch name
         let branch = 'main';
         try {
-            branch = execSync('git -C "$PWD" branch --show-current', { cwd: REPO_ROOT, timeout: 2000 }).toString().trim() || 'main';
+            branch = execSync('git branch --show-current', { cwd: REPO_ROOT, timeout: 2000 }).toString().trim() || 'main';
         } catch { /* fallback to main */ }
-        res.json({ changes, branch });
+        
+        const porcelain = lines; // Original porcelain lines for file tree coloring
+        res.json({ staged, unstaged, branch, porcelain });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -937,7 +1420,7 @@ app.get('/api/changes/diff', requireAuth, (req, res) => {
     if (!file) return res.status(400).json({ error: 'Missing file query param' });
     try {
         const escaped = file.replace(/"/g, '\\"');
-        const diff = execSync(`git -C "$PWD" --no-pager diff -- "${escaped}"`, { cwd: REPO_ROOT, timeout: 4000 }).toString();
+        const diff = execSync(`git --no-pager diff -- "${escaped}"`, { cwd: REPO_ROOT, timeout: 4000 }).toString();
         res.json({ file, diff: diff || 'No unstaged diff available.' });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -970,7 +1453,7 @@ app.post('/terminal', requireAuth, (req, res) => {
         env: process.env,
     });
 
-    const terminal = { id, proc, buffer: [], listeners: new Set() };
+    const terminal = { id, proc, buffer: [], listeners: new Set(), createdAt: Date.now() };
 
     proc.onData((data) => {
         terminal.buffer.push(data);
@@ -989,6 +1472,18 @@ app.post('/terminal', requireAuth, (req, res) => {
 
     terminals.set(id, terminal);
     res.json({ id, pid: proc.pid });
+});
+
+// AUTHENTICATED: Kill terminal by id
+app.delete('/terminals/:id', requireAuth, (req, res) => {
+    const result = terminateTerminal(req.params.id);
+    if (!result.ok && result.reason === 'not_found') {
+        return res.status(404).json({ error: 'Terminal not found' });
+    }
+    if (!result.ok) {
+        return res.status(400).json({ error: 'Invalid terminal id' });
+    }
+    return res.json({ ok: true, id: result.id });
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -1169,11 +1664,11 @@ app.get('/api/fs/tree', requireAuth, async (req, res) => {
     try {
         console.log(`  📂 Loading file tree for: ${rootPath}`);
         const tree = await buildFileTree(rootPath, rootPath);
-        // Get changed files from git
+        // Get changed files from git (raw porcelain lines for the frontend)
         let changedFiles = [];
         try {
             const out = execSync('git status --porcelain', { cwd: rootPath, timeout: 3000 }).toString();
-            changedFiles = out.split('\n').filter(Boolean).map(l => l.slice(3).trim());
+            changedFiles = out.split('\n').filter(Boolean); // Send full porcelain lines
         } catch { /* not a git repo */ }
         res.json({ tree, changedFiles });
     } catch (err) {
@@ -1508,7 +2003,7 @@ wss.on('connection', (ws, req) => {
                         cwd: msg.cwd || process.cwd(),
                         env: process.env,
                     });
-                    const terminal = { id, proc, buffer: [], listeners: new Set([ws]) };
+                    const terminal = { id, proc, buffer: [], listeners: new Set([ws]), createdAt: Date.now() };
 
                     proc.onData((data) => {
                         terminal.buffer.push(data);
@@ -1531,11 +2026,7 @@ wss.on('connection', (ws, req) => {
                 }
 
                 case 'kill_terminal': {
-                    const terminal = terminals.get(msg.terminalId);
-                    if (terminal?.proc) {
-                        terminal.proc.kill();
-                        terminals.delete(msg.terminalId);
-                    }
+                    terminateTerminal(msg.terminalId);
                     break;
                 }
 
@@ -1902,18 +2393,28 @@ async function executeCommand(cmd) {
             }
 
             case 'GIT_STATUS': {
-                const cwd = payload.path || process.cwd();
+                const cwd = payload.path || REPO_ROOT;
                 const out = execSync('git status --porcelain', { cwd, timeout: 5000 }).toString();
-                const files = out.split('\n').filter(Boolean).map(l => ({
-                    status: l.slice(0, 2).trim(),
-                    path: l.slice(3).trim(),
-                }));
-                result = { files };
+                const lines = out.split('\n').map((l) => l.trimEnd()).filter(Boolean);
+                const staged = [];
+                const unstaged = [];
+                lines.forEach((line) => {
+                    const statusCode = line.slice(0, 2);
+                    const path = line.slice(3).trim();
+                    const indexStatus = statusCode[0];
+                    const workTreeStatus = statusCode[1];
+                    if (indexStatus !== ' ' && indexStatus !== '?') staged.push({ path, type: indexStatus });
+                    if (workTreeStatus !== ' ' && workTreeStatus !== '?') unstaged.push({ path, type: workTreeStatus });
+                    if (statusCode === '??') unstaged.push({ path, type: 'U' });
+                });
+                let branch = 'main';
+                try { branch = execSync('git branch --show-current', { cwd, timeout: 2000 }).toString().trim() || 'main'; } catch {}
+                result = { staged, unstaged, branch, porcelain: lines };
                 break;
             }
 
             case 'GIT_DIFF': {
-                const cwd = payload.root || process.cwd();
+                const cwd = payload.root || REPO_ROOT;
                 const escaped = (payload.path || '').replace(/"/g, '\\"');
                 const diff = execSync(`git diff -- "${escaped}"`, { cwd, timeout: 5000 }).toString();
                 result = { diff, path: payload.path };
@@ -1921,21 +2422,21 @@ async function executeCommand(cmd) {
             }
 
             case 'GIT_STAGE': {
-                const cwd = payload.root || process.cwd();
+                const cwd = payload.root || REPO_ROOT;
                 execSync(`git add -- "${(payload.path || '').replace(/"/g, '\\"')}"`, { cwd, timeout: 5000 });
                 result = { ok: true };
                 break;
             }
 
             case 'GIT_COMMIT': {
-                const cwd = payload.root || process.cwd();
+                const cwd = payload.root || REPO_ROOT;
                 execSync(`git commit -m ${JSON.stringify(payload.message || 'Update')}`, { cwd, timeout: 10000 });
                 result = { ok: true };
                 break;
             }
 
             case 'GIT_PUSH': {
-                const cwd = payload.root || process.cwd();
+                const cwd = payload.root || REPO_ROOT;
                 execSync('git push', { cwd, timeout: 30000 });
                 result = { ok: true };
                 break;
@@ -2038,12 +2539,6 @@ async function runAgentPrompt({ prompt, agentId = 'auto', mode, cwd: workDir }, 
             resolve({ error: err.message, exitCode: 1 });
         });
 
-        // 5-minute timeout
-        setTimeout(() => {
-            try { child.kill(); } catch {}
-            if (commandId) unregisterFleet(commandId);
-            resolve({ output: fullOutput.trim() || stderr.trim(), exitCode: 1, timedOut: true });
-        }, 300000);
     });
 }
 

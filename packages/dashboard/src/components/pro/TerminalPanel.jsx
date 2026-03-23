@@ -140,6 +140,9 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize }
           <button className="text-[11px] font-ui uppercase tracking-wide h-full flex items-center border-b-[1px] transition-colors text-[#E7E7E7] border-accent font-medium">
             TERMINAL
           </button>
+          <button className="text-text-faint hover:text-text-pri transition-colors mt-0.5" title="New Terminal (Coming Soon)">
+            <Plus size={14} />
+          </button>
         </div>
         
         <div className="flex-1" />

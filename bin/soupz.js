@@ -48,6 +48,11 @@ if (command === 'supabase' || command === 'sync') {
     process.exit(0);
 }
 
+if (command === 'ask') {
+    await handleAsk(args);
+    process.exit(0);
+}
+
 // Default: start the local daemon
 await startDaemon();
 
@@ -111,6 +116,30 @@ async function startDaemon() {
 }
 
 // ─── Utility Commands ─────────────────────────────────────────────────────────
+
+async function handleAsk([agentId, promptStr, ...restArgs]) {
+    const { AgentRegistry } = await import('../src/agents/registry.js');
+    const { AgentSpawner } = await import('../src/agents/spawner.js');
+    
+    const registry = new AgentRegistry();
+    await registry.init();
+
+    const spawner = new AgentSpawner(registry);
+    const fullPrompt = [promptStr, ...restArgs].join(' ');
+
+    // The remote-server reads stdout/stderr directly
+    spawner.on('output', (id, data) => {
+        if (data.type === 'stderr') process.stderr.write(data.text + '\n');
+        else process.stdout.write(data.text + '\n');
+    });
+
+    try {
+        await spawner.run(agentId, fullPrompt, process.cwd());
+    } catch (e) {
+        process.stderr.write(`\n✖ Agent error: ${e.message}\n`);
+        process.exit(1);
+    }
+}
 
 async function listAgents() {
     const { AgentRegistry } = await import('../src/agents/registry.js');

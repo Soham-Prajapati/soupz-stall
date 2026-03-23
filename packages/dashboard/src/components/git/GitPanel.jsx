@@ -107,7 +107,7 @@ export default function GitPanel({ daemon }) {
         <button
           onClick={refresh}
           disabled={loading}
-          className="ml-auto text-text-faint hover:text-text-pri transition-colors"
+          className="ml-auto p-2 -mr-2 text-text-faint hover:text-text-pri transition-colors"
           title="Refresh"
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
@@ -172,7 +172,7 @@ export default function GitPanel({ daemon }) {
             onClick={generateCommitMessage}
             disabled={generatingMsg || staged.length === 0}
             title="Generate commit message with AI"
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-ui text-text-faint hover:text-accent hover:bg-accent/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-ui text-text-faint hover:text-accent hover:bg-accent/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
             {generatingMsg ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
             <span>Generate</span>
@@ -186,12 +186,12 @@ export default function GitPanel({ daemon }) {
           onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commit(); }}
           className="w-full bg-bg-elevated border border-border-subtle rounded p-2 text-xs font-ui text-text-pri placeholder:text-text-faint focus:outline-none focus:border-accent transition-colors resize-none"
         />
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
           <button
             onClick={commit}
             disabled={!message.trim() || loading}
             className={cn(
-              'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-xs font-medium transition-all',
+              'flex-1 flex items-center justify-center gap-1.5 py-2 sm:py-1.5 rounded text-xs font-medium transition-all',
               message.trim()
                 ? 'bg-accent hover:bg-accent-hover text-white'
                 : 'bg-bg-elevated text-text-faint cursor-not-allowed',
@@ -203,7 +203,7 @@ export default function GitPanel({ daemon }) {
           <button
             onClick={push}
             disabled={pushing}
-            className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-bg-elevated hover:bg-bg-overlay border border-border-subtle text-text-sec hover:text-text-pri transition-all disabled:opacity-50"
+            className="flex items-center justify-center gap-1.5 px-4 py-2 sm:py-1.5 rounded text-xs font-medium bg-bg-elevated hover:bg-bg-overlay border border-border-subtle text-text-sec hover:text-text-pri transition-all disabled:opacity-50"
             title="Push"
           >
             {pushing ? <RefreshCw size={11} className="animate-spin" /> : <Upload size={11} />}
@@ -232,9 +232,9 @@ function FileSection({ label, files, icon, onStageAll, emptyLabel }) {
         {onStageAll && (
           <button
             onClick={e => { e.stopPropagation(); onStageAll(); }}
-            className="opacity-0 group-hover:opacity-100 ml-1 px-1.5 py-0.5 rounded bg-accent/10 text-accent text-xs hover:bg-accent/20 transition-all flex items-center gap-1"
+            className="opacity-100 md:opacity-0 md:group-hover:opacity-100 ml-1 px-2 py-1 rounded bg-accent/10 text-accent text-[10px] sm:text-xs hover:bg-accent/20 transition-all flex items-center gap-1 shrink-0"
           >
-            <Plus size={9} /> Stage all
+            <Plus size={10} /> Stage all
           </button>
         )}
       </div>
@@ -243,7 +243,7 @@ function FileSection({ label, files, icon, onStageAll, emptyLabel }) {
           <p className="px-7 pb-2 text-text-faint text-xs">{emptyLabel}</p>
         ) : (
           files.map(f => (
-            <div key={f.path} className="flex items-center gap-2 px-7 py-0.5 hover:bg-bg-elevated group/file">
+            <div key={f.path} className="flex items-center gap-2 px-4 sm:px-7 py-1 sm:py-0.5 hover:bg-bg-elevated group/file">
               {icon}
               <span className="flex-1 truncate text-text-sec font-mono text-xs">{f.path}</span>
               <span className={cn(

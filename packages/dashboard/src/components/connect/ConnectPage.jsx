@@ -93,7 +93,7 @@ export default function ConnectPage({ getParam, navigate }) {
     if (url) localStorage.setItem('soupz_daemon_url', url);
     else localStorage.removeItem('soupz_daemon_url'); // fallback to relay
 
-    setTimeout(() => navigate('/'), 1200);
+    setTimeout(() => navigate('/dashboard'), 1200);
   }
 
   function onDigitChange(idx, val) {

@@ -190,62 +190,7 @@ export default function StatsPanel({ workspace }) {
             ))}
           </div>
 
-          {/* Premium Usage Tracking */}
-          <div className="bg-bg-elevated border border-border-subtle rounded-xl p-3.5 space-y-3 shadow-soft">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Crown size={14} className="text-warning" />
-                <span className="text-xs font-ui font-bold text-text-pri">AI Usage & Allowance</span>
-              </div>
-              <Settings size={12} className="text-text-faint hover:text-text-sec cursor-pointer transition-colors" />
-            </div>
-            
-            <div className="space-y-3">
-              {/* Common Tiers */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between items-center text-[10px] uppercase tracking-wider font-bold">
-                  <span className="text-text-sec">Gemini Free Tier</span>
-                  <span className="text-success">Active</span>
-                </div>
-                <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-text-faint">Rate Limit</span>
-                  <span className="text-text-pri font-mono">15 RPM</span>
-                </div>
-              </div>
-
-              <div className="h-px bg-border-subtle w-full opacity-50" />
-
-              {/* Dynamic Usage */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-text-sec font-medium">Premium requests used</span>
-                  <span className="text-text-pri font-mono font-bold">
-                    {Math.min((totalMsgs / 100) * 100, 100).toFixed(1)}%
-                  </span>
-                </div>
-                <div className="h-2 bg-bg-base rounded-full overflow-hidden border border-border-subtle/30">
-                  <div 
-                    className={cn(
-                      "h-full transition-all duration-1000 rounded-full shadow-[0_0_8px]",
-                      totalMsgs > 80 ? "bg-danger shadow-danger/40" : "bg-accent shadow-accent/40"
-                    )}
-                    style={{ width: `${Math.min((totalMsgs / 100) * 100, 100)}%` }} 
-                  />
-                </div>
-                <div className="flex justify-between items-center">
-                  <p className="text-[9px] text-text-faint leading-tight">
-                    Resetting {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toLocaleDateString()}
-                  </p>
-                  <span className="text-[10px] font-mono text-text-sec">{totalMsgs}/100 total</span>
-                </div>
-              </div>
-            </div>
-
-            <button className="w-full py-2 bg-accent/10 border border-accent/20 hover:bg-accent/20 rounded-lg text-[11px] font-ui font-bold text-accent transition-all">
-              Upgrade to Pro Plan
-            </button>
-          </div>
-
+          {/* Removed Mock Premium Tracking Section */}
           {/* Daily activity chart */}
           {totalMsgs > 0 && (
             <div>

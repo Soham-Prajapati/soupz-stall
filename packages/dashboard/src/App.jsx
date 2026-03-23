@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Terminal, Wifi, WifiOff, LogOut, Layers, Code2, Loader2, Sun, Moon, Contrast,
   Leaf, Snowflake, Ghost, Coffee, Landmark, Flower2, SunDim, Github, Check, Search,
-  Shield,
+  Shield, Sparkles, CheckCircle, Lock, Users
 } from 'lucide-react';
 import { useRoute } from './hooks/useRoute';
 import AuthScreen from './components/auth/AuthScreen';
 import SimpleMode from './components/simple/SimpleMode';
 import StatusBar from './components/shared/StatusBar';
+import CoreConsole from './components/core/CoreConsole';
 
 // Lazy-load routes and heavy components not needed on first paint
 const ConnectPage = lazy(() => import('./components/connect/ConnectPage'));
@@ -23,6 +24,7 @@ import {
   checkDaemonHealth, subscribeToDaemon, sendAgentPrompt,
   getFileTree, readFile, writeFile, getGitStatus, getGitDiff,
   gitStage, gitCommit, gitPush, checkSystemCLIs,
+  listTerminals, killTerminalById, getOrderDetail,
 } from './lib/daemon.js';
 import { cn } from './lib/cn';
 
@@ -30,18 +32,13 @@ const MODE_KEY  = 'soupz_ide_mode';
 const THEME_KEY = 'soupz_theme';
 
 const THEMES = [
-  { id: 'dark',        label: 'Dark',        icon: Moon },
-  { id: 'dim',         label: 'Dim',         icon: Contrast },
-  { id: 'midnight',    label: 'Midnight',    icon: Moon },
-  { id: 'light',       label: 'Light',       icon: Sun },
-  { id: 'monokai',     label: 'Monokai',     icon: Leaf },
-  { id: 'nord',        label: 'Nord',        icon: Snowflake },
-  { id: 'dracula',     label: 'Dracula',     icon: Ghost },
-  { id: 'catppuccin',  label: 'Catppuccin',  icon: Coffee },
-  { id: 'tokyo-night', label: 'Tokyo Night', icon: Landmark },
-  { id: 'rose-pine',   label: 'Rosé Pine',   icon: Flower2 },
-  { id: 'solarized',   label: 'Solarized',   icon: SunDim },
-  { id: 'github-dark', label: 'GitHub Dark', icon: Github },
+  { id: 'dark',      label: 'Soupz Dark',   icon: Moon },
+  { id: 'dracula',   label: 'Dracula',      icon: Ghost },
+  { id: 'tokyo',     label: 'Tokyo Night',  icon: SunDim },
+  { id: 'github',    label: 'GitHub Dark',  icon: Github },
+  { id: 'nord',      label: 'Nord',         icon: Snowflake },
+  { id: 'monokai',   label: 'Monokai',      icon: Coffee },
+  { id: 'light',     label: 'Soupz Light',  icon: Sun },
 ];
 
 function applyTheme(theme) {
@@ -50,6 +47,29 @@ function applyTheme(theme) {
 
 export default function App() {
   const { path, getParam, navigate } = useRoute();
+
+  // Bootstrap daemon connection from URL query params.
+  // This enables one-click links from dev-web stack and phone pairing handoff.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const remote = params.get('remote');
+      const token = params.get('token');
+
+      if (remote) localStorage.setItem('soupz_daemon_url', remote);
+      if (token) localStorage.setItem('soupz_daemon_token', token);
+
+      if (remote || token) {
+        params.delete('remote');
+        params.delete('token');
+        const next = params.toString();
+        const cleaned = `${window.location.pathname}${next ? `?${next}` : ''}${window.location.hash || ''}`;
+        window.history.replaceState({}, '', cleaned);
+      }
+    } catch {
+      // Ignore malformed URLs.
+    }
+  }, []);
 
   const [user, setUser]           = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -181,6 +201,7 @@ export default function App() {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       const curr = session?.user ?? null;
+      console.log('Soupz Auth: Session loaded', curr ? `User: ${curr.email}` : 'No session');
       setUser(curr);
       if (curr) upsertProfile(curr);
       setAuthLoading(false);
@@ -188,6 +209,7 @@ export default function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       const curr = session?.user ?? null;
+      console.log(`Soupz Auth: Event [${event}]`, curr ? `User: ${curr.email}` : 'No user');
       setUser(curr);
       if (curr && (event === 'SIGNED_IN' || event === 'USER_UPDATED')) {
         upsertProfile(curr);
@@ -254,14 +276,16 @@ export default function App() {
         if (treeData?.tree) {
           const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
           setFileTree(children);
-          setChangedFiles(treeData.changedFiles || []);
+          // If porcelain exists, use it for file tree coloring
+          if (treeData.porcelain) setChangedFiles(treeData.porcelain);
+          else if (treeData.changedFiles) setChangedFiles(treeData.changedFiles);
         }
       } catch (err) {
         console.error('Failed to auto-fetch file tree:', err);
       }
     },
-    async sendPrompt({ prompt, agentId, buildMode }, onChunk) {
-      return sendAgentPrompt(prompt, agentId, buildMode, user?.id, onChunk);
+    async sendPrompt({ prompt, agentId, buildMode, cwd, orchestrationMode }, onChunk) {
+      return sendAgentPrompt({ prompt, agentId, buildMode, cwd, orchestrationMode }, user?.id, onChunk);
     },
     async readFile(path) {
       return readFile(path, user?.id);
@@ -288,6 +312,15 @@ export default function App() {
     async gitPush() {
       return gitPush(user?.id);
     },
+    async listTerminals() {
+      return listTerminals();
+    },
+    async killTerminal(id) {
+      return killTerminalById(id);
+    },
+    async getOrderDetail(orderId) {
+      return getOrderDetail(orderId);
+    },
   };
 
   const routeLoader = (
@@ -298,11 +331,10 @@ export default function App() {
 
   // AUTH GUARD: If not logged in and using Supabase, block internal routes
   const isAuthRequired = isSupabaseConfigured();
-  const isInternalRoute = path !== '/landing' && path !== '/connect' && path !== '/auth';
+  const isInternalRoute = path !== '/' && path !== '/connect' && path !== '/auth' && path !== '/core';
   
   if (isAuthRequired && !user && !authLoading && isInternalRoute) {
-    if (path === '/') return <Suspense fallback={routeLoader}><LandingPage navigate={navigate} /></Suspense>;
-    return <AuthScreen supabase={supabase} onAuth={() => {}} />;
+    return <AuthScreen supabase={supabase} onAuth={() => navigate('/dashboard')} />;
   }
 
   // /connect route
@@ -310,9 +342,14 @@ export default function App() {
     return <Suspense fallback={routeLoader}><ConnectPage getParam={getParam} navigate={navigate} /></Suspense>;
   }
 
-  // /landing route
-  if (path === '/landing') {
-    return <Suspense fallback={routeLoader}><LandingPage navigate={navigate} /></Suspense>;
+  // /core route (minimal orchestrator demo)
+  if (path === '/core') {
+    return <CoreConsole workspace={workspace} />;
+  }
+
+  // Default home site
+  if (path === '/') {
+    return <Suspense fallback={routeLoader}><LandingPage navigate={navigate} theme={theme} setTheme={setTheme} themes={THEMES} /></Suspense>;
   }
 
   // /profile route
@@ -530,6 +567,7 @@ export default function App() {
         machine={workspaceMachine}
         mode={mode}
         editorState={editorState}
+        daemon={workspace}
       />
     </div>
   );
@@ -585,7 +623,7 @@ function WorkspaceOfflineBanner({ navigate }) {
       </span>
       <div className="ml-auto flex items-center gap-3 shrink-0">
         <button
-          onClick={() => navigate('/landing')}
+          onClick={() => navigate('/')}
           className="text-text-faint hover:text-text-sec transition-colors"
         >
           View demo

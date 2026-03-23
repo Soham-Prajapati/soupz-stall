@@ -54,6 +54,34 @@ export default function AdminPage({ user, navigate }) {
     uptime: '99.9%'
   });
 
+  const [jitter, setJitter] = useState({
+    latency: 0, load: 0, conn: 0, iops: 0,
+    plugins: { 'StitchMCP': 0, 'Supabase Sync': 0, 'GitHub Integration': 0, 'Terminal Relay': 0 }
+  });
+  const [settings, setSettings] = useState({
+    registration: true, rateLimiting: true, debugLogging: false, expAgents: false
+  });
+  
+  const toggleSetting = (k) => setSettings(s => ({ ...s, [k]: !s[k] }));
+
+  useEffect(() => {
+    const int = setInterval(() => {
+      setJitter({
+        latency: Math.floor(Math.random() * 8) - 4,
+        load: Math.floor(Math.random() * 6) - 3,
+        conn: Math.floor(Math.random() * 40) - 20,
+        iops: Math.floor(Math.random() * 200) - 100,
+        plugins: {
+          'StitchMCP': Math.floor(Math.random() * 10),
+          'Supabase Sync': Math.floor(Math.random() * 15),
+          'GitHub Integration': Math.floor(Math.random() * 5),
+          'Terminal Relay': Math.floor(Math.random() * 40)
+        }
+      });
+    }, 1500);
+    return () => clearInterval(int);
+  }, []);
+
   // Role-based access check (Your ID specifically)
   const isAdmin = user?.id === 'local' || user?.user_metadata?.user_name === 'Soham-Prajapati' || user?.user_metadata?.preferred_username === 'Soham-Prajapati';
 
@@ -126,7 +154,7 @@ export default function AdminPage({ user, navigate }) {
             Biometric verification failed. Your session has been logged and reported to the system administrator.
           </p>
           <button
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/dashboard')}
             className="w-full py-2.5 bg-bg-elevated border border-border-mid rounded-xl text-text-pri text-sm font-ui hover:bg-bg-overlay transition-all"
           >
             Return to Terminal
@@ -141,7 +169,7 @@ export default function AdminPage({ user, navigate }) {
       {/* Admin Header */}
       <header className="h-14 border-b border-border-subtle bg-bg-surface flex items-center px-6 gap-4 shrink-0">
         <button
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/dashboard')}
           className="p-2 -ml-2 rounded-lg hover:bg-bg-elevated text-text-faint hover:text-text-sec transition-all"
         >
           <ArrowLeft size={18} />
@@ -472,6 +500,9 @@ export default function AdminPage({ user, navigate }) {
                         </div>
                       </div>
                       <div className="flex items-center gap-6">
+                        <div className="flex flex-col items-end hidden sm:flex">
+                          <span className="text-[10px] font-mono text-text-sec flex items-center gap-1.5"><Activity size={10} className="text-accent" /> {24 + (jitter.plugins[plugin.name] || 0)}ms ping</span>
+                        </div>
                         <span className="text-[10px] font-mono text-text-faint bg-bg-elevated px-2 py-1 rounded border border-border-subtle">{plugin.version}</span>
                         <span className={cn('text-[10px] px-2.5 py-1 rounded-full border uppercase font-bold tracking-widest', plugin.status === 'Active' ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20')}>
                           {plugin.status}
@@ -487,10 +518,10 @@ export default function AdminPage({ user, navigate }) {
             {activeTab === 'nodes' && (
               <div className="grid grid-cols-2 gap-6">
                 {[
-                  { region: 'us-east-1', status: 'Healthy', load: '42%', latency: '12ms', type: 'Primary Relays' },
-                  { region: 'eu-central-1', status: 'Healthy', load: '68%', latency: '24ms', type: 'Edge Compute' },
-                  { region: 'ap-northeast-1', status: 'Warning', load: '94%', latency: '145ms', type: 'Database Replica' },
-                  { region: 'sa-east-1', status: 'Healthy', load: '18%', latency: '65ms', type: 'Backup Storage' },
+                  { region: 'us-east-1', status: 'Healthy', load: Math.max(0, 42 + jitter.load), latency: Math.max(0, 12 + jitter.latency), type: 'Primary Relays' },
+                  { region: 'eu-central-1', status: 'Healthy', load: Math.max(0, 68 + jitter.load), latency: Math.max(0, 24 + jitter.latency), type: 'Edge Compute' },
+                  { region: 'ap-northeast-1', status: 'Warning', load: Math.min(100, 94 + jitter.load), latency: Math.max(0, 145 + jitter.latency), type: 'Database Replica' },
+                  { region: 'sa-east-1', status: 'Healthy', load: Math.max(0, 18 + jitter.load), latency: Math.max(0, 65 + jitter.latency), type: 'Backup Storage' },
                 ].map((node, i) => (
                   <div key={i} className="bg-bg-surface border border-border-subtle rounded-2xl p-6 hover:border-border-mid transition-all shadow-soft">
                     <div className="flex items-center justify-between mb-4">
@@ -506,11 +537,11 @@ export default function AdminPage({ user, navigate }) {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="bg-bg-elevated rounded-xl p-3 border border-border-subtle">
                         <p className="text-[10px] text-text-faint uppercase font-bold mb-1">System Load</p>
-                        <p className="text-lg font-mono font-bold text-text-pri">{node.load}</p>
+                        <p className="text-lg font-mono font-bold text-text-pri">{node.load}%</p>
                       </div>
                       <div className="bg-bg-elevated rounded-xl p-3 border border-border-subtle">
                         <p className="text-[10px] text-text-faint uppercase font-bold mb-1">Network Latency</p>
-                        <p className="text-lg font-mono font-bold text-text-pri">{node.latency}</p>
+                        <p className="text-lg font-mono font-bold text-text-pri">{node.latency}ms</p>
                       </div>
                     </div>
                   </div>
@@ -528,11 +559,11 @@ export default function AdminPage({ user, navigate }) {
                   </div>
                   <div className="p-6">
                     <p className="text-[10px] font-bold text-text-faint uppercase tracking-widest mb-1">Read/Write IOPS</p>
-                    <p className="text-2xl font-mono font-bold text-text-pri">4,210 / 890</p>
+                    <p className="text-2xl font-mono font-bold text-text-pri">{(4210 + jitter.iops).toLocaleString()} / {(890 + Math.floor(jitter.iops / 4)).toLocaleString()}</p>
                   </div>
                   <div className="p-6">
                     <p className="text-[10px] font-bold text-text-faint uppercase tracking-widest mb-1">Active Connections</p>
-                    <p className="text-2xl font-mono font-bold text-text-pri">1,024</p>
+                    <p className="text-2xl font-mono font-bold text-text-pri">{(1024 + jitter.conn).toLocaleString()}</p>
                   </div>
                 </div>
                 <div className="p-6">
@@ -544,7 +575,7 @@ export default function AdminPage({ user, navigate }) {
                           <Database size={14} className="text-accent" />
                           {table}
                         </div>
-                        <span className="text-[10px] bg-bg-elevated px-2 py-1 rounded text-text-faint">{Math.floor(Math.random() * 50000) + 1000} rows</span>
+                        <span className="text-[10px] bg-bg-elevated px-2 py-1 rounded text-text-faint">{(Math.floor(stats.totalUsers * (i + 1.5)) + (jitter.latency * i * 10)).toLocaleString()} rows</span>
                       </div>
                     ))}
                   </div>
@@ -558,17 +589,17 @@ export default function AdminPage({ user, navigate }) {
                 <h3 className="text-lg font-bold text-text-pri tracking-tight mb-6">Global Configuration</h3>
                 <div className="space-y-6">
                   {[
-                    { title: 'New User Registration', desc: 'Allow new clients to pair with the central relay network.', enabled: true },
-                    { title: 'Strict Rate Limiting', desc: 'Throttle requests from shared IPs to prevent abuse.', enabled: true },
-                    { title: 'Debug Logging Level', desc: 'Store extensive operational logs in the local telemetry system.', enabled: false },
-                    { title: 'Experimental Agents', desc: 'Expose unstable unverified models to the default command palette.', enabled: false }
+                    { id: 'registration', title: 'New User Registration', desc: 'Allow new clients to pair with the central relay network.', enabled: settings.registration },
+                    { id: 'rateLimiting', title: 'Strict Rate Limiting', desc: 'Throttle requests from shared IPs to prevent abuse.', enabled: settings.rateLimiting },
+                    { id: 'debugLogging', title: 'Debug Logging Level', desc: 'Store extensive operational logs in the local telemetry system.', enabled: settings.debugLogging },
+                    { id: 'expAgents', title: 'Experimental Agents', desc: 'Expose unstable unverified models to the default command palette.', enabled: settings.expAgents }
                   ].map((setting, i) => (
                     <div key={i} className="flex items-center justify-between">
                       <div>
                         <p className="text-sm font-bold text-text-pri">{setting.title}</p>
                         <p className="text-xs text-text-faint mt-0.5">{setting.desc}</p>
                       </div>
-                      <div className={cn("w-10 h-5 rounded-full relative transition-colors cursor-pointer", setting.enabled ? "bg-accent" : "bg-bg-elevated border border-border-mid")}>
+                      <div onClick={() => toggleSetting(setting.id)} className={cn("w-10 h-5 rounded-full relative transition-colors cursor-pointer", setting.enabled ? "bg-accent" : "bg-bg-elevated border border-border-mid")}>
                         <div className={cn("absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all", setting.enabled ? "right-0.5" : "left-0.5 opacity-50")} />
                       </div>
                     </div>

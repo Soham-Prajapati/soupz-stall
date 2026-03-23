@@ -47,6 +47,8 @@ const COMMANDS = [
     { cmd: '/delegate',   desc: 'Delegate to chef: /delegate designer "prompt"', icon: '📤', cat: 'cooking' },
     { cmd: '/parallel',   desc: 'Run chefs in parallel: /parallel a b c "prompt"', icon: '⚡', cat: 'cooking' },
     { cmd: '/fleet',      desc: 'Spawn hidden parallel workers: /fleet "prompt"', icon: '🚀', cat: 'cooking' },
+    { cmd: '/subagent',   desc: 'Spawn isolated sub-agents & synthesize: /subagent "prompt"', icon: '🧬', cat: 'cooking' },
+    { cmd: '/team',       desc: 'Run a collaborative agent team: /team "prompt"', icon: '👥', cat: 'cooking' },
     { cmd: '/svgart',     desc: 'Generate SVG asset: /svgart logo "HealthAI logo, blue, geometric"', icon: '🎨', cat: 'cooking' },
     { cmd: '/hackathon',  desc: 'Hackathon mode — phased plan, todos, chef assignments', icon: '🏁', cat: 'cooking' },
     { cmd: '/spill',      desc: 'Toggle spill mode — no restrictions, full send 🫕', icon: '🌊', cat: 'cooking' },
@@ -1093,6 +1095,12 @@ export class Session {
         if (input.startsWith('/fleet peek')) { this.peekFleetWorker(input.slice(11).trim()); return; }
         if (input.startsWith('/fleet ')) { await this.spawnFleet(input.slice(7).trim()); return; }
         if (input === '/fleet') { this.showFleetStatus(); return; }
+        // /subagent — sub-agent synthesis workflow
+        if (input.startsWith('/subagent ')) { await this.runSubAgents(input.slice(10).trim()); return; }
+        if (input === '/subagent') { console.log(chalk.dim('  Usage: /subagent "prompt"')); return; }
+        // /team — collaborative agent teams
+        if (input.startsWith('/team ')) { await this.runAgentTeam(input.slice(6).trim()); return; }
+        if (input === '/team') { console.log(chalk.dim('  Usage: /team "prompt"')); return; }
         // NEW: /clear — clear context
         if (input === '/clear') { this.clearContext(); return; }
         // NEW: /rename
@@ -1192,36 +1200,40 @@ export class Session {
         }
 
         if (toolId) {
-            // Multi-agent orchestration: detect complexity and auto-dispatch
-            // IMPORTANT: check complexity on the original user input, NOT on `resolved` which
-            // includes recalled pantry context that inflates the word count.
             const availableAgents = this.registry.headless().filter(a => a.available);
-            const complexity = this.getTaskComplexity(input);
+            
+            let strategy = 'direct';
+            let assignedAgent = toolId;
 
-            if (complexity >= 2 && availableAgents.length >= 2) {
-                // Highly complex → auto-deploy fleet (hidden parallel workers)
-                console.log(chalk.hex('#A855F7')('  🚀 Complex task detected — auto-deploying fleet…'));
-                await this.spawnFleet(resolved);
-            } else if (complexity >= 1 && availableAgents.length >= 2) {
-                // Complex task → decompose and run sub-tasks across agents in parallel
-                await this.orchestrateMultiAgent(resolved, toolId);
+            if (availableAgents.length >= 2 && input.split(/\s+/).length > 8) {
+                const routing = await this.getSmartRouting(input);
+                strategy = routing.strategy;
+                if (routing.agent && availableAgents.some(a => a.id === routing.agent)) {
+                    assignedAgent = routing.agent;
+                }
+            }
+
+            if (strategy === 'subagent') {
+                await this.runSubAgents(resolved);
+            } else if (strategy === 'team') {
+                await this.runAgentTeam(resolved);
             } else {
                 // Simple/focused task → single agent (still with auto-delegation parsing)
-                this.startSpinner(toolId);
+                this.startSpinner(assignedAgent);
                 
                 // Supabase Relay: Create order
                 this.currentOrderId = randomUUID();
                 this.currentOrderStartTime = Date.now();
-                const selectedAgent = this.registry.get(toolId);
+                const selectedAgent = this.registry.get(assignedAgent);
                 await this.relay.createOrder({
                     id: this.currentOrderId,
                     prompt: input,
                     agent: selectedAgent?.id || 'auto',
-                    runAgent: toolId,
+                    runAgent: assignedAgent,
                     modelPolicy: this.modelPolicy || 'auto'
                 });
 
-                const result = await this.orchestrator.runOn(toolId, resolved, this.cwd);
+                const result = await this.orchestrator.runOn(assignedAgent, resolved, this.cwd);
 
                 // Supabase Relay: Complete order
                 if (this.currentOrderId) {
@@ -1246,7 +1258,35 @@ export class Session {
         else { console.log(chalk.red('  No kitchens open (install gh (Copilot) or gemini).')); }
     }
 
-    // ── Multi-Agent Orchestration (default for complex tasks) ─────────────────
+    async getSmartRouting(prompt) {
+        // Use free Copilot gpt-5-mini model to decide the execution strategy and agent assignment
+        console.log(chalk.hex('#888')('  🧠 Smart Router (gpt-5-mini) analyzing task...'));
+        try {
+            const { spawnSync } = await import('child_process');
+            const availableAgents = this.registry.headless().filter(a => a.available).map(a => a.id).join(', ');
+            
+            // Enhanced prompt to guide the router towards 'team' for complex/architectural requests
+            const routerPrompt = `Analyze the following user request.
+Available Agents: ${availableAgents}
+
+Determine:
+1. "strategy": 
+   - "direct": A simple, straightforward task.
+   - "subagent": A task with independent parts that can be done in parallel.
+   - "team": A task requiring collaborative discussion, architectural planning, or complex multi-persona thinking (e.g. "design a system", "act as a team lead", "orchestrate this project").
+2. "primaryAgent": Best agent for this (prefer 'copilot' for logic, 'gemini' for frontend).
+
+Respond ONLY with a JSON object: {"strategy": "direct|subagent|team", "primaryAgent": "agentId"}
+
+Request: "${prompt.slice(0, 1000)}"`;
+            
+            const out = spawnSync('gh', ['copilot', 'explain', '--model', 'gpt-5-mini', '-p', routerPrompt], { timeout: 15000, encoding: 'utf8' });
+            const result = out.stdout || out.stderr || '';
+            const match = result.match(/\{\s*"strategy"\s*:\s*"(direct|subagent|team)"\s*,\s*"primaryAgent"\s*:\s*"(\w+)"\s*\}/i);
+            if (match) return { strategy: match[1].toLowerCase(), agent: match[2].toLowerCase() };
+        } catch { /* ignore error */ }
+        return { strategy: 'direct', agent: null };
+    }
 
     /** Detect task complexity level: 0=simple, 1=complex (orchestrate), 2=highly complex (fleet) */
     getTaskComplexity(prompt) {
@@ -1352,8 +1392,8 @@ export class Session {
     // ── Fleet: Hidden Parallel Workers ───────────────────────────────────────
 
     /** Spawn a fleet of hidden background CLI workers for parallel execution */
-    /** Pick the best agent for a specific sub-task based on its content */
-    pickAgentForTask(taskText, available) {
+    /** Pick the best agent for a specific sub-task based on its content and credit tier logic */
+    pickAgentForTask(taskText, available, forceZeroCost = true) {
         const lower = (taskText || '').toLowerCase();
 
         // Gemini excels at: UI, design, frontend, creative, visual, CSS, HTML, images
@@ -1367,11 +1407,149 @@ export class Session {
 
         const gemini = available.find(a => a.id === 'gemini');
         const copilot = available.find(a => a.id === 'copilot');
+        const ollama = available.find(a => a.id === 'ollama');
 
-        if (geminiScore > copilotScore && gemini) return gemini;
-        if (copilotScore > geminiScore && copilot) return copilot;
-        // Default: copilot (more general-purpose)
-        return copilot || available[0];
+        let picked = copilot || available[0];
+        if (geminiScore > copilotScore && gemini) picked = gemini;
+        if (copilotScore > geminiScore && copilot) picked = copilot;
+
+        // Force zero-cost local fallback if credits are meant to be saved or explicitly zero-cost
+        if (forceZeroCost && picked.id === 'copilot') {
+             // We inject a flag that we should use a 0x model
+             picked._forceModel = 'gpt-5-mini';
+        }
+
+        return picked;
+    }
+
+    async runSubAgents(prompt) {
+        const { spawn } = await import('child_process');
+        const available = this.registry.headless().filter(a => a.available);
+        if (available.length === 0) return console.log(chalk.red('  No kitchens available.'));
+
+        // Step 1: Decompose (using orchestrator which already uses gpt-5-mini)
+        console.log(chalk.hex('#A855F7')(`\n  🧬 Sub-Agent Workflow — decomposing task into atomic steps…`));
+        let tasks;
+        try { 
+            tasks = await this.orchestrator.decompose(prompt); 
+        } catch { 
+            tasks = [{ title: 'Execute task', prompt: prompt }]; 
+        }
+        
+        console.log(chalk.dim(`  Generated ${tasks.length} sub-tasks.`));
+
+        // Step 2: Plan
+        console.log(chalk.hex('#A855F7')(`  📝 Creating implementation plan…`));
+        let plan = '';
+        try {
+            const planPrompt = `Create a high-level technical implementation plan for these tasks. Be surgical and precise. 
+Original request: "${prompt}"
+Tasks:
+${tasks.map((t, i) => `${i + 1}. ${t.title}: ${t.prompt}`).join('\n')}
+
+Implementation Plan:`;
+            
+            // Call gpt-5-mini for planning
+            const { execSync } = await import('child_process');
+            const planOut = execSync(`gh copilot explain --model gpt-5-mini -p ${JSON.stringify(planPrompt)}`, { timeout: 20000, encoding: 'utf8' });
+            plan = planOut.toString().trim();
+            console.log(chalk.dim(plan.slice(0, 500) + '...'));
+        } catch {
+            plan = 'Execute tasks in parallel.';
+        }
+
+        // Step 3: Execute via Sub-Agents
+        const workerCount = Math.min(tasks.length, 4);
+        console.log(chalk.hex('#4ECDC4')(`\n  📡 Spawning ${workerCount} isolated sub-agents based on the plan…\n`));
+
+        const promises = tasks.slice(0, workerCount).map((task, i) => {
+            return new Promise((resolve) => {
+                const agent = this.pickAgentForTask(task.prompt || task.title, available, true);
+                console.log(chalk.hex(agent.color || '#888')(`  ${i + 1}. Sub-agent [${agent.id}]`) + chalk.dim(` — ${task.title}`));
+                
+                const taskWithPlan = `Plan Context: ${plan}\n\nYour specific sub-task: ${task.prompt || task.title}`;
+                const args = (agent.build_args || []).map(a => a === '{prompt}' ? taskWithPlan : a);
+                
+                // Smart model routing: Force fast 0x model for sub-agents
+                if (agent._forceModel && !args.includes('--model')) args.push('--model', agent._forceModel);
+                else if (agent.id === 'copilot' && !args.includes('--model')) args.push('--model', 'gpt-5-mini');
+
+                const proc = spawn(agent.binary, args, { cwd: this.cwd || process.cwd() });
+                let out = '';
+                proc.stdout.on('data', d => out += d.toString());
+                proc.stderr.on('data', d => out += d.toString());
+                proc.on('close', (code) => {
+                    resolve({ task: task.title, output: out, code });
+                });
+            });
+        });
+
+        const results = await Promise.all(promises);
+        
+        console.log(chalk.hex('#A855F7')(`\n  🧠 Synthesis Phase — synthesizing sub-agent reports…\n`));
+        let synthesisPrompt = `I delegated a complex task into sub-tasks. Here is the implementation plan and the results from each sub-agent:\n\n`;
+        synthesisPrompt += `Implementation Plan: ${plan}\n\n`;
+        results.forEach((r, i) => {
+            synthesisPrompt += `--- Sub-Task [${i + 1}]: ${r.task} ---\n${r.output.trim()}\n\n`;
+        });
+        synthesisPrompt += `Based on these reports, provide a final, cohesive synthesis and completion of the original task: "${prompt}"`;
+        
+        await this.handleInput(synthesisPrompt, false); 
+    }
+
+    async runAgentTeam(prompt) {
+        console.log(chalk.hex('#4ECDC4')(`\n  👥 Agent Team Workflow — starting collaborative discussion…\n`));
+        
+        const teamMembers = [
+            { role: 'Architect', goal: 'Design the technical structure and choose patterns.' },
+            { role: 'Developer', goal: 'Detail the implementation logic and write code snippets.' },
+            { role: 'QA', goal: 'Identify potential edge cases, security risks, and bugs.' }
+        ];
+        
+        let discussionHistory = `Problem to solve: "${prompt}"\n\n`;
+        const available = this.registry.headless().filter(a => a.available);
+        if (available.length === 0) return console.log(chalk.red('  No kitchens available.'));
+        
+        const { spawn } = await import('child_process');
+
+        // Linear discussion loop (3 turns)
+        for (const member of teamMembers) {
+            console.log(chalk.hex('#A855F7')(`  🗣️  ${member.role} is contributing to the plan…`));
+            
+            const turnPrompt = `We are a collaborative agent team.
+Context so far:
+${discussionHistory}
+
+Your Role: ${member.role}
+Your specific goal: ${member.goal}
+
+Provide your expert input. Build upon what others have said. If you disagree, explain why. Keep it surgical.`;
+            
+            const agent = this.pickAgentForTask(turnPrompt, available, true);
+            const args = (agent.build_args || []).map(a => a === '{prompt}' ? turnPrompt : a);
+            if (agent.id === 'copilot' && !args.includes('--model')) args.push('--model', 'gpt-5-mini');
+            
+            const out = await new Promise(resolve => {
+                const proc = spawn(agent.binary, args, { cwd: this.cwd || process.cwd() });
+                let text = '';
+                proc.stdout.on('data', d => { text += d.toString(); });
+                proc.stderr.on('data', d => { text += d.toString(); });
+                proc.on('close', () => resolve(text));
+            });
+            
+            discussionHistory += `\n[${member.role} Input]:\n${out.trim()}\n`;
+        }
+        
+        console.log(chalk.hex('#4ECDC4')(`\n  🧠 Final Synthesis — merging team intelligence…\n`));
+        
+        const finalSynthesisPrompt = `Review the following team discussion and produce the absolute best final implementation plan and result.
+        
+Team Discussion:
+${discussionHistory}
+
+Original Request: "${prompt}"`;
+
+        await this.handleInput(finalSynthesisPrompt, false);
     }
 
     async spawnFleet(prompt) {

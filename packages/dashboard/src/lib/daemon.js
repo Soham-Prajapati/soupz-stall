@@ -5,14 +5,22 @@
 
 import { supabase } from './supabase.js';
 
-const LOCAL_DAEMON_URL  = localStorage.getItem('soupz_daemon_url') || import.meta.env.VITE_DAEMON_URL || 'http://localhost:7533';
-const LOCAL_DAEMON_WS   = LOCAL_DAEMON_URL.replace(/^http/, 'ws');
+const DEFAULT_DAEMON_URL = import.meta.env.VITE_DAEMON_URL || 'http://localhost:7533';
+
+function getDaemonUrl() {
+  return localStorage.getItem('soupz_daemon_url') || DEFAULT_DAEMON_URL;
+}
+
+function getDaemonWsUrl() {
+  return getDaemonUrl().replace(/^http/, 'ws');
+}
 
 let daemonChannel = null;
 
 // ─── WebSocket singleton ──────────────────────────────────────────────────────
 let wsInstance = null;
 let wsToken    = null;
+let wsUrl      = null;
 const wsChunkHandlers = new Map(); // orderId → (chunk, done) => void
 
 function getStoredToken() {
@@ -21,15 +29,20 @@ function getStoredToken() {
 
 export function connectDaemonWS(token) {
   const t = token || getStoredToken();
-  if (!t) return null;
-  if (wsInstance && wsInstance.readyState <= 1 && wsToken === t) return wsInstance;
+  const daemonUrl = getDaemonUrl();
+  const isLocalDaemon = daemonUrl.includes('localhost') || daemonUrl.includes('127.0.0.1');
+  if (!t && !isLocalDaemon) return null;
 
-  const ws = new WebSocket(LOCAL_DAEMON_WS);
-  wsToken = t;
+  const nextWsUrl = getDaemonWsUrl();
+  if (wsInstance && wsInstance.readyState <= 1 && wsToken === (t || null) && wsUrl === nextWsUrl) return wsInstance;
+
+  const ws = new WebSocket(nextWsUrl);
+  wsToken = t || null;
+  wsUrl = nextWsUrl;
   wsInstance = ws;
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: 'auth', token: t, clientType: 'browser' }));
+    ws.send(JSON.stringify({ type: 'auth', token: t || undefined, clientType: 'browser' }));
   };
 
   ws.onmessage = (event) => {
@@ -48,8 +61,8 @@ export function connectDaemonWS(token) {
     } catch { /* ignore parse errors */ }
   };
 
-  ws.onerror = () => { wsInstance = null; };
-  ws.onclose = () => { wsInstance = null; };
+  ws.onerror = () => { wsInstance = null; wsToken = null; wsUrl = null; };
+  ws.onclose = () => { wsInstance = null; wsToken = null; wsUrl = null; };
 
   return ws;
 }
@@ -57,6 +70,8 @@ export function connectDaemonWS(token) {
 export function disconnectDaemonWS() {
   wsInstance?.close();
   wsInstance = null;
+  wsToken = null;
+  wsUrl = null;
 }
 
 // ─── Dev server detection ────────────────────────────────────────────────────
@@ -69,7 +84,7 @@ export async function getDevServerUrl() {
   const t = getStoredToken();
   if (!t) return null;
   try {
-    const res = await fetch(`${LOCAL_DAEMON_URL}/api/dev-server`, {
+    const res = await fetch(`${getDaemonUrl()}/api/dev-server`, {
       headers: { 'X-Soupz-Token': t },
       signal: AbortSignal.timeout(5000),
     });
@@ -135,7 +150,7 @@ export async function initProject({ name, path, supabase, github }) {
  */
 export async function checkAgentAvailability() {
   try {
-    const res = await fetch(`${LOCAL_DAEMON_URL}/api/agents`, {
+    const res = await fetch(`${getDaemonUrl()}/api/agents`, {
       signal: AbortSignal.timeout(2000),
     });
     if (!res.ok) return {};
@@ -149,7 +164,7 @@ export async function checkAgentAvailability() {
 
 export async function checkDaemonHealth() {
   try {
-    const res = await fetch(`${LOCAL_DAEMON_URL}/health`, { signal: AbortSignal.timeout(2000) });
+    const res = await fetch(`${getDaemonUrl()}/health`, { signal: AbortSignal.timeout(2000) });
     const data = await res.json();
     return { online: true, version: data.version, machine: data.hostname || data.machine };
   } catch {
@@ -162,15 +177,20 @@ export async function checkDaemonHealth() {
 /**
  * Send an AI prompt. Streams chunks via WebSocket if connected locally,
  * falls back to Supabase relay for remote access.
- * @param {string} prompt
- * @param {string} agentId
- * @param {string} mode  quick|planned|chat
+ * @param {{prompt: string, agentId?: string, buildMode?: string, cwd?: string, orchestrationMode?: string}} request
  * @param {string} userId
  * @param {(chunk: string, done: boolean) => void} onChunk
  */
-export async function sendAgentPrompt(prompt, agentId, mode, userId, onChunk) {
+export async function sendAgentPrompt(request, userId, onChunk) {
+  const prompt = request?.prompt || '';
+  const agentId = request?.agentId || 'auto';
+  const mode = request?.buildMode || 'balanced';
+  const cwd = request?.cwd;
+  const orchestrationMode = request?.orchestrationMode;
   const token = getStoredToken();
-  const isLocal = !!token || isLocalDaemon; // has a paired session token or is running on localhost
+  const daemonUrl = getDaemonUrl();
+  const localDaemon = daemonUrl.includes('localhost') || daemonUrl.includes('127.0.0.1');
+  const isLocal = !!token || localDaemon; // has a paired session token or is running on localhost
 
   if (isLocal) {
     // Connect/reuse WS
@@ -187,50 +207,78 @@ export async function sendAgentPrompt(prompt, agentId, mode, userId, onChunk) {
     }
 
     // Submit order via REST (uses authenticated endpoint)
-    try {
-      const res = await fetch(`${LOCAL_DAEMON_URL}/api/orders`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Soupz-Token': token,
-        },
-        body: JSON.stringify((() => {
-          const mcpServers = (() => {
-            try { return JSON.parse(localStorage.getItem('soupz_mcp_servers') || '[]'); } catch { return []; }
-          })();
-          const payload = { prompt, agent: agentId, modelPolicy: mode || 'balanced' };
-          if (mcpServers.length > 0) payload.mcpServers = mcpServers;
-          return payload;
-        })()),
-      });
-      const { order } = await res.json();
+    return new Promise(async (resolve, reject) => {
+      try {
+        const res = await fetch(`${daemonUrl}/api/orders`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Soupz-Token': token,
+          },
+          body: JSON.stringify((() => {
+            const mcpServers = (() => {
+              try { return JSON.parse(localStorage.getItem('soupz_mcp_servers') || '[]'); } catch { return []; }
+            })();
+            const payload = { prompt, agent: agentId, modelPolicy: mode || 'balanced' };
+            if (cwd) payload.cwd = cwd;
+            if (orchestrationMode) payload.orchestrationMode = orchestrationMode;
+            if (mcpServers.length > 0) payload.mcpServers = mcpServers;
+            return payload;
+          })()),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(`Order creation failed (${res.status}): ${body}`);
+        }
 
-      if (onChunk && order?.id) {
-        // Register chunk handler for this order
-        wsChunkHandlers.set(order.id, onChunk);
-        wsChunkHandlers.set('*', onChunk); // fallback for unkeyed messages
-        // Safety cleanup after 5 minutes (handlers should be removed on completion/failure)
-        setTimeout(() => {
-          wsChunkHandlers.delete(order.id);
-          if (wsChunkHandlers.get('*') === onChunk) wsChunkHandlers.delete('*');
-        }, 300000);
+        const payload = await res.json();
+        const order = payload?.order || payload;
+
+        if (onChunk && order?.id) {
+          // Register chunk handler for this order
+          wsChunkHandlers.set(order.id, (chunk, done) => {
+            if (done) resolve(order.id);
+            else onChunk(chunk);
+          });
+          wsChunkHandlers.set('*', (chunk, done) => {
+            if (done) resolve(order.id);
+            else onChunk(chunk);
+          }); // fallback for unkeyed messages
+          
+          // Safety cleanup resolving after timeout
+          setTimeout(() => {
+            wsChunkHandlers.delete(order.id);
+            wsChunkHandlers.delete('*');
+            resolve(order.id);
+          }, 300000);
+        } else {
+          resolve(order?.id);
+        }
+      } catch (err) {
+        reject(new Error(`Daemon error: ${err.message}`));
       }
-
-      return order?.id;
-    } catch (err) {
-      throw new Error(`Daemon error: ${err.message}`);
-    }
+    });
   }
 
   // Remote path via Supabase relay
   if (supabase && userId) {
-    const commandId = await sendCommand('AGENT_PROMPT', { prompt, agentId, mode }, userId);
-    if (onChunk) {
-      const unsub = subscribeToChunks(commandId, onChunk);
-      // Failsafe cleanup
-      setTimeout(unsub, 300000); 
-    }
-    return commandId;
+    return new Promise(async (resolve, reject) => {
+      try {
+        const commandId = await sendCommand('AGENT_PROMPT', { prompt, agentId, mode }, userId);
+        if (onChunk) {
+          const unsub = subscribeToChunks(commandId, (chunk) => {
+            onChunk(chunk);
+          });
+          // Wait blindly for some time? Remote relay might lack 'done' events. We can just resolve after 300 seconds if it's the only way, but ideally the remote returns a done signal. For now, resolve immediately like it did before, to avoid breaking remote too much, or wait 10s.
+          // Wait! The user is local, they connect directly to the daemon.
+          setTimeout(() => { unsub(); resolve(commandId); }, 30000);
+        } else {
+          resolve(commandId);
+        }
+      } catch (err) {
+        reject(err);
+      }
+    });
   }
 
   throw new Error('Not connected — run npx soupz on your machine first');
@@ -308,10 +356,10 @@ export function subscribeToDaemon(userId, onMessage) {
 
 export async function getOrders() {
   const t = getStoredToken();
-  if (!t) return [];
+  if (!t && !isLocalDaemon()) return [];
   try {
-    const res = await fetch(`${LOCAL_DAEMON_URL}/api/orders`, {
-      headers: { 'X-Soupz-Token': t },
+    const res = await fetch(`${getDaemonUrl()}/api/orders`, {
+      headers: t ? { 'X-Soupz-Token': t } : {},
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
@@ -324,15 +372,15 @@ export async function getOrders() {
 
 export async function getOrderDetail(orderId) {
   const t = getStoredToken();
-  if (!t) return null;
+  if (!t && !isLocalDaemon()) return null;
   try {
-    const res = await fetch(`${LOCAL_DAEMON_URL}/api/orders/${orderId}`, {
-      headers: { 'X-Soupz-Token': t },
+    const res = await fetch(`${getDaemonUrl()}/api/orders/${orderId}`, {
+      headers: t ? { 'X-Soupz-Token': t } : {},
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
     const data = await res.json();
-    return data.order || null;
+    return data || null;
   } catch {
     return null;
   }
@@ -346,7 +394,7 @@ export async function checkSystemCLIs() {
   const t = getStoredToken();
   if (!t) return [];
   try {
-    const res = await fetch(`${LOCAL_DAEMON_URL}/api/system/check-clis`, {
+    const res = await fetch(`${getDaemonUrl()}/api/system/check-clis`, {
       headers: { 'X-Soupz-Token': t },
       signal: AbortSignal.timeout(5000),
     });
@@ -368,7 +416,7 @@ export async function manageSystemCLI(name, action = 'install') {
   const t = getStoredToken();
   if (!t) throw new Error('Not authenticated');
   try {
-    const res = await fetch(`${LOCAL_DAEMON_URL}/api/system/manage-cli`, {
+    const res = await fetch(`${getDaemonUrl()}/api/system/manage-cli`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -386,11 +434,14 @@ export async function manageSystemCLI(name, action = 'install') {
 
 const token = () => getStoredToken();
 
-const isLocalDaemon = LOCAL_DAEMON_URL.includes('localhost') || LOCAL_DAEMON_URL.includes('127.0.0.1');
+const isLocalDaemon = () => {
+  const url = getDaemonUrl();
+  return url.includes('localhost') || url.includes('127.0.0.1');
+};
 
 async function localGet(path) {
   const t = token();
-  const res = await fetch(`${LOCAL_DAEMON_URL}${path}`, {
+  const res = await fetch(`${getDaemonUrl()}${path}`, {
     headers: t ? { 'X-Soupz-Token': t } : {},
     signal: AbortSignal.timeout(5000),
   });
@@ -400,7 +451,7 @@ async function localGet(path) {
 
 async function localPost(path, body) {
   const t = token();
-  const res = await fetch(`${LOCAL_DAEMON_URL}${path}`, {
+  const res = await fetch(`${getDaemonUrl()}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(t ? { 'X-Soupz-Token': t } : {}) },
     body: JSON.stringify(body),
@@ -410,8 +461,33 @@ async function localPost(path, body) {
   return res.json();
 }
 
+async function localDelete(path) {
+  const t = token();
+  const res = await fetch(`${getDaemonUrl()}${path}`, {
+    method: 'DELETE',
+    headers: t ? { 'X-Soupz-Token': t } : {},
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function listTerminals() {
+  if (token() || isLocalDaemon()) {
+    return localGet('/terminals');
+  }
+  throw new Error('Terminal monitoring is only available via direct daemon connection');
+}
+
+export async function killTerminalById(terminalId) {
+  if (token() || isLocalDaemon()) {
+    return localDelete(`/terminals/${encodeURIComponent(String(terminalId))}`);
+  }
+  throw new Error('Terminal kill is only available via direct daemon connection');
+}
+
 export async function getFileTree(rootPath, userId) {
-  if (token() || isLocalDaemon) {
+  if (token() || isLocalDaemon()) {
     try {
       return await localGet(`/api/fs/tree${rootPath ? `?root=${encodeURIComponent(rootPath)}` : ''}`);
     } catch (e) {
@@ -432,7 +508,7 @@ export async function getFileTree(rootPath, userId) {
 }
 
 export async function readFile(filePath, userId) {
-  if (token() || isLocalDaemon) {
+  if (token() || isLocalDaemon()) {
     try {
       const res = await localGet(`/api/fs/file?path=${encodeURIComponent(filePath)}`);
       return res?.content || '';
@@ -454,36 +530,36 @@ export async function readFile(filePath, userId) {
 }
 
 export async function writeFile(filePath, content, userId) {
-  if (token() || isLocalDaemon) return localPost('/api/fs/file', { path: filePath, content });
+  if (token() || isLocalDaemon()) return localPost('/api/fs/file', { path: filePath, content });
   return sendCommand('FILE_WRITE', { path: filePath, content }, userId);
 }
 
 export async function getGitStatus(repoPath, userId) {
-  if (token() || isLocalDaemon) return localGet('/api/changes');
+  if (token() || isLocalDaemon()) return localGet('/api/changes');
   return sendCommand('GIT_STATUS', { path: repoPath }, userId);
 }
 
 export async function getGitDiff(filePath, userId) {
-  if (token() || isLocalDaemon) return localGet(`/api/changes/diff?file=${encodeURIComponent(filePath || '')}`);
+  if (token() || isLocalDaemon()) return localGet(`/api/changes/diff?file=${encodeURIComponent(filePath || '')}`);
   return sendCommand('GIT_DIFF', { path: filePath }, userId);
 }
 
 export async function gitStage(filePath, userId) {
-  if (token() || isLocalDaemon) return localPost('/api/git/stage', { path: filePath });
+  if (token() || isLocalDaemon()) return localPost('/api/git/stage', { path: filePath });
   return sendCommand('GIT_STAGE', { path: filePath }, userId);
 }
 
 export async function gitCommit(message, userId) {
-  if (token() || isLocalDaemon) return localPost('/api/git/commit', { message });
+  if (token() || isLocalDaemon()) return localPost('/api/git/commit', { message });
   return sendCommand('GIT_COMMIT', { message }, userId);
 }
 
 export async function gitPush(userId) {
-  if (token() || isLocalDaemon) return localPost('/api/git/push', {});
+  if (token() || isLocalDaemon()) return localPost('/api/git/push', {});
   return sendCommand('GIT_PUSH', {}, userId);
 }
 
 export async function runFile(path, userId) {
-  if (token() || isLocalDaemon) return localPost('/api/exec', { path });
+  if (token() || isLocalDaemon()) return localPost('/api/exec', { path });
   return sendCommand('RUN_FILE', { path }, userId);
 }

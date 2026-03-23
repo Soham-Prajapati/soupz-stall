@@ -29,17 +29,16 @@ function getFileIcon(name) {
 function getGitStatus(path, changedPaths = []) {
   const paths = Array.isArray(changedPaths) ? changedPaths : [];
   // porcelain uses 'M path', '?? path', etc.
-  // We trim and check if the second part matches path
   const entry = paths.find(p => {
-    const parts = p.match(/^(\S+\s+)(.*)$/);
-    return parts && parts[2] === path;
+    const pathPart = p.slice(3).trim();
+    return pathPart === path;
   });
 
   if (!entry) return null;
-  const status = entry.slice(0, 2);
-  if (status.includes('M')) return { label: 'M', color: 'text-warning', bg: 'bg-warning/20' };
-  if (status.includes('??')) return { label: 'U', color: 'text-success', bg: 'bg-success/20' };
-  if (status.includes('A')) return { label: 'A', color: 'text-success', bg: 'bg-success/20' };
+  const status = entry.slice(0, 2).trim();
+  if (status === 'M') return { label: 'M', color: 'text-warning', bg: 'bg-warning/20' };
+  if (status === '??' || status === 'A') return { label: 'U', color: 'text-success', bg: 'bg-success/20' };
+  if (status === 'D') return { label: 'D', color: 'text-danger', bg: 'bg-danger/20' };
   return { label: 'M', color: 'text-warning', bg: 'bg-warning/20' };
 }
 
@@ -56,13 +55,16 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
   const gitStatus = !isDir ? getGitStatus(node.path, paths) : null;
   const isSelected = selectedPath === node.path;
 
+  // Folder coloring logic: check if any file inside this folder is modified/added
   const hasModified = isDir && paths.some(p => {
-    const parts = p.match(/^(\S+\s+)(.*)$/);
-    return parts && parts[1].includes('M') && parts[2].startsWith(node.path);
+    const pathPart = p.slice(3).trim();
+    const status = p.slice(0, 2).trim();
+    return (status === 'M' || status === 'D') && pathPart.startsWith(node.path);
   });
-  const hasUntracked = isDir && !hasModified && paths.some(p => {
-    const parts = p.match(/^(\S+\s+)(.*)$/);
-    return parts && parts[1].includes('??') && parts[2].startsWith(node.path);
+  const hasUntracked = isDir && paths.some(p => {
+    const pathPart = p.slice(3).trim();
+    const status = p.slice(0, 2).trim();
+    return (status === '??' || status === 'A') && pathPart.startsWith(node.path);
   });
 
   return (
@@ -73,8 +75,12 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
         className={cn(
           'flex items-center gap-1.5 py-1 pr-2 cursor-pointer group select-none border-l-[2px] transition-all relative h-7',
           isSelected
-            ? 'bg-bg-elevated text-text-pri border-accent font-medium'
-            : cn('text-text-sec border-transparent hover:bg-bg-elevated hover:text-text-pri', gitStatus?.color)
+            ? 'bg-bg-elevated border-accent font-medium'
+            : 'border-transparent hover:bg-bg-elevated',
+          !isSelected && !gitStatus && !hasModified && !hasUntracked && 'text-text-sec hover:text-text-pri',
+          gitStatus?.color,
+          (!gitStatus && hasModified && !hasUntracked) && 'text-warning',
+          (!gitStatus && hasUntracked) && 'text-success'
         )}
       >
         <div className="w-4 flex items-center justify-center shrink-0">
@@ -85,17 +91,17 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
           )}
         </div>
         <Icon size={14} className={cn('shrink-0', isDir ? 'text-[#EAB308]/80' : (isSelected ? 'text-accent' : ''))} />
-        <span className="text-[13px] font-ui truncate flex-1">{node.name}</span>
+        <span className={cn('text-[13px] font-ui truncate flex-1', isSelected ? 'text-text-pri' : '')}>{node.name}</span>
         
         {gitStatus && (
-          <span className={cn("text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-sm shrink-0", gitStatus.color)}>
+          <span className={cn("text-[11px] font-bold w-4 h-4 flex items-center justify-center shrink-0", gitStatus.color)}>
             {gitStatus.label}
           </span>
         )}
-        {isDir && !open && (
+        {isDir && (
           <div className="flex gap-1 absolute right-2 shrink-0">
-            {hasModified && <div className="w-1.5 h-1.5 rounded-full bg-warning" />}
-            {hasUntracked && <div className="w-1.5 h-1.5 rounded-full bg-success" />}
+            {hasModified && !hasUntracked && <div className="w-2 h-2 rounded-full bg-warning" />}
+            {hasUntracked && <div className="w-2 h-2 rounded-full bg-success" />}
           </div>
         )}
       </div>

@@ -49,6 +49,7 @@ export default function StatusBar({
   machine,
   mode = 'simple',
   editorState = null,
+  daemon = null,
 }) {
   const [agentPopupOpen, setAgentPopupOpen] = useState(false);
   const [notifPopupOpen, setNotifPopupOpen] = useState(false);
@@ -71,21 +72,14 @@ export default function StatusBar({
 
   // Check which CLI agents are installed on the connected machine
   useEffect(() => {
-    if (workspaceOnline) {
+    if (workspaceOnline && daemon) {
       checkAgentAvailability().then(a => setAvailability(a || {}));
-      // Fetch git branch from daemon
-      const token = localStorage.getItem('soupz_daemon_token');
-      if (token) {
-        fetch('http://localhost:7533/api/changes', {
-          headers: { 'X-Soupz-Token': token },
-          signal: AbortSignal.timeout(3000),
-        })
-          .then(r => r.ok ? r.json() : null)
-          .then(d => { if (d?.branch) setGitBranch(d.branch); })
-          .catch(() => {});
-      }
+      // Fetch git branch from daemon properly
+      daemon.gitStatus().then(d => {
+        if (d?.branch) setGitBranch(d.branch);
+      }).catch(() => {});
     }
-  }, [workspaceOnline]);
+  }, [workspaceOnline, daemon]);
 
   // Close popups on outside click
   useEffect(() => {

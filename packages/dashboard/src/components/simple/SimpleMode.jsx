@@ -3,7 +3,7 @@ import {
   Send, Mic, MicOff, ChevronDown, Check, X, Paperclip,
   Cpu, Palette, Code2, Search, TrendingUp, Server, DollarSign, Bot,
   Zap, BrainCircuit, Sparkles, Github, RotateCcw, Copy, CheckCheck,
-  Square, Volume2, VolumeX, Loader2, User, Terminal
+  Square, Volume2, VolumeX, Loader2, User, Terminal, GitBranch
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS, SPECIALISTS, BUILD_MODES, getAgentById } from '../../lib/agents';
@@ -13,6 +13,7 @@ import { checkAgentAvailability } from '../../lib/daemon';
 import { detectTeamTrigger, getTeamById } from '../../lib/teams';
 import InteractiveQuestions from './InteractiveQuestions';
 import PreviewPanel from '../shared/PreviewPanel';
+import GitPanel from '../git/GitPanel';
 import { getDevServerUrl } from '../../lib/daemon';
 import { trackUsage } from '../../lib/learning';
 import { getMemoryContext } from '../../lib/memory';
@@ -73,7 +74,7 @@ function parseQuestionBlock(content) {
 
 export default function SimpleMode({ daemon, compact = false }) {
   const [messages, setMessages] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; }
   });
   const [input, setInput] = useState('');
   const [agentId, setAgentId] = useState(() => localStorage.getItem(AGENT_KEY) || 'auto');
@@ -81,8 +82,8 @@ export default function SimpleMode({ daemon, compact = false }) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
-  const [listening, setListening] = useState(false);
   const [activeSkill, setActiveSkill] = useState(null);
+  
   const allCommands = useMemo(() => {
     return [
       ...SKILLS.map(s => ({ ...s, type: 'skill' })),
@@ -119,6 +120,7 @@ export default function SimpleMode({ daemon, compact = false }) {
       setActiveSkill(cmd.id);
     } else if (cmd.type === 'agent') {
       setAgentId(cmd.id);
+      localStorage.setItem(AGENT_KEY, cmd.id);
     }
     setInput('');
     setSlashCommandOpen(false);
@@ -171,37 +173,89 @@ export default function SimpleMode({ daemon, compact = false }) {
   const AgentIcon = getIcon(agentId);
 
   return (
-    <div className="flex flex-col h-full bg-bg-surface">
+    <div className="flex flex-col h-full bg-bg-surface overflow-hidden relative">
       {/* Header */}
-      <div className="h-10 px-4 border-b border-border-subtle flex items-center justify-between shrink-0 bg-bg-surface">
+      <div className="h-10 px-4 border-b border-border-subtle flex items-center justify-between shrink-0 bg-bg-surface z-20">
         <div className="flex items-center gap-2">
+          {/* Agent Selector */}
           <div className="relative">
             <button onClick={() => setAgentOpen(!agentOpen)} className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 transition-colors">
               <AgentIcon size={14} style={{ color: currentAgent.color }} />
-              <span className="text-[12px] font-bold text-text-pri">{currentAgent.name}</span>
-              <ChevronDown size={12} className="text-text-faint" />
+              <span className="text-[12px] font-bold text-text-pri uppercase tracking-tight">{currentAgent.name}</span>
+              <ChevronDown size={12} className={cn("text-text-faint transition-transform", agentOpen && "rotate-180")} />
             </button>
+            {agentOpen && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setAgentOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 z-40 bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[160px] animate-fade-in">
+                  <p className="px-3 py-1 text-[9px] font-bold text-text-faint uppercase tracking-widest">Select Agent</p>
+                  <button
+                    onClick={() => { setAgentId('auto'); localStorage.setItem(AGENT_KEY, 'auto'); setAgentOpen(false); }}
+                    className={cn("w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors", agentId === 'auto' ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated")}
+                  >
+                    <Cpu size={12} className="text-accent" />
+                    Auto Select
+                  </button>
+                  {CLI_AGENTS.map(a => (
+                    <button
+                      key={a.id}
+                      onClick={() => { setAgentId(a.id); localStorage.setItem(AGENT_KEY, a.id); setAgentOpen(false); }}
+                      className={cn("w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors", agentId === a.id ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated")}
+                    >
+                      <a.icon size={12} style={{ color: a.color }} />
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
+
           <div className="w-px h-4 bg-border-subtle mx-1" />
-          <button onClick={() => setModeOpen(!modeOpen)} className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 transition-colors">
-            <span className="text-[11px] font-medium text-text-sec uppercase tracking-wider">{buildMode} Build</span>
-            <ChevronDown size={12} className="text-text-faint" />
-          </button>
+
+          {/* Build Mode Selector */}
+          <div className="relative">
+            <button onClick={() => setModeOpen(!modeOpen)} className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 transition-colors">
+              <span className="text-[11px] font-medium text-text-sec uppercase tracking-wider">{buildMode} Build</span>
+              <ChevronDown size={12} className={cn("text-text-faint transition-transform", modeOpen && "rotate-180")} />
+            </button>
+            {modeOpen && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setModeOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 z-40 bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[140px] animate-fade-in">
+                  {BUILD_MODES.map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => { setBuildMode(m.id); localStorage.setItem(MODE_KEY, m.id); setModeOpen(false); }}
+                      className={cn("w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors text-left", buildMode === m.id ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated")}
+                    >
+                      <div className="flex-1">
+                        <div className="font-bold uppercase text-[10px] tracking-tight">{m.name}</div>
+                        <div className="text-[9px] text-text-faint">{m.description}</div>
+                      </div>
+                      {buildMode === m.id && <Check size={10} className="text-accent" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
+
         <div className="flex items-center gap-2">
           {!compact && (
-            <button onClick={() => setPreviewOpen(!previewOpen)} className={cn("px-2 py-1 rounded text-[11px] font-medium transition-all", previewOpen ? "bg-accent/20 text-accent border border-accent/30" : "text-text-faint hover:text-text-pri")}>
-              Preview
+            <button onClick={() => setPreviewOpen(!previewOpen)} className={cn("px-2 py-1 rounded text-[11px] font-medium transition-all flex items-center gap-1.5", previewOpen ? "bg-accent/20 text-accent border border-accent/30" : "text-text-faint hover:text-text-pri")}>
+              <Terminal size={12} /> Preview
             </button>
           )}
-          <button onClick={() => setMessages([])} className="p-1.5 text-text-faint hover:text-text-pri hover:bg-white/5 rounded transition-all">
+          <button onClick={() => setMessages([])} className="p-1.5 text-text-faint hover:text-text-pri hover:bg-white/5 rounded transition-all" title="Clear Chat">
             <RotateCcw size={14} />
           </button>
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
             <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center border border-accent/20">
