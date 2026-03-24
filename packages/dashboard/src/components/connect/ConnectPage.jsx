@@ -7,26 +7,120 @@ import { supabase } from '../../lib/supabase';
 // Connect to daemon - can be localhost or an IP from Supabase pairing table
 const LOCAL_DAEMON_PORT = 7533;
 
+function isProbablyMobileDevice() {
+  if (typeof window === 'undefined') return false;
+  const ua = (window.navigator?.userAgent || '').toLowerCase();
+  const isMobileUA = /android|iphone|ipad|ipod|mobile/.test(ua);
+  const isSmallViewport = window.matchMedia?.('(max-width: 768px)')?.matches;
+  return Boolean(isMobileUA || isSmallViewport);
+}
+
+function normalizeBaseUrl(target, fallbackPort) {
+  if (!target || typeof target !== 'string') return null;
+  const trimmed = target.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed.replace(/\/$/, '');
+  }
+
+  // Accept both raw IP/host and host:port strings.
+  if (trimmed.includes(':')) {
+    return `http://${trimmed}`;
+  }
+
+  return `http://${trimmed}:${fallbackPort}`;
+}
+
+function resolveRemoteCandidates(pairingRow) {
+  const port = pairingRow?.port || LOCAL_DAEMON_PORT;
+  const rawTargets = Array.isArray(pairingRow?.lan_ips) ? pairingRow.lan_ips : [];
+  const normalized = rawTargets
+    .map((target) => normalizeBaseUrl(target, port))
+    .filter(Boolean);
+  return Array.from(new Set(normalized));
+}
+
+async function parseJsonSafe(response) {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function tryPairAgainstBase(baseUrl, code, timeoutMs = 2000) {
+  const target = baseUrl
+    ? `${baseUrl.replace(/\/$/, '')}/api/pair`
+    : '/api/pair';
+
+  const res = await fetch(target, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const data = await parseJsonSafe(res);
+  if (res.ok && data?.success) {
+    return { ok: true, data, baseUrl: baseUrl || window.location.origin };
+  }
+  return { ok: false, data };
+}
+
 export default function ConnectPage({ getParam, navigate }) {
   const urlCode = getParam?.('code') || '';
   const [digits, setDigits] = useState(urlCode.replace(/-/g, '').slice(0, 8).split('').concat(Array(8).fill('')).slice(0, 8));
   const [status, setStatus]   = useState('idle'); // idle | loading | success | error
   const [machine, setMachine] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
-  const [connectMode, setConnectMode] = useState(urlCode ? 'code' : 'code'); // code | qr
+  const [connectMode, setConnectMode] = useState(urlCode ? 'qr' : 'code'); // code | qr
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
   const inputRefs = useRef([]);
 
   const code = digits.join('');
   const isComplete = code.length === 8 && digits.every(d => d !== '');
 
   useEffect(() => {
+    setIsMobileDevice(isProbablyMobileDevice());
+  }, []);
+
+  useEffect(() => {
     if (urlCode) {
       const clean = urlCode.replace(/-/g, '').slice(0, 8);
       setDigits(clean.padEnd(8, '').split(''));
-      if (clean.length === 8) handleConnect(clean);
+      if (clean.length === 8) {
+        // Auto-connect only on mobile-sized devices where the user likely arrived via QR scan.
+        // Keep desktop on the QR tab so the laptop screen remains scannable.
+        if (isProbablyMobileDevice()) handleConnect(clean);
+        else setConnectMode('qr');
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    // If page opens without ?code, try reading the currently active daemon pairing snapshot
+    // from the same origin (works for tunneled local dev and local dashboard).
+    if (urlCode) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/pair/current', { signal: AbortSignal.timeout(1200) });
+        const data = await parseJsonSafe(res);
+        const currentCode = (data?.code || '').toString().replace(/\D/g, '').slice(0, 8);
+        if (cancelled || currentCode.length !== 8) return;
+        setDigits(currentCode.split(''));
+        setConnectMode('qr');
+      } catch {
+        // Ignore: this endpoint may not exist on deployed frontend origins.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [urlCode]);
 
   async function handleConnect(overrideCode) {
     const c = overrideCode || code;
@@ -34,24 +128,43 @@ export default function ConnectPage({ getParam, navigate }) {
     setStatus('loading');
     setErrorMsg('');
 
-    // 1. Try local daemon first (fastest, no internet required if on same machine)
+    // 1. Try same-origin proxy first (works for local/tunneled web dashboards)
+    try {
+      const proxied = await tryPairAgainstBase(null, c, 2200);
+      if (proxied.ok) {
+        finishConnect(proxied.data, proxied.baseUrl);
+        return;
+      }
+    } catch { /* not available on this origin */ }
+
+    // 2. Try remembered daemon URL from previous successful session
+    try {
+      const remembered = localStorage.getItem('soupz_daemon_url');
+      if (remembered) {
+        const rememberedResult = await tryPairAgainstBase(remembered, c, 2200);
+        if (rememberedResult.ok) {
+          finishConnect(rememberedResult.data, rememberedResult.baseUrl);
+          return;
+        }
+      }
+    } catch { /* continue */ }
+
+    // 3. Try localhost daemon (fast path on same machine)
     try {
       const localUrl = `http://localhost:${LOCAL_DAEMON_PORT}`;
-      const res = await fetch(`${localUrl}/api/pair`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: c }),
-        signal: AbortSignal.timeout(1500), // Fast timeout for local check
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        finishConnect(data, localUrl);
+      const localResult = await tryPairAgainstBase(localUrl, c, 1500);
+      if (localResult.ok) {
+        finishConnect(localResult.data, localUrl);
         return;
       }
     } catch { /* not local */ }
 
-    // 2. Try Supabase pairing table (allows remote pairing via internet)
+    // 4. Try Supabase pairing table (remote pairing via internet)
     try {
+      if (!supabase) {
+        throw new Error('Could not pair via proxy/local endpoints, and remote pairing is unavailable because Supabase is not configured for this build.');
+      }
+
       const { data, error } = await supabase
         .from('soupz_pairing')
         .select('*')
@@ -61,16 +174,14 @@ export default function ConnectPage({ getParam, navigate }) {
       if (error || !data) throw new Error('Invalid pairing code');
       if (new Date(data.expires_at) < new Date()) throw new Error('Code expired');
 
-      // Found machine info in Supabase!
-      // Try to reach the machine via its LAN IPs (if we are on the same Wi-Fi)
-      const lanIPs = Array.isArray(data.lan_ips) ? data.lan_ips : [];
-      for (const ip of lanIPs) {
+      // Try direct connection first via discovered LAN/tunnel targets.
+      // lan_ips may contain raw LAN IPs and optional tunnel base URLs.
+      const candidates = resolveRemoteCandidates(data);
+      for (const baseUrl of candidates) {
         try {
-          const ipUrl = `http://${ip}:${data.port || LOCAL_DAEMON_PORT}`;
-          const res = await fetch(`${ipUrl}/health`, { signal: AbortSignal.timeout(1000) });
-          if (res.ok) {
-            // We can talk to the machine directly!
-            finishConnect(data, ipUrl);
+          const remoteResult = await tryPairAgainstBase(baseUrl, c, 2500);
+          if (remoteResult.ok) {
+            finishConnect(remoteResult.data, baseUrl);
             return;
           }
         } catch { /* try next IP */ }
@@ -181,7 +292,7 @@ export default function ConnectPage({ getParam, navigate }) {
             </div>
 
             {connectMode === 'qr' ? (
-              <QRConnectMode code={code} onManual={() => setConnectMode('code')} />
+              <QRConnectMode code={code} onManual={() => setConnectMode('code')} isMobileDevice={isMobileDevice} />
             ) : (
             <>
             {/* Code input: 4+4 groups */}
@@ -255,7 +366,7 @@ export default function ConnectPage({ getParam, navigate }) {
                 {[
                   'Open Terminal on your Mac/Linux/Windows machine',
                   'Run: npx soupz',
-                  'A pairing code will appear — enter it above',
+                  'For phone login: scan the QR shown on your laptop screen',
                 ].map((step, i) => (
                   <li key={i} className="flex items-start gap-2.5 text-text-sec text-sm">
                     <span className="shrink-0 w-5 h-5 rounded-full bg-bg-elevated border border-border-subtle text-text-faint text-xs flex items-center justify-center font-mono">
@@ -265,6 +376,18 @@ export default function ConnectPage({ getParam, navigate }) {
                   </li>
                 ))}
               </ol>
+              <div className="mt-4 rounded-lg border border-border-subtle bg-bg-base p-3">
+                <p className="text-text-sec text-xs leading-relaxed">
+                  Different network (not same Wi-Fi)? Start a tunnel to your daemon and set
+                  {' '}
+                  <code className="font-mono text-[11px] bg-bg-elevated px-1 py-0.5 rounded">SOUPZ_TUNNEL_URL</code>
+                  {' '}
+                  before running
+                  {' '}
+                  <code className="font-mono text-[11px] bg-bg-elevated px-1 py-0.5 rounded">npx soupz</code>
+                  .
+                </p>
+              </div>
             </div>
             </>
             )}
@@ -292,11 +415,30 @@ function SuccessState({ machine }) {
   );
 }
 
-function QRConnectMode({ code, onManual }) {
+function QRConnectMode({ code, onManual, isMobileDevice }) {
   // Generate the connect URL that the QR code will encode
   const connectUrl = code.length === 8
     ? `${window.location.origin}/connect?code=${code}`
     : null;
+
+  if (isMobileDevice) {
+    return (
+      <div className="text-center py-6">
+        <QrCode size={32} className="text-text-faint mx-auto mb-3 opacity-30" />
+        <p className="text-text-pri text-sm font-ui mb-1">Use this phone to scan laptop QR</p>
+        <p className="text-text-sec text-xs font-ui leading-relaxed">
+          Open this connect page on your laptop, keep the QR visible there,
+          then scan it with your phone camera.
+        </p>
+        <button
+          onClick={onManual}
+          className="mt-3 text-accent hover:text-accent-hover text-xs font-ui transition-colors"
+        >
+          Enter code manually instead
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center gap-4 py-2">
@@ -313,7 +455,7 @@ function QRConnectMode({ code, onManual }) {
           </div>
           <p className="text-text-sec text-xs font-ui text-center leading-relaxed">
             Scan this QR code with your phone camera<br />
-            to connect instantly
+            to open the same pairing code instantly
           </p>
           <div className="flex items-center gap-2 text-text-faint text-[11px] font-mono bg-bg-elevated px-3 py-1.5 rounded-md border border-border-subtle">
             Code: {code.slice(0, 4)}-{code.slice(4)}

@@ -46,6 +46,15 @@ const authenticatedClients = new WeakSet();
 const PAIRING_CODE_LENGTH = 8;
 const PAIRING_CODE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+const runtimeTunnelBaseUrls = new Set();
+let webappBaseUrl = process.env.SOUPZ_APP_URL || 'https://soupz.vercel.app';
+let healthBroadcastInterval = null;
+let sessionCleanupInterval = null;
+let dbCleanupInterval = null;
+let fileWatcherAbortController = null;
+let fileWatcherTask = null;
+let commandListenerChannel = null;
+let runtimeServicesStarted = false;
 
 // Currently displayed pairing code (auto-refreshes)
 let currentPairingCode = null;
@@ -81,6 +90,7 @@ function createPairingCode() {
 
     // Register in Supabase for remote pairing if available
     if (supabase) {
+        const connectTargets = Array.from(new Set([...getLocalIPs(), ...getTunnelBaseUrls()]));
         // Cleanup expired codes in DB
         supabase.from('soupz_pairing').delete().lt('expires_at', new Date().toISOString()).then(() => {});
 
@@ -98,7 +108,7 @@ function createPairingCode() {
                 code,
                 token,
                 hostname: os.hostname(),
-                lan_ips: getLocalIPs(),
+                lan_ips: connectTargets,
                 port: activePort,
                 created_at: new Date(now).toISOString(),
                 expires_at: new Date(expiresAt).toISOString(),
@@ -165,8 +175,7 @@ function revokeSession(token) {
 // Middleware: require auth token for REST endpoints (except pairing)
 function requireAuth(req, res, next) {
     // Bypass auth for requests originating from the local machine
-    const clientIP = req.ip || req.connection?.remoteAddress;
-    const isLocal = clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === '::ffff:127.0.0.1';
+    const isLocal = isLocalRequest(req);
     if (isLocal) {
         return next();
     }
@@ -176,6 +185,36 @@ function requireAuth(req, res, next) {
         return res.status(401).json({ error: 'Unauthorized. Use /pair to get a pairing code.' });
     }
     next();
+}
+
+function isLocalRequest(req) {
+    const clientIP = req.ip || req.connection?.remoteAddress;
+    return clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === '::ffff:127.0.0.1';
+}
+
+function getCurrentPairingSnapshot() {
+    const pairing = getCurrentCode();
+    if (!pairing) return null;
+    const localIPs = getLocalIPs();
+    const tunnelUrls = getTunnelBaseUrls();
+    const connectTargets = Array.from(new Set([...localIPs, ...tunnelUrls]));
+    const connectUrl = `${webappBaseUrl.replace(/\/$/, '')}/connect?code=${pairing.code}`;
+    const expiresIn = Math.max(0, Math.round((pairing.expiresAt - Date.now()) / 1000));
+
+    return {
+        code: pairing.code,
+        expiresIn,
+        connectUrl,
+        connectTargets,
+        lanIps: localIPs,
+        tunnelUrls,
+        qrData: JSON.stringify({
+            type: 'soupz-pair',
+            host: localIPs[0] || 'localhost',
+            port: activePort,
+            code: pairing.code,
+        }),
+    };
 }
 
 // Track active terminals
@@ -257,6 +296,195 @@ const WEB_AGENT_ALIASES = new Map([
 // In-memory order tracking for web dashboard workflow
 const orders = new Map();
 let orderCounter = 0;
+const orderRuntimes = new Map(); // orderId -> runtime metadata and child processes
+
+const WORKER_STALL_MS = Math.max(10000, Number.parseInt(process.env.SOUPZ_WORKER_STALL_MS || '45000', 10) || 45000);
+const DEEP_SYNTHESIS_TIMEOUT_MS = Math.max(15000, Number.parseInt(process.env.SOUPZ_DEEP_SYNTHESIS_TIMEOUT_MS || '120000', 10) || 120000);
+const ORDER_LANE_RING_MAX = Math.max(4000, Number.parseInt(process.env.SOUPZ_ORDER_LANE_RING_MAX || '20000', 10) || 20000);
+const OUTPUT_DELTA_EVENT_MIN_MS = Math.max(0, Number.parseInt(process.env.SOUPZ_OUTPUT_DELTA_EVENT_MIN_MS || '250', 10) || 250);
+const ORDER_STREAM_CHUNK_MAX = Math.max(512, Number.parseInt(process.env.SOUPZ_STREAM_CHUNK_MAX || '4096', 10) || 4096);
+
+function createOrderRuntime(order) {
+    const runtime = {
+        orderId: order.id,
+        status: 'running',
+        cancelRequested: false,
+        cancelReason: '',
+        startedAt: Date.now(),
+        children: new Map(),
+        workerWatchdogs: new Map(),
+        outputDeltaBuckets: new Map(),
+    };
+    orderRuntimes.set(order.id, runtime);
+    return runtime;
+}
+
+function getOrderRuntime(orderId) {
+    return orderRuntimes.get(orderId) || null;
+}
+
+function cleanupOrderRuntime(orderId) {
+    const runtime = orderRuntimes.get(orderId);
+    if (!runtime) return;
+    for (const timer of runtime.workerWatchdogs.values()) {
+        clearInterval(timer);
+    }
+    runtime.workerWatchdogs.clear();
+    orderRuntimes.delete(orderId);
+}
+
+function appendLaneBuffer(order, laneId, text) {
+    if (!order.laneBuffers) order.laneBuffers = {};
+    const prev = order.laneBuffers[laneId] || '';
+    const next = `${prev}${text}`;
+    order.laneBuffers[laneId] = next.length > ORDER_LANE_RING_MAX ? next.slice(-ORDER_LANE_RING_MAX) : next;
+}
+
+function toStreamChunk(text) {
+    if (!text || text.length <= ORDER_STREAM_CHUNK_MAX) return text;
+    const omitted = text.length - ORDER_STREAM_CHUNK_MAX;
+    return `${text.slice(0, ORDER_STREAM_CHUNK_MAX)}\n[stream chunk truncated: omitted ${omitted} chars]\n`;
+}
+
+function pushOrderOutputDelta(order, runtime, bucketKey, eventType, data = {}) {
+    if (!runtime || !bucketKey || OUTPUT_DELTA_EVENT_MIN_MS <= 0) {
+        pushOrderEvent(order, eventType, data);
+        return;
+    }
+
+    const now = Date.now();
+    let bucket = runtime.outputDeltaBuckets.get(bucketKey);
+    if (!bucket) {
+        bucket = {
+            eventType,
+            lastEmitAt: 0,
+            pendingChars: 0,
+            pendingData: {},
+        };
+        runtime.outputDeltaBuckets.set(bucketKey, bucket);
+    }
+
+    bucket.eventType = eventType;
+    bucket.pendingChars += Number.isFinite(data.chars) ? data.chars : 0;
+    bucket.pendingData = {
+        ...bucket.pendingData,
+        ...data,
+    };
+
+    if ((now - bucket.lastEmitAt) < OUTPUT_DELTA_EVENT_MIN_MS) return;
+    pushOrderEvent(order, bucket.eventType, {
+        ...bucket.pendingData,
+        chars: Math.max(1, bucket.pendingChars),
+    });
+    bucket.lastEmitAt = now;
+    bucket.pendingChars = 0;
+    bucket.pendingData = {};
+}
+
+function flushOrderOutputDeltas(order, runtime, bucketPrefix = '') {
+    if (!runtime?.outputDeltaBuckets) return;
+    for (const [key, bucket] of runtime.outputDeltaBuckets.entries()) {
+        if (bucketPrefix && !key.startsWith(bucketPrefix)) continue;
+        if (bucket.pendingChars > 0) {
+            pushOrderEvent(order, bucket.eventType, {
+                ...bucket.pendingData,
+                chars: Math.max(1, bucket.pendingChars),
+            });
+        }
+        runtime.outputDeltaBuckets.delete(key);
+    }
+}
+
+function setChildFinished(runtime, childKey, exitCode = null) {
+    const childMeta = runtime?.children?.get(childKey);
+    if (!childMeta) return;
+    childMeta.finished = true;
+    childMeta.exitCode = exitCode;
+    childMeta.finishedAt = Date.now();
+}
+
+function registerOrderChild(runtime, childKey, child, meta = {}) {
+    if (!runtime || !child || !childKey) return;
+    runtime.children.set(childKey, {
+        child,
+        childKey,
+        kind: meta.kind || 'unknown',
+        workerId: meta.workerId || null,
+        agent: meta.agent || null,
+        startedAt: Date.now(),
+        lastOutputAt: Date.now(),
+        stalledAt: null,
+        finished: false,
+        exitCode: null,
+    });
+}
+
+function touchOrderChild(runtime, childKey) {
+    const childMeta = runtime?.children?.get(childKey);
+    if (!childMeta || childMeta.finished) return;
+    childMeta.lastOutputAt = Date.now();
+}
+
+function startWorkerWatchdog(order, runtime, childKey, workerMeta) {
+    if (!runtime) return;
+    const workerId = workerMeta?.workerId;
+    if (!workerId) return;
+    const timer = setInterval(() => {
+        const childMeta = runtime.children.get(childKey);
+        if (!childMeta || childMeta.finished) {
+            clearInterval(timer);
+            runtime.workerWatchdogs.delete(childKey);
+            return;
+        }
+        const elapsedSinceOutput = Date.now() - (childMeta.lastOutputAt || childMeta.startedAt || Date.now());
+        if (elapsedSinceOutput >= WORKER_STALL_MS && !childMeta.stalledAt) {
+            childMeta.stalledAt = Date.now();
+            pushOrderEvent(order, 'worker.stalled', {
+                workerId,
+                workerLabel: workerMeta.workerLabel,
+                specialist: workerMeta.specialist,
+                focus: workerMeta.focus,
+                agent: workerMeta.agent,
+                role: workerMeta.role,
+                stalledAfterMs: elapsedSinceOutput,
+            });
+            broadcastOrderUpdate(order);
+        }
+    }, 5000);
+    runtime.workerWatchdogs.set(childKey, timer);
+}
+
+function stopWorkerWatchdog(runtime, childKey) {
+    const timer = runtime?.workerWatchdogs?.get(childKey);
+    if (!timer) return;
+    clearInterval(timer);
+    runtime.workerWatchdogs.delete(childKey);
+}
+
+function cancelOrderChildren(order, runtime, reason = 'cancel_requested') {
+    if (!runtime) return { killed: 0, alreadyExited: 0 };
+    runtime.cancelRequested = true;
+    runtime.cancelReason = reason;
+    let killed = 0;
+    let alreadyExited = 0;
+
+    for (const [, childMeta] of runtime.children) {
+        if (!childMeta || childMeta.finished) {
+            alreadyExited += 1;
+            continue;
+        }
+        try {
+            childMeta.child?.kill('SIGTERM');
+            killed += 1;
+        } catch {
+            // Ignore kill failures and continue.
+        }
+    }
+
+    pushOrderEvent(order, 'order.cancel.requested', { reason, killed, alreadyExited });
+    broadcastOrderUpdate(order);
+    return { killed, alreadyExited };
+}
 
 // Broadcast order update to all authenticated clients
 function broadcastOrderUpdate(order) {
@@ -285,6 +513,7 @@ function toOrderSummary(order) {
         finishedAt: order.finishedAt,
         durationMs: order.startedAt && order.finishedAt ? (new Date(order.finishedAt).getTime() - new Date(order.startedAt).getTime()) : null,
         eventCount: order.events.length,
+        cancelRequested: !!order.cancelRequested,
     };
 }
 
@@ -315,6 +544,7 @@ function toOrderRecord(order) {
         stdout: order.stdout,
         stderr: order.stderr,
         events: order.events,
+        lane_buffers: order.laneBuffers || {},
     };
 }
 
@@ -439,27 +669,93 @@ app.use(express.json());
 
 // PUBLIC: Generate a pairing code (called from laptop CLI)
 app.post('/pair', (req, res) => {
-    const pairing = createPairingCode();
-
-    // Build QR code data — contains server URL + pairing code
-    const localIPs = getLocalIPs();
-    const qrData = JSON.stringify({
-        type: 'soupz-pair',
-        host: localIPs[0] || 'localhost',
-        port: activePort,
-        code: pairing.code,
-    });
+    createPairingCode();
+    const snapshot = getCurrentPairingSnapshot();
 
     if (!silentMode) {
-        console.log(`\n  🔑 Pairing code generated: ${pairing.code}`);
-        console.log(`     Expires in ${pairing.expiresIn}s\n`);
+        console.log(`\n  🔑 Pairing code generated: ${snapshot?.code || 'N/A'}`);
+        console.log(`     Expires in ${snapshot?.expiresIn ?? 0}s\n`);
+    }
+
+    if (!snapshot) return res.status(500).json({ error: 'Failed to generate pairing code' });
+
+    res.json({
+        code: snapshot.code,
+        expiresIn: snapshot.expiresIn,
+        qrData: snapshot.qrData,
+        connectUrls: snapshot.connectTargets,
+        connectUrl: snapshot.connectUrl,
+    });
+});
+
+// PUBLIC: Get the currently active pairing code snapshot (for diagnostics / QR location)
+app.get('/pair/current', (req, res) => {
+    const snapshot = getCurrentPairingSnapshot();
+    if (!snapshot) {
+        return res.status(404).json({ error: 'No active pairing code' });
+    }
+    res.json(snapshot);
+});
+
+// LOCAL ONLY: Register runtime tunnel targets without restarting daemon
+app.post('/api/system/tunnel-targets', (req, res) => {
+    if (!isLocalRequest(req)) {
+        return res.status(403).json({ error: 'Tunnel target registration is local-only' });
+    }
+
+    const rawUrls = Array.isArray(req.body?.urls) ? req.body.urls : [];
+    const normalized = rawUrls
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter(Boolean)
+        .map((value) => value.replace(/\/$/, ''));
+
+    runtimeTunnelBaseUrls.clear();
+    for (const url of normalized) runtimeTunnelBaseUrls.add(url);
+
+    res.json({ success: true, tunnelUrls: Array.from(runtimeTunnelBaseUrls) });
+});
+
+app.get('/api/system/tunnel-targets', (req, res) => {
+    if (!isLocalRequest(req)) {
+        return res.status(403).json({ error: 'Tunnel target query is local-only' });
+    }
+    res.json({ tunnelUrls: Array.from(runtimeTunnelBaseUrls) });
+});
+
+// LOCAL ONLY: Update pairing runtime config (web app URL + tunnel URLs)
+app.post('/api/system/pairing-config', (req, res) => {
+    if (!isLocalRequest(req)) {
+        return res.status(403).json({ error: 'Pairing config update is local-only' });
+    }
+
+    const nextWebapp = typeof req.body?.webappUrl === 'string' ? req.body.webappUrl.trim() : '';
+    if (nextWebapp) {
+        webappBaseUrl = nextWebapp.replace(/\/$/, '');
+    }
+
+    if (Array.isArray(req.body?.tunnelUrls)) {
+        runtimeTunnelBaseUrls.clear();
+        for (const value of req.body.tunnelUrls) {
+            if (typeof value !== 'string') continue;
+            const cleaned = value.trim().replace(/\/$/, '');
+            if (cleaned) runtimeTunnelBaseUrls.add(cleaned);
+        }
     }
 
     res.json({
-        code: pairing.code,
-        expiresIn: pairing.expiresIn,
-        qrData,
-        connectUrls: localIPs.map(ip => `ws://${ip}:${activePort}`),
+        success: true,
+        webappUrl: webappBaseUrl,
+        tunnelUrls: Array.from(runtimeTunnelBaseUrls),
+    });
+});
+
+app.get('/api/system/pairing-config', (req, res) => {
+    if (!isLocalRequest(req)) {
+        return res.status(403).json({ error: 'Pairing config query is local-only' });
+    }
+    res.json({
+        webappUrl: webappBaseUrl,
+        tunnelUrls: Array.from(runtimeTunnelBaseUrls),
     });
 });
 
@@ -920,12 +1216,16 @@ async function resolveAutoRunAgent(prompt, cwd = REPO_ROOT) {
     return { agent: ready[0], method: 'priority-fallback', available: installed, ready, skipped };
 }
 
-function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WORKERS, cwd = REPO_ROOT) {
+function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WORKERS, cwd = REPO_ROOT, deepPolicy = {}) {
     const { ready, skipped } = getReadyAgentsInPriorityOrder(cwd);
     const count = Math.max(1, maxWorkers);
     const readySet = new Set(ready);
     const workerSlots = [];
     const perAgentCounts = {};
+    const primaryCopies = Number.isFinite(deepPolicy.primaryCopies)
+        ? Math.max(1, Math.min(count, deepPolicy.primaryCopies))
+        : Math.min(2, count);
+    const sameAgentOnly = deepPolicy.sameAgentOnly === true;
 
     const pushSlot = (agent) => {
         if (!agent) return;
@@ -935,15 +1235,16 @@ function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WORKERS, 
 
     const canUsePrimary = primaryAgent && readySet.has(primaryAgent);
     if (canUsePrimary) {
-        // Always fan out at least 2 subagents for the selected primary model.
-        const primaryCopies = Math.min(2, count);
+        // Fan out configurable copies for the selected primary model.
         for (let i = 0; i < primaryCopies; i++) pushSlot(primaryAgent);
     }
 
-    const others = ready.filter((agent) => agent !== primaryAgent);
-    for (const agent of others) {
-        if (workerSlots.length >= count) break;
-        pushSlot(agent);
+    if (!sameAgentOnly) {
+        const others = ready.filter((agent) => agent !== primaryAgent);
+        for (const agent of others) {
+            if (workerSlots.length >= count) break;
+            pushSlot(agent);
+        }
     }
 
     while (workerSlots.length < count && canUsePrimary) {
@@ -958,6 +1259,7 @@ function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WORKERS, 
 }
 
 function startSingleAgentOrder(order, runAgent, mcpServers) {
+    const runtime = createOrderRuntime(order);
     const args = [CLI_ENTRY, 'ask', runAgent, order.prompt];
 
     const spawnEnv = { ...process.env };
@@ -970,21 +1272,30 @@ function startSingleAgentOrder(order, runAgent, mcpServers) {
         env: spawnEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
     });
+    registerOrderChild(runtime, 'single', child, { kind: 'single', agent: runAgent });
 
     let settled = false;
 
     const finalize = (status, payload = {}) => {
         if (settled) return;
         settled = true;
+        flushOrderOutputDeltas(order, runtime, 'single:');
         order.finishedAt = nowIso();
         if (payload.exitCode !== undefined) order.exitCode = payload.exitCode;
-        order.status = status;
-        pushOrderEvent(order, status === 'completed' ? 'order.completed' : 'order.failed', {
-            mode: 'single',
-            ...payload,
-        });
+        if (runtime.cancelRequested) {
+            order.status = 'cancelled';
+            order.cancelRequested = true;
+            pushOrderEvent(order, 'order.cancelled', { mode: 'single', reason: runtime.cancelReason || 'cancel_requested', ...payload });
+        } else {
+            order.status = status;
+            pushOrderEvent(order, status === 'completed' ? 'order.completed' : 'order.failed', {
+                mode: 'single',
+                ...payload,
+            });
+        }
         void persistOrder(order);
         broadcastOrderUpdate(order);
+        cleanupOrderRuntime(order.id);
     };
 
     order.pid = child.pid;
@@ -996,10 +1307,12 @@ function startSingleAgentOrder(order, runAgent, mcpServers) {
 
     child.stdout.on('data', (chunk) => {
         const text = chunk.toString();
+        touchOrderChild(runtime, 'single');
         order.stdout += text;
         if (order.stdout.length > 200000) order.stdout = order.stdout.slice(-200000);
-        pushOrderEvent(order, 'chef.output.delta', { stream: 'stdout', chars: text.length, agent: runAgent });
-        const streamMsg = JSON.stringify({ type: 'agent_chunk', orderId: order.id, chunk: text, agentId: runAgent });
+        appendLaneBuffer(order, runAgent, text);
+        pushOrderOutputDelta(order, runtime, 'single:stdout', 'chef.output.delta', { stream: 'stdout', chars: text.length, agent: runAgent });
+        const streamMsg = JSON.stringify({ type: 'agent_chunk', orderId: order.id, chunk: toStreamChunk(text), agentId: runAgent });
         for (const client of wss.clients) {
             if (client.readyState === 1 && authenticatedClients.has(client)) {
                 client.send(streamMsg);
@@ -1009,9 +1322,11 @@ function startSingleAgentOrder(order, runAgent, mcpServers) {
 
     child.stderr.on('data', (chunk) => {
         const text = chunk.toString();
+        touchOrderChild(runtime, 'single');
         order.stderr += text;
         if (order.stderr.length > 120000) order.stderr = order.stderr.slice(-120000);
-        pushOrderEvent(order, 'chef.output.delta', { stream: 'stderr', chars: text.length, agent: runAgent });
+        appendLaneBuffer(order, runAgent, `[stderr] ${text}`);
+        pushOrderOutputDelta(order, runtime, 'single:stderr', 'chef.output.delta', { stream: 'stderr', chars: text.length, agent: runAgent });
     });
 
     child.on('error', (err) => {
@@ -1027,7 +1342,7 @@ function startSingleAgentOrder(order, runAgent, mcpServers) {
     });
 }
 
-async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStderr }) {
+async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStderr, runtime, childKey, childMeta, timeoutMs = 0 }) {
     const args = [CLI_ENTRY, 'ask', agent, prompt];
     const spawnEnv = { ...process.env };
     if (mcpServers.length > 0) {
@@ -1040,31 +1355,56 @@ async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStder
             env: spawnEnv,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
+        if (runtime && childKey) {
+            registerOrderChild(runtime, childKey, child, childMeta);
+        }
 
         let stdout = '';
         let stderr = '';
         let settled = false;
+        let timeoutHandle = null;
 
         const finish = (payload) => {
             if (settled) return;
             settled = true;
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            if (runtime && childKey) {
+                setChildFinished(runtime, childKey, payload.code);
+            }
             resolve(payload);
         };
+
+        if (timeoutMs > 0) {
+            timeoutHandle = setTimeout(() => {
+                if (settled) return;
+                const timeoutText = `[timeout] worker exceeded ${timeoutMs}ms`;
+                stderr = `${stderr}\n${timeoutText}`.trim();
+                onStderr?.(`${timeoutText}\n`, child.pid);
+                try {
+                    child.kill('SIGTERM');
+                } catch {
+                    // Ignore kill errors.
+                }
+                finish({ code: 124, stdout, stderr, pid: child.pid, timedOut: true });
+            }, timeoutMs);
+        }
 
         child.stdout.on('data', (chunk) => {
             const text = chunk.toString();
             stdout += text;
+            if (runtime && childKey) touchOrderChild(runtime, childKey);
             onStdout?.(text, child.pid);
         });
 
         child.stderr.on('data', (chunk) => {
             const text = chunk.toString();
             stderr += text;
+            if (runtime && childKey) touchOrderChild(runtime, childKey);
             onStderr?.(text, child.pid);
         });
 
         child.on('error', (err) => {
-            finish({ code: 1, stdout, stderr: `${stderr}\n${err.message}`.trim(), pid: child.pid });
+            finish({ code: 1, stdout, stderr: `${stderr}\n${err.message}`.trim(), pid: child.pid, errored: true });
         });
 
         child.on('close', (code) => {
@@ -1074,7 +1414,12 @@ async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStder
 }
 
 async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
-    const { workers, skipped } = selectParallelWorkers(runAgent, DEFAULT_DEEP_WORKERS, order.cwd);
+    const runtime = createOrderRuntime(order);
+    const deepPolicy = order.deepPolicy || {};
+    const workerCount = Number.isFinite(deepPolicy.workerCount)
+        ? Math.max(1, Math.min(8, deepPolicy.workerCount))
+        : DEFAULT_DEEP_WORKERS;
+    const { workers, skipped } = selectParallelWorkers(runAgent, workerCount, order.cwd, deepPolicy);
     const workerRoles = Object.fromEntries(workers.map((w) => [w.workerId, inferExecutionRole(w.agent, order.prompt)]));
     const workerAgents = Object.fromEntries(workers.map((w) => [w.workerId, w.agent]));
     const specialistPlan = inferSpecialistsFromPrompt(order.prompt, workers.length);
@@ -1096,6 +1441,7 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         workerMeta,
         workerCount: workers.length,
         mode: 'deep',
+        deepPolicy,
         skippedWorkers: skipped,
     });
     void persistOrder(order);
@@ -1110,8 +1456,11 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         return;
     }
 
+    const workerTimeoutMs = Math.max(15000, Number.parseInt(deepPolicy.timeoutMs || `${DEEP_SYNTHESIS_TIMEOUT_MS}`, 10) || DEEP_SYNTHESIS_TIMEOUT_MS);
+    const finishedWorkerIds = new Set();
     const workerRuns = workers.map(async (worker, idx) => {
         const { workerId, agent } = worker;
+        const childKey = `worker:${workerId}`;
         const meta = workerMeta[workerId] || { workerLabel: workerId, specialist: 'developer', focus: 'deliver concrete implementation guidance' };
         const workerPrompt = [
             `You are worker ${idx + 1}/${workers.length} (${meta.workerLabel}; id=${workerId}; agent=${agent}).`,
@@ -1119,6 +1468,8 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             `Assigned focus: ${meta.focus}.`,
             'Focus on a distinct implementation strategy and return concrete, actionable output.',
             'If coding is needed, provide exact file paths and code blocks.',
+            'Return the answer directly. Do not invoke tools, shell commands, file writes, skills, or external actions.',
+            'No preamble. No meta commentary. Output only the requested technical content.',
             `Original task:\n${order.prompt}`,
         ].join('\n\n');
 
@@ -1131,31 +1482,55 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             role: workerRoles[workerId],
             index: idx + 1,
         });
-        const result = await runChildAgent({
+        startWorkerWatchdog(order, runtime, childKey, {
+            workerId,
+            workerLabel: meta.workerLabel,
+            specialist: meta.specialist,
+            focus: meta.focus,
             agent,
-            prompt: workerPrompt,
-            cwd: order.cwd,
-            mcpServers,
-            onStdout: (text, pid) => {
-                const tagged = `[worker:${workerId}|agent:${agent}] ${text}`;
-                order.stdout += tagged;
-                if (order.stdout.length > 300000) order.stdout = order.stdout.slice(-300000);
-                pushOrderEvent(order, 'worker.output.delta', { workerId, agent, stream: 'stdout', chars: text.length, pid });
-                const streamMsg = JSON.stringify({ type: 'agent_chunk', orderId: order.id, chunk: tagged, agentId: workerId });
-                for (const client of wss.clients) {
-                    if (client.readyState === 1 && authenticatedClients.has(client)) {
-                        client.send(streamMsg);
-                    }
-                }
-            },
-            onStderr: (text, pid) => {
-                const tagged = `[worker:${workerId}|agent:${agent}:stderr] ${text}`;
-                order.stderr += tagged;
-                if (order.stderr.length > 180000) order.stderr = order.stderr.slice(-180000);
-                pushOrderEvent(order, 'worker.output.delta', { workerId, agent, stream: 'stderr', chars: text.length, pid });
-            },
+            role: workerRoles[workerId],
         });
 
+        let result;
+        try {
+            result = await runChildAgent({
+                agent,
+                prompt: workerPrompt,
+                cwd: order.cwd,
+                mcpServers,
+                runtime,
+                childKey,
+                childMeta: { kind: 'worker', workerId, agent },
+                timeoutMs: workerTimeoutMs,
+                onStdout: (text, pid) => {
+                    const tagged = `[worker:${workerId}|agent:${agent}] ${text}`;
+                    order.stdout += tagged;
+                    if (order.stdout.length > 180000) order.stdout = order.stdout.slice(-180000);
+                    appendLaneBuffer(order, workerId, `${text}`);
+                    pushOrderOutputDelta(order, runtime, `${childKey}:stdout`, 'worker.output.delta', { workerId, agent, stream: 'stdout', chars: text.length, pid });
+                    const streamMsg = JSON.stringify({ type: 'agent_chunk', orderId: order.id, chunk: toStreamChunk(tagged), agentId: workerId });
+                    for (const client of wss.clients) {
+                        if (client.readyState === 1 && authenticatedClients.has(client)) {
+                            client.send(streamMsg);
+                        }
+                    }
+                },
+                onStderr: (text, pid) => {
+                    const tagged = `[worker:${workerId}|agent:${agent}:stderr] ${text}`;
+                    order.stderr += tagged;
+                    if (order.stderr.length > 120000) order.stderr = order.stderr.slice(-120000);
+                    appendLaneBuffer(order, workerId, `[stderr] ${text}`);
+                    pushOrderOutputDelta(order, runtime, `${childKey}:stderr`, 'worker.output.delta', { workerId, agent, stream: 'stderr', chars: text.length, pid });
+                },
+            });
+        } catch (err) {
+            result = { code: 1, stdout: '', stderr: err.message || 'worker_failed', pid: null, errored: true };
+        } finally {
+            flushOrderOutputDeltas(order, runtime, `${childKey}:`);
+            stopWorkerWatchdog(runtime, childKey);
+        }
+
+        const exitCode = result?.code ?? 1;
         pushOrderEvent(order, 'worker.finished', {
             workerId,
             workerLabel: meta.workerLabel,
@@ -1163,12 +1538,58 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             focus: meta.focus,
             agent,
             role: workerRoles[workerId],
-            exitCode: result.code,
+            exitCode,
+            reason: runtime.cancelRequested ? 'cancelled' : (result?.timedOut ? 'timeout' : (result?.errored ? 'error' : 'exit')),
         });
+        finishedWorkerIds.add(workerId);
         return { workerId, agent, ...result };
     });
 
-    const workerResults = await Promise.all(workerRuns);
+    const workerResults = [];
+    const resultsByWorker = new Map();
+    const syncResult = (result) => {
+        if (!result || !result.workerId) return;
+        if (resultsByWorker.has(result.workerId)) return;
+        resultsByWorker.set(result.workerId, result);
+        workerResults.push(result);
+    };
+
+    await Promise.race([
+        Promise.all(workerRuns).then((all) => {
+            for (const result of all) syncResult(result);
+        }),
+        new Promise((resolve) => {
+            setTimeout(() => {
+                pushOrderEvent(order, 'parallel.timeout', { timeoutMs: workerTimeoutMs, partialWorkers: workerResults.length });
+                resolve();
+            }, workerTimeoutMs);
+        }),
+    ]);
+
+    if (workerResults.length < workers.length) {
+        cancelOrderChildren(order, runtime, 'parallel_timeout');
+        const settled = await Promise.allSettled(workerRuns);
+        for (const item of settled) {
+            if (item.status === 'fulfilled') syncResult(item.value);
+        }
+    }
+
+    for (const worker of workers) {
+        if (finishedWorkerIds.has(worker.workerId)) continue;
+        const existing = resultsByWorker.get(worker.workerId);
+        const meta = workerMeta[worker.workerId] || { workerLabel: worker.workerId, specialist: 'developer', focus: 'deliver concrete implementation guidance' };
+        pushOrderEvent(order, 'worker.finished', {
+            workerId: worker.workerId,
+            workerLabel: meta.workerLabel,
+            specialist: meta.specialist,
+            focus: meta.focus,
+            agent: worker.agent,
+            role: workerRoles[worker.workerId],
+            exitCode: existing?.code ?? 1,
+            reason: 'reconciled_missing_finish',
+        });
+    }
+
     const successfulWorkers = workerResults.filter((r) => r.code === 0);
     const primaryWorker = workerResults.find((r) => r.agent === runAgent && r.code === 0);
 
@@ -1177,12 +1598,26 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         successfulWorkers: successfulWorkers.length,
     });
 
+    if (runtime.cancelRequested && successfulWorkers.length === 0) {
+        order.exitCode = 130;
+        order.finishedAt = nowIso();
+        order.status = 'cancelled';
+        order.cancelRequested = true;
+        pushOrderEvent(order, 'order.cancelled', { mode: 'deep', reason: runtime.cancelReason || 'cancel_requested' });
+        void persistOrder(order);
+        broadcastOrderUpdate(order);
+        cleanupOrderRuntime(order.id);
+        return;
+    }
+
     const synthesisAgent = (primaryWorker && primaryWorker.code === 0)
         ? runAgent
-        : (successfulWorkers[0]?.agent || workers[0]);
+        : (successfulWorkers[0]?.agent || workers[0]?.agent || runAgent);
+    const synthesisTimeoutMs = Math.max(workerTimeoutMs, Math.min(300000, DEEP_SYNTHESIS_TIMEOUT_MS * 2));
     const synthesisPrompt = [
         'You are the lead synthesizer. Merge worker outputs into a single final answer.',
         'Prioritize correctness, concrete file paths, and executable steps.',
+        'Do not invoke tools, shell commands, file writes, skills, or external actions. Synthesize directly from provided worker outputs.',
         `Original task:\n${order.prompt}`,
         'Worker outputs:',
         ...workerResults.map((r) => `\n--- ${r.workerId} via ${r.agent} (exit ${r.code}) ---\n${(r.stdout || r.stderr || '').slice(0, 40000)}`),
@@ -1194,12 +1629,17 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         prompt: synthesisPrompt,
         cwd: order.cwd,
         mcpServers,
+        runtime,
+        childKey: 'synthesis',
+        childMeta: { kind: 'synthesis', agent: synthesisAgent },
+        timeoutMs: synthesisTimeoutMs,
         onStdout: (text, pid) => {
             const tagged = `[synthesis:${synthesisAgent}] ${text}`;
             order.stdout += tagged;
-            if (order.stdout.length > 350000) order.stdout = order.stdout.slice(-350000);
-            pushOrderEvent(order, 'synthesis.output.delta', { stream: 'stdout', chars: text.length, pid });
-            const streamMsg = JSON.stringify({ type: 'agent_chunk', orderId: order.id, chunk: tagged, agentId: synthesisAgent });
+            if (order.stdout.length > 200000) order.stdout = order.stdout.slice(-200000);
+            appendLaneBuffer(order, 'synthesis', `${text}`);
+            pushOrderOutputDelta(order, runtime, 'synthesis:stdout', 'synthesis.output.delta', { stream: 'stdout', chars: text.length, pid });
+            const streamMsg = JSON.stringify({ type: 'agent_chunk', orderId: order.id, chunk: toStreamChunk(tagged), agentId: synthesisAgent });
             for (const client of wss.clients) {
                 if (client.readyState === 1 && authenticatedClients.has(client)) {
                     client.send(streamMsg);
@@ -1208,25 +1648,65 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         },
         onStderr: (text, pid) => {
             order.stderr += text;
-            if (order.stderr.length > 200000) order.stderr = order.stderr.slice(-200000);
-            pushOrderEvent(order, 'synthesis.output.delta', { stream: 'stderr', chars: text.length, pid });
+            if (order.stderr.length > 120000) order.stderr = order.stderr.slice(-120000);
+            appendLaneBuffer(order, 'synthesis', `[stderr] ${text}`);
+            pushOrderOutputDelta(order, runtime, 'synthesis:stderr', 'synthesis.output.delta', { stream: 'stderr', chars: text.length, pid });
         },
     });
+    flushOrderOutputDeltas(order, runtime, 'synthesis:');
 
-    pushOrderEvent(order, 'synthesis.finished', { agent: synthesisAgent, role: 'lead-synthesizer', exitCode: synth.code });
+    const canFallbackComplete = deepPolicy.allowSynthesisFallback !== false
+        && synth.code !== 0
+        && successfulWorkers.length > 0;
 
-    order.exitCode = synth.code;
+    if (canFallbackComplete) {
+        const ranked = [...successfulWorkers]
+            .sort((a, b) => (b.stdout || '').length - (a.stdout || '').length)
+            .slice(0, Math.min(3, successfulWorkers.length));
+        const fallbackBody = ranked
+            .map((r) => `## ${r.workerId} (${r.agent})\n${(r.stdout || r.stderr || '').slice(0, 12000)}`)
+            .join('\n\n');
+        const fallbackText = [
+            '[synthesis:fallback] Primary synthesis timed out/failed; returning deterministic merge of successful worker outputs.',
+            fallbackBody,
+        ].join('\n\n');
+
+        order.stdout += `\n${fallbackText}`;
+        if (order.stdout.length > 200000) order.stdout = order.stdout.slice(-200000);
+        appendLaneBuffer(order, 'synthesis', fallbackText);
+        pushOrderEvent(order, 'synthesis.fallback.used', {
+            synthesisExitCode: synth.code,
+            selectedWorkers: ranked.map((r) => r.workerId),
+        });
+    }
+
+    const finalSynthesisExitCode = canFallbackComplete ? 0 : synth.code;
+    pushOrderEvent(order, 'synthesis.finished', { agent: synthesisAgent, role: 'lead-synthesizer', exitCode: finalSynthesisExitCode });
+
+    order.exitCode = finalSynthesisExitCode;
     order.finishedAt = nowIso();
-    if (synth.code === 0 && successfulWorkers.length > 0) {
+    if (finalSynthesisExitCode === 0) {
         order.status = 'completed';
-        pushOrderEvent(order, 'order.completed', { exitCode: synth.code, mode: 'deep', workers: workers.map((w) => w.workerId) });
+        pushOrderEvent(order, 'order.completed', {
+            exitCode: finalSynthesisExitCode,
+            mode: 'deep',
+            workers: workers.map((w) => w.workerId),
+            fallbackUsed: canFallbackComplete,
+            synthesisExitCode: synth.code,
+            successfulWorkers: successfulWorkers.length,
+        });
+    } else if (runtime.cancelRequested) {
+        order.status = 'cancelled';
+        order.cancelRequested = true;
+        pushOrderEvent(order, 'order.cancelled', { exitCode: finalSynthesisExitCode, mode: 'deep', reason: runtime.cancelReason || 'cancel_requested' });
     } else {
         order.status = 'failed';
-        pushOrderEvent(order, 'order.failed', { exitCode: synth.code, mode: 'deep', workers: workers.map((w) => w.workerId) });
+        pushOrderEvent(order, 'order.failed', { exitCode: finalSynthesisExitCode, mode: 'deep', workers: workers.map((w) => w.workerId) });
     }
 
     void persistOrder(order);
     broadcastOrderUpdate(order);
+    cleanupOrderRuntime(order.id);
 }
 
 // AUTHENTICATED: Create a new orchestrated order from web dashboard
@@ -1237,6 +1717,16 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     const modelPolicy = (req.body?.modelPolicy || 'balanced').toString().trim() || 'balanced';
     const orchestrationMode = (req.body?.orchestrationMode || '').toString().trim() || (modelPolicy === 'deep' ? 'parallel' : 'single');
     const mcpServers = Array.isArray(req.body?.mcpServers) ? req.body.mcpServers : [];
+    const payloadWorkerCount = Number.parseInt(req.body?.workerCount, 10);
+    const payloadPrimaryCopies = Number.parseInt(req.body?.primaryCopies, 10);
+    const sameAgentOnly = req.body?.sameAgentOnly === true;
+    const deepPolicy = {
+        workerCount: Number.isFinite(payloadWorkerCount) ? Math.max(1, Math.min(8, payloadWorkerCount)) : DEFAULT_DEEP_WORKERS,
+        primaryCopies: Number.isFinite(payloadPrimaryCopies) ? Math.max(1, Math.min(8, payloadPrimaryCopies)) : 2,
+        sameAgentOnly,
+        timeoutMs: Number.parseInt(req.body?.timeoutMs, 10) || DEEP_SYNTHESIS_TIMEOUT_MS,
+        allowSynthesisFallback: req.body?.allowSynthesisFallback !== false,
+    };
     const orderCwd = (req.body?.cwd || '').toString().trim() || REPO_ROOT;
     let runAgent = null;
     let routeMeta = { method: 'fallback-chain', available: [] };
@@ -1276,6 +1766,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         runAgent,
         modelPolicy,
         orchestrationMode,
+        deepPolicy,
         cwd: orderCwd,
         status: 'queued',
         createdAt,
@@ -1286,13 +1777,16 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         events: [],
         exitCode: null,
         pid: null,
+        cancelRequested: false,
+        laneBuffers: {},
     };
 
     pushOrderEvent(order, 'order.created', { prompt, agent, modelPolicy, orchestrationMode, cwd: orderCwd });
     pushOrderEvent(order, 'route.selected', {
         agent: runAgent,
         primaryRole: inferExecutionRole(runAgent, prompt),
-        specialistsPlanned: inferSpecialistsFromPrompt(prompt, DEFAULT_DEEP_WORKERS),
+        specialistsPlanned: inferSpecialistsFromPrompt(prompt, deepPolicy.workerCount),
+        deepPolicy,
         requested: requestedAgent,
         resolved: agent,
         routeMethod: routeMeta.method,
@@ -1352,6 +1846,7 @@ app.get('/api/orders/:id', requireAuth, async (req, res) => {
             ...summary,
             pid: memOrder.pid, exitCode: memOrder.exitCode,
             events: memOrder.events, stdout: memOrder.stdout, stderr: memOrder.stderr,
+            laneBuffers: memOrder.laneBuffers || {},
         });
     }
     // Fall back to DB for historical orders not in current memory
@@ -1368,12 +1863,121 @@ app.get('/api/orders/:id', requireAuth, async (req, res) => {
                     modelPolicy: data.model_policy, status: data.status, createdAt: data.created_at,
                     startedAt: data.started_at, finishedAt: data.finished_at, durationMs: data.duration_ms,
                     exitCode: data.exit_code, events: data.events || [], stdout: data.stdout || '',
-                    stderr: data.stderr || '', eventCount: (data.events || []).length,
+                    stderr: data.stderr || '', laneBuffers: data.lane_buffers || {}, eventCount: (data.events || []).length,
                 });
             }
         } catch { /* fall through */ }
     }
     return res.status(404).json({ error: 'Order not found' });
+});
+
+// AUTHENTICATED: cancel active order and terminate associated children only
+app.post('/api/orders/:id/cancel', requireAuth, async (req, res) => {
+    const order = orders.get(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (!(order.status === 'queued' || order.status === 'running')) {
+        return res.status(409).json({ error: `Order not cancellable in status ${order.status}` });
+    }
+    const runtime = getOrderRuntime(order.id);
+    const cancelReason = (req.body?.reason || 'user_cancelled').toString();
+    const result = cancelOrderChildren(order, runtime, cancelReason);
+
+    const wasQueued = order.status === 'queued';
+    if (wasQueued || !runtime) {
+        order.status = 'cancelled';
+        order.cancelRequested = true;
+        order.finishedAt = nowIso();
+        order.exitCode = 130;
+        pushOrderEvent(order, 'order.cancelled', { mode: wasQueued ? 'queued' : 'runtime-missing', reason: cancelReason });
+        void persistOrder(order);
+        broadcastOrderUpdate(order);
+        cleanupOrderRuntime(order.id);
+    }
+
+    return res.json({ ok: true, id: order.id, status: order.status, ...result });
+});
+
+function buildWorkerSummaryFromEvents(events = []) {
+    const workers = {};
+    for (const ev of events) {
+        if (!ev.workerId) continue;
+        if (!workers[ev.workerId]) {
+            workers[ev.workerId] = {
+                workerId: ev.workerId,
+                workerLabel: ev.workerLabel || ev.workerId,
+                agent: ev.agent || '',
+                specialist: ev.specialist || '',
+                role: ev.role || '',
+                startedAt: null,
+                finishedAt: null,
+                durationMs: null,
+                exitCode: null,
+                state: 'unknown',
+                stalled: false,
+                stalledAt: null,
+                finishReason: '',
+            };
+        }
+        const w = workers[ev.workerId];
+        if (ev.type === 'worker.started') {
+            w.startedAt = ev.at;
+            w.state = 'running';
+        }
+        if (ev.type === 'worker.stalled') {
+            w.stalled = true;
+            w.stalledAt = ev.at;
+        }
+        if (ev.type === 'worker.finished') {
+            w.finishedAt = ev.at;
+            w.exitCode = ev.exitCode ?? 1;
+            w.state = (ev.exitCode ?? 1) === 0 ? 'completed' : 'failed';
+            w.finishReason = ev.reason || 'exit';
+        }
+    }
+
+    for (const worker of Object.values(workers)) {
+        if (worker.startedAt && worker.finishedAt) {
+            worker.durationMs = new Date(worker.finishedAt).getTime() - new Date(worker.startedAt).getTime();
+        }
+    }
+    return workers;
+}
+
+// AUTHENTICATED: structured order summary with per-worker timings and exit reasons
+app.get('/api/orders/:id/summary', requireAuth, (req, res) => {
+    const order = orders.get(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    const workers = buildWorkerSummaryFromEvents(order.events || []);
+    const synthesisStart = (order.events || []).find((e) => e.type === 'synthesis.started');
+    const synthesisEnd = (order.events || []).find((e) => e.type === 'synthesis.finished');
+    const synthesis = {
+        agent: synthesisStart?.agent || synthesisEnd?.agent || null,
+        startedAt: synthesisStart?.at || null,
+        finishedAt: synthesisEnd?.at || null,
+        exitCode: synthesisEnd?.exitCode ?? null,
+        durationMs: synthesisStart?.at && synthesisEnd?.at
+            ? (new Date(synthesisEnd.at).getTime() - new Date(synthesisStart.at).getTime())
+            : null,
+        state: synthesisEnd
+            ? ((synthesisEnd.exitCode ?? 1) === 0 ? 'completed' : 'failed')
+            : (synthesisStart ? 'running' : 'not_started'),
+    };
+
+    res.json({
+        id: order.id,
+        status: order.status,
+        runAgent: order.runAgent,
+        modelPolicy: order.modelPolicy,
+        deepPolicy: order.deepPolicy || null,
+        createdAt: order.createdAt,
+        startedAt: order.startedAt,
+        finishedAt: order.finishedAt,
+        durationMs: order.startedAt && order.finishedAt
+            ? (new Date(order.finishedAt).getTime() - new Date(order.startedAt).getTime())
+            : null,
+        workers,
+        synthesis,
+    });
 });
 
 // AUTHENTICATED: Changed files for dashboard drawer
@@ -1495,19 +2099,33 @@ import { existsSync } from 'fs';
 
 // File Watcher for Real-time IDE updates
 async function startFileWatcher() {
-    try {
-        const watcher = watch(REPO_ROOT, { recursive: true });
-        console.log(`  👁  Watcher active on: ${REPO_ROOT}`);
-        for await (const event of watcher) {
-            if (event.filename && !event.filename.includes('node_modules') && !event.filename.includes('.git')) {
-                broadcast({ type: 'FILE_CHANGED', path: event.filename });
+    if (fileWatcherTask) return;
+    fileWatcherAbortController = new AbortController();
+    const signal = fileWatcherAbortController.signal;
+
+    fileWatcherTask = (async () => {
+        try {
+            const watcher = watch(REPO_ROOT, { recursive: true, signal });
+            console.log(`  👁  Watcher active on: ${REPO_ROOT}`);
+            for await (const event of watcher) {
+                if (event.filename && !event.filename.includes('node_modules') && !event.filename.includes('.git')) {
+                    broadcast({ type: 'FILE_CHANGED', path: event.filename });
+                }
             }
+        } catch (err) {
+            if (err?.name === 'AbortError') return;
+            console.error('  ✖ File watcher failed:', err.message);
         }
-    } catch (err) {
-        console.error('  ✖ File watcher failed:', err.message);
-    }
+    })();
 }
-startFileWatcher();
+
+function stopFileWatcher() {
+    if (fileWatcherAbortController) {
+        try { fileWatcherAbortController.abort(); } catch {}
+    }
+    fileWatcherAbortController = null;
+    fileWatcherTask = null;
+}
 
 const IGNORED_DIRS = new Set(['.git', 'node_modules', '.next', 'dist', 'build', '__pycache__', '.DS_Store']);
 const MAX_FILE_SIZE = 1024 * 1024; // 1MB max for editor
@@ -2087,25 +2705,38 @@ wss.on('connection', (ws, req) => {
     });
 });
 
-// Health broadcast every 5 seconds (only to authenticated clients)
-setInterval(() => {
-    const health = getSystemHealth();
-    for (const client of wss.clients) {
-        if (client.readyState === 1 && authenticatedClients.has(client)) {
-            client.send(JSON.stringify({ type: 'health', data: health }));
-        }
+function startCoreIntervals() {
+    if (!healthBroadcastInterval) {
+        healthBroadcastInterval = setInterval(() => {
+            const health = getSystemHealth();
+            for (const client of wss.clients) {
+                if (client.readyState === 1 && authenticatedClients.has(client)) {
+                    client.send(JSON.stringify({ type: 'health', data: health }));
+                }
+            }
+        }, 5000);
+        healthBroadcastInterval.unref?.();
     }
-}, 5000);
 
-// Clean expired sessions every minute
-setInterval(() => {
-    const now = Date.now();
-    for (const [token, session] of activeSessions) {
-        if (now - session.createdAt > SESSION_EXPIRY_MS) {
-            activeSessions.delete(token);
-        }
+    if (!sessionCleanupInterval) {
+        sessionCleanupInterval = setInterval(() => {
+            const now = Date.now();
+            for (const [token, session] of activeSessions) {
+                if (now - session.createdAt > SESSION_EXPIRY_MS) {
+                    activeSessions.delete(token);
+                }
+            }
+        }, 60000);
+        sessionCleanupInterval.unref?.();
     }
-}, 60000);
+}
+
+function stopCoreIntervals() {
+    if (healthBroadcastInterval) clearInterval(healthBroadcastInterval);
+    if (sessionCleanupInterval) clearInterval(sessionCleanupInterval);
+    healthBroadcastInterval = null;
+    sessionCleanupInterval = null;
+}
 
 // ═══════════════════════════════════════════════════════════
 // UTILITIES
@@ -2124,6 +2755,22 @@ function getLocalIPs() {
     return ips;
 }
 
+function getTunnelBaseUrls() {
+    // Accept comma-separated tunnel URLs, for example:
+    // SOUPZ_TUNNEL_URL="https://abc.trycloudflare.com"
+    // SOUPZ_TUNNEL_URLS="https://a.ngrok-free.app,https://b.trycloudflare.com"
+    const configured = [
+        process.env.SOUPZ_TUNNEL_URL || '',
+        process.env.SOUPZ_TUNNEL_URLS || '',
+    ]
+        .flatMap((value) => value.split(','))
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .map((value) => value.replace(/\/$/, ''));
+
+    return Array.from(new Set([...configured, ...Array.from(runtimeTunnelBaseUrls)]));
+}
+
 // ═══════════════════════════════════════════════════════════
 // START SERVER (exported for programmatic use from soupz-stall)
 // ═══════════════════════════════════════════════════════════
@@ -2131,17 +2778,16 @@ function getLocalIPs() {
 export function startRemoteServer(port = DEFAULT_PORT, opts = {}) {
     silentMode = !!opts.silent;
     activePort = port;
+    webappBaseUrl = opts.webapp || process.env.SOUPZ_APP_URL || webappBaseUrl;
     return new Promise((resolve, reject) => {
         server.listen(port, () => {
             const localIPs = getLocalIPs();
             startCodeAutoRefresh();
+            startRuntimeServices();
 
             if (!opts.silent) {
                 console.log(`\n  \x1b[32m● Soupz running\x1b[0m  http://localhost:${port}\n`);
             }
-
-            // Start Supabase command listener (wires web IDE → local execution)
-            startCommandListener().catch(() => {});
 
             const handle = {
                 server, wss, port, localIPs,
@@ -2150,6 +2796,8 @@ export function startRemoteServer(port = DEFAULT_PORT, opts = {}) {
                 onCodeRefresh: (cb) => { codeRefreshCallback = cb; },
                 stop: () => {
                     clearInterval(codeRefreshTimer);
+                    codeRefreshTimer = null;
+                    stopRuntimeServices();
                     server.close();
                 },
             };
@@ -2192,9 +2840,18 @@ async function runDatabaseCleanup() {
     }
 }
 
-// Start maintenance loop (every 24 hours)
-setInterval(runDatabaseCleanup, 24 * 60 * 60 * 1000);
-runDatabaseCleanup();
+function startDatabaseMaintenance() {
+    if (!dbCleanupInterval) {
+        dbCleanupInterval = setInterval(runDatabaseCleanup, 24 * 60 * 60 * 1000);
+        dbCleanupInterval.unref?.();
+    }
+    runDatabaseCleanup();
+}
+
+function stopDatabaseMaintenance() {
+    if (dbCleanupInterval) clearInterval(dbCleanupInterval);
+    dbCleanupInterval = null;
+}
 
 // ─── Maintenance & Sync ──────────────────────────────────────────────────────
 
@@ -2250,7 +2907,7 @@ async function runShadowSync() {
 // ═══════════════════════════════════════════════════════════
 
 async function startCommandListener() {
-    if (!supabase) return;
+    if (!supabase || commandListenerChannel) return;
 
     try {
         const { data: pending, error } = await supabase
@@ -2273,7 +2930,7 @@ async function startCommandListener() {
         // Silently fail if DB is not ready
     }
 
-    supabase
+    commandListenerChannel = supabase
         .channel('soupz_cmd_listener')
         .on('postgres_changes', {
             event: 'INSERT',
@@ -2283,6 +2940,35 @@ async function startCommandListener() {
             executeCommand(payload.new).catch(() => {});
         })
         .subscribe();
+}
+
+function stopCommandListener() {
+    if (!supabase || !commandListenerChannel) return;
+    try {
+        supabase.removeChannel(commandListenerChannel);
+    } catch {}
+    try {
+        commandListenerChannel.unsubscribe();
+    } catch {}
+    commandListenerChannel = null;
+}
+
+function startRuntimeServices() {
+    if (runtimeServicesStarted) return;
+    runtimeServicesStarted = true;
+    startCoreIntervals();
+    startDatabaseMaintenance();
+    startFileWatcher();
+    startCommandListener().catch(() => {});
+}
+
+function stopRuntimeServices() {
+    if (!runtimeServicesStarted) return;
+    runtimeServicesStarted = false;
+    stopCoreIntervals();
+    stopDatabaseMaintenance();
+    stopFileWatcher();
+    stopCommandListener();
 }
 
 // Routing priority:

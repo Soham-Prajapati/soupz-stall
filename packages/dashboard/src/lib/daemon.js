@@ -107,7 +107,7 @@ export async function listDirectories(path) {
   const t = getStoredToken();
   if (!t) return null;
   try {
-    const url = `${LOCAL_DAEMON_URL}/api/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ''}`;
+    const url = `${getDaemonUrl()}/api/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ''}`;
     const res = await fetch(url, {
       headers: { 'X-Soupz-Token': t },
       signal: AbortSignal.timeout(3000),
@@ -126,7 +126,7 @@ export async function initProject({ name, path, supabase, github }) {
   const t = getStoredToken();
   if (!t) return null;
   try {
-    const res = await fetch(`${LOCAL_DAEMON_URL}/api/fs/init`, {
+    const res = await fetch(`${getDaemonUrl()}/api/fs/init`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -177,7 +177,7 @@ export async function checkDaemonHealth() {
 /**
  * Send an AI prompt. Streams chunks via WebSocket if connected locally,
  * falls back to Supabase relay for remote access.
- * @param {{prompt: string, agentId?: string, buildMode?: string, cwd?: string, orchestrationMode?: string}} request
+ * @param {{prompt: string, agentId?: string, buildMode?: string, cwd?: string, orchestrationMode?: string, workerCount?: number, sameAgentOnly?: boolean, primaryCopies?: number, timeoutMs?: number}} request
  * @param {string} userId
  * @param {(chunk: string, done: boolean) => void} onChunk
  */
@@ -187,6 +187,10 @@ export async function sendAgentPrompt(request, userId, onChunk) {
   const mode = request?.buildMode || 'balanced';
   const cwd = request?.cwd;
   const orchestrationMode = request?.orchestrationMode;
+  const workerCount = request?.workerCount;
+  const sameAgentOnly = request?.sameAgentOnly;
+  const primaryCopies = request?.primaryCopies;
+  const timeoutMs = request?.timeoutMs;
   const token = getStoredToken();
   const daemonUrl = getDaemonUrl();
   const localDaemon = daemonUrl.includes('localhost') || daemonUrl.includes('127.0.0.1');
@@ -222,6 +226,10 @@ export async function sendAgentPrompt(request, userId, onChunk) {
             const payload = { prompt, agent: agentId, modelPolicy: mode || 'balanced' };
             if (cwd) payload.cwd = cwd;
             if (orchestrationMode) payload.orchestrationMode = orchestrationMode;
+            if (Number.isFinite(workerCount)) payload.workerCount = workerCount;
+            if (typeof sameAgentOnly === 'boolean') payload.sameAgentOnly = sameAgentOnly;
+            if (Number.isFinite(primaryCopies)) payload.primaryCopies = primaryCopies;
+            if (Number.isFinite(timeoutMs)) payload.timeoutMs = timeoutMs;
             if (mcpServers.length > 0) payload.mcpServers = mcpServers;
             return payload;
           })()),
@@ -305,7 +313,7 @@ export async function sendCommand(type, payload, userId) {
   const token = getStoredToken();
   if (!token) throw new Error('Not authenticated with daemon');
 
-  const res = await fetch(`${LOCAL_DAEMON_URL}/command`, {
+  const res = await fetch(`${getDaemonUrl()}/command`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Soupz-Token': token },
     body: JSON.stringify({ id: commandId, type, payload }),

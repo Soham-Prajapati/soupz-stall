@@ -7,7 +7,9 @@ const DAEMON_TARGET = `http://localhost:${DAEMON_PORT}`;
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: true,
     port: 7534,
+    allowedHosts: ['.trycloudflare.com', '.ngrok-free.app', '.ngrok.io'],
     proxy: {
       '/api': { target: DAEMON_TARGET, changeOrigin: true },
       '/health': { target: DAEMON_TARGET, changeOrigin: true },

@@ -84,10 +84,15 @@ async function startDaemon() {
 
     const pairing = serverInfo.getCode();
     const connectUrl = `${WEBAPP_URL}/connect?code=${pairing.code}`;
+    const tunnelUrl = process.env.SOUPZ_TUNNEL_URL || process.env.SOUPZ_TUNNEL_URLS || '';
 
     console.log(`  ${chalk.bold('Status:')}   ${chalk.green('● Online')}  ${chalk.dim(`localhost:${DAEMON_PORT}`)}`);
     console.log(`  ${chalk.bold('Code:')}     ${chalk.hex('#F59E0B').bold(pairing.code)}  ${chalk.dim(`(expires in ${pairing.expiresIn}s)`)}`);
     console.log(`  ${chalk.bold('Connect:')}  ${chalk.cyan(connectUrl)}\n`);
+    if (tunnelUrl) {
+        console.log(`  ${chalk.bold('Tunnel:')}   ${chalk.cyan(tunnelUrl)}`);
+        console.log(chalk.dim('  Phone can connect over internet using this tunnel target.\n'));
+    }
     console.log(chalk.dim('  Opening browser...'));
     console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
 

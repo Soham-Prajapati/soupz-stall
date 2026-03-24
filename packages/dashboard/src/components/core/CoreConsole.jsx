@@ -11,6 +11,7 @@ const CORE_AGENTS = [
 ];
 
 const TESTING_CWD = '/Users/shubh/Developer/ai-testing';
+const ACTIVE_ORDER_SESSION_KEY = 'soupz.core.activeOrderId';
 
 const BENCHMARK_PROMPT = [
   'Build a complete mini project inside /Users/shubh/Developer/ai-testing/multi-agent-benchmark.',
@@ -82,6 +83,26 @@ export default function CoreConsole({ workspace }) {
   );
 
   const canRun = useMemo(() => !!prompt.trim() && !running && !orderActive && online, [prompt, running, orderActive, online]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const persisted = window.sessionStorage.getItem(ACTIVE_ORDER_SESSION_KEY);
+    if (!persisted) return;
+    setLastOrderId((prev) => prev || persisted);
+    setOrderStatus('running');
+    setRunning(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (lastOrderId && (orderStatus === 'queued' || orderStatus === 'running')) {
+      window.sessionStorage.setItem(ACTIVE_ORDER_SESSION_KEY, lastOrderId);
+      return;
+    }
+    if (!lastOrderId || orderStatus === 'completed' || orderStatus === 'failed' || orderStatus === 'cancelled') {
+      window.sessionStorage.removeItem(ACTIVE_ORDER_SESSION_KEY);
+    }
+  }, [lastOrderId, orderStatus]);
 
   const laneMeta = useMemo(() => {
     const meta = {};
@@ -212,19 +233,27 @@ export default function CoreConsole({ workspace }) {
         exitCode: synthesisFinishedEv?.exitCode ?? null,
       });
 
-      if ((detail.status === 'completed' || detail.status === 'failed') && !completionMarkedRef.current) {
+      if ((detail.status === 'completed' || detail.status === 'failed' || detail.status === 'cancelled') && !completionMarkedRef.current) {
         completionMarkedRef.current = true;
         const finalLine = detail.status === 'completed'
           ? `\n\n[core] Prompt completed successfully. exitCode=${detail.exitCode ?? 0}`
-          : `\n\n[core] Prompt failed. exitCode=${detail.exitCode ?? 'unknown'}`;
+          : detail.status === 'cancelled'
+            ? `\n\n[core] Prompt cancelled. exitCode=${detail.exitCode ?? 130}`
+            : `\n\n[core] Prompt failed. exitCode=${detail.exitCode ?? 'unknown'}`;
         setOutput((prev) => prev + finalLine);
         setOrderError(detail.status === 'failed' ? ((detail.stderr || '').slice(-400) || 'Execution failed') : '');
       }
 
-      if (typeof detail.stdout === 'string') {
+      const hasLaneBuffers = detail?.laneBuffers && typeof detail.laneBuffers === 'object';
+      if (typeof detail.stdout === 'string' || hasLaneBuffers) {
         const laneSnapshot = {};
         for (const worker of Object.keys(nextWorkers)) laneSnapshot[worker] = '';
         if (synthesisStarted || synthesisFinishedEv) laneSnapshot.synthesis = '';
+        if (hasLaneBuffers) {
+          for (const [laneId, laneText] of Object.entries(detail.laneBuffers || {})) {
+            laneSnapshot[laneId] = typeof laneText === 'string' ? laneText : '';
+          }
+        }
         const lines = String(detail.stdout).split('\n');
         for (const line of lines) {
           const synth = line.match(/^\[synthesis:([^\]]+)\]\s?(.*)$/i);
@@ -251,6 +280,10 @@ export default function CoreConsole({ workspace }) {
           }
         }
         setAgentLanes(laneSnapshot);
+      }
+
+      if (detail.status === 'completed' || detail.status === 'failed' || detail.status === 'cancelled') {
+        setRunning(false);
       }
     };
 
