@@ -1,6 +1,6 @@
 # Soupz Logic Pending TODO
 
-Updated: 2026-03-24 (night pass completed)
+Updated: 2026-03-26 (runtime and docs refresh completed)
 
 ## Completed In This Pass
 - [x] Kiro legacy arg compatibility: old `--prompt` configs are auto-normalized to positional prompt.
@@ -75,3 +75,20 @@ Updated: 2026-03-24 (night pass completed)
 - [x] Added `allowSynthesisFallback` deep policy switch (default enabled) for runtime control.
 - [x] Added lightweight output saturation guard for order streaming: throttled `*.output.delta` event emission and clamped oversized WS stream chunks to reduce deep benchmark event-loop pressure.
 - [x] Fixed pairing code staleness in connect flow: `POST /pair` now updates active snapshot and consumed active codes auto-rotate immediately, preventing `/pair/current` from serving invalid one-time codes.
+
+## Core Progress (2026-03-26, planner + interactive input + UX)
+- [x] Added AI planner controls end-to-end for deep runs: `useAiPlanner`, `plannerStyle`, `plannerNotes`.
+- [x] Added deep orchestration interactive input lifecycle:
+  - daemon pauses order in `waiting_input`
+  - dashboard submits answers via `POST /api/orders/:id/input`
+  - run resumes after input submission
+- [x] Added planner question normalization and safe handling in daemon runtime.
+- [x] Added Core Console keyboard-first interaction for pending questions.
+- [x] Gated interactive panel to only render when status is `waiting_input` and questions are present.
+- [x] Moved interactive panel rendering into the Output section.
+- [x] Strengthened selected-state visuals for planner profile buttons.
+- [x] Updated docs to reflect current runtime behavior and restart playbook:
+  - `CLAUDE.md`
+  - `README.md`
+  - `PROJECT_OVERVIEW.md`
+  - `docs/SETUP.md`

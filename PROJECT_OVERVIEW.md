@@ -1,6 +1,37 @@
 ---
 
-# Soupz Stall — Master Project Overview (Updated: March 22, 2026)
+# Soupz Stall — Master Project Overview (Updated: March 26, 2026)
+
+## Documentation Routing (Read This First)
+
+Use these files as canonical references for current runtime behavior and operations:
+
+- Runtime behavior: [docs/CURRENT_SYSTEM.md](docs/CURRENT_SYSTEM.md)
+- Setup and troubleshooting: [docs/SETUP.md](docs/SETUP.md)
+- Runtime deltas by date: [docs/RUNTIME_CHANGELOG.md](docs/RUNTIME_CHANGELOG.md)
+
+This file remains a broad project compendium and includes historical/background sections.
+
+## 0. Recently Shipped (March 2026)
+
+- AI-first deep planning path added to daemon orchestration with fallback policy path retained for reliability.
+- Deep planner controls exposed in Core Console:
+  - planner toggle
+  - planning profile
+  - planner notes
+- Interactive user-in-the-loop resume flow implemented:
+  - orders can enter `waiting_input`
+  - question answers can be submitted via `POST /api/orders/:id/input`
+  - execution resumes after answers are received
+- Core Console question UX behavior refined:
+  - interactive question panel renders only when status is `waiting_input`
+  - panel is displayed inside the `Output` area
+  - keyboard navigation supports option movement plus question switching shortcuts
+- Pairing and startup hardening:
+  - `scripts/dev-web-stack.js` now continues when token bootstrap fails (local no-token fallback)
+  - pairing validation retries support both `/pair/validate` and `/api/pair`
+  - consumed active pairing code rotates immediately to avoid stale one-time code display
+
 
 ## 1. What Is This Project?
 Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme speed, observability, and cost-efficiency. It solves the 'monolithic LLM' problem by utilizing a coordinated swarm of specialized agents (chefs) operating within a 'kitchen' metaphor, allowing local-first terminal execution with a remote real-time web dashboard. What makes it different is its local-first PTY bridging, automatic plan decomposition via DAGs, and 3-layer semantic routing that significantly reduces API costs by using local models (Ollama) when possible.

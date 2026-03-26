@@ -3,6 +3,29 @@
 ## What This Is
 Soupz is a hosted web IDE (soupz.vercel.app) + local daemon (`npx soupz`) that bridges a user's laptop to the browser. Think Claude Code / Cursor but accessible from any device (phone, tablet, another PC).
 
+## Documentation Canonical Map
+- Current runtime behavior: `docs/CURRENT_SYSTEM.md`
+- Runtime changelog: `docs/RUNTIME_CHANGELOG.md`
+- Setup and troubleshooting: `docs/SETUP.md`
+- Broad project compendium: `PROJECT_OVERVIEW.md`
+
+## Recent Runtime Updates (March 2026)
+- Core Console deep mode now supports AI-planned orchestration controls:
+	- planner toggle (`useAiPlanner`), planner style (`plannerStyle`), planner notes (`plannerNotes`)
+	- planner options are collapsible in UI to reduce default visual noise
+- Interactive clarifying questions are now state-gated and output-localized:
+	- they render only when order status is `waiting_input`
+	- they render inside the `Output` panel (not as a persistent top-level panel)
+	- keyboard mapping: up/down and left/right for option navigation, tab/shift+tab for question navigation, space to select, enter to submit
+- Backend supports interactive resume flow via `POST /api/orders/:id/input`.
+- Dashboard bridge supports interactive resume flow via `submitOrderInput(orderId, answers)` in:
+	- `packages/dashboard/src/lib/daemon.js`
+	- `packages/dashboard/src/App.jsx`
+- Pairing and startup resilience improvements:
+	- `scripts/dev-web-stack.js` no longer hard-fails when bootstrap pairing token creation fails; it continues in local no-token mode
+	- pairing endpoint compatibility retries now include `/pair/validate` and `/api/pair`
+	- consumed active pairing codes rotate immediately so `/pair/current` and QR surfaces do not serve stale one-time codes
+
 ## Architecture
 - **Web app** (Vercel): `packages/dashboard/` — React 18 + Vite + Tailwind + Framer Motion
 - **Local daemon**: `packages/remote-server/` — Node.js ESM, Express, node-pty, WebSocket
@@ -62,6 +85,18 @@ npm run dev:web                # Starts daemon + Vite dev server, auto-pairs
 cd packages/dashboard && npm run dev     # Vite dev server only
 cd packages/dashboard && npm run build   # Production build
 npx soupz                                # Starts daemon + opens soupz.vercel.app
+```
+
+## Restart Playbook
+```bash
+# Stop current dev process
+# (Ctrl+C in the active terminal)
+
+# Restart full stack (daemon + dashboard)
+npm run dev:web
+
+# Optional: daemon only
+npx soupz
 ```
 
 ## Theming

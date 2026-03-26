@@ -27,6 +27,10 @@ This starts both:
 
 The daemon generates an 8-digit pairing code. Enter this code at `soupz.vercel.app/connect` to pair your browser.
 
+Notes:
+- `npm run dev:web` now has resilient startup behavior. If bootstrap token creation fails, it continues in local no-token mode instead of exiting.
+- Pair validation compatibility checks include both `/pair/validate` and `/api/pair`.
+
 ### Individual processes
 
 ```bash
@@ -168,6 +172,17 @@ PATH_GEMINI_CLI=/path/to/gemini-cli
 
 6. You're paired! Start chatting with AI agents
 
+### Restarting Cleanly
+
+If UI/runtime behavior appears stale after changes:
+
+1. Stop the active dev process (`Ctrl+C` in terminal)
+2. Restart full stack:
+    ```bash
+    npm run dev:web
+    ```
+3. Hard refresh browser (`Cmd+Shift+R`)
+
 ## 5. Keyboard Shortcuts
 
 | Shortcut | Action |
@@ -209,6 +224,11 @@ cd packages/remote-server && npm install
 - Ensure daemon is running: `npm run dev:web`
 - Check browser console for errors
 - Verify Supabase credentials in `.env`
+
+### Pairing code was accepted but now appears invalid
+- This can happen if a one-time code was consumed already.
+- Generate/refresh pairing state by restarting `npm run dev:web`.
+- Re-open `soupz.vercel.app/connect` and use the latest code shown in terminal.
 
 ### OAuth login fails
 - Verify redirect URIs match exactly in Google Cloud Console / GitHub settings
