@@ -25,6 +25,7 @@ import {
   getFileTree, readFile, writeFile, getGitStatus, getGitDiff,
   gitStage, gitCommit, gitPush, checkSystemCLIs,
   listTerminals, killTerminalById, getOrderDetail,
+  submitOrderInput,
 } from './lib/daemon.js';
 import { cn } from './lib/cn';
 
@@ -284,8 +285,8 @@ export default function App() {
         console.error('Failed to auto-fetch file tree:', err);
       }
     },
-    async sendPrompt({ prompt, agentId, buildMode, cwd, orchestrationMode }, onChunk) {
-      return sendAgentPrompt({ prompt, agentId, buildMode, cwd, orchestrationMode }, user?.id, onChunk);
+    async sendPrompt({ prompt, agentId, buildMode, cwd, orchestrationMode, useAiPlanner, plannerStyle, plannerNotes, returnOrderImmediately }, onChunk) {
+      return sendAgentPrompt({ prompt, agentId, buildMode, cwd, orchestrationMode, useAiPlanner, plannerStyle, plannerNotes, returnOrderImmediately }, user?.id, onChunk);
     },
     async readFile(path) {
       return readFile(path, user?.id);
@@ -320,6 +321,9 @@ export default function App() {
     },
     async getOrderDetail(orderId) {
       return getOrderDetail(orderId);
+    },
+    async submitOrderInput(orderId, answers) {
+      return submitOrderInput(orderId, answers);
     },
   };
 

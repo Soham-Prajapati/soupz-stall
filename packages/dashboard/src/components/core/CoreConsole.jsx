@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Loader2, RefreshCw, Send, Trash2 } from 'lucide-react';
+import { Bot, Check, Loader2, RefreshCw, Send, Trash2 } from 'lucide-react';
 
 const CORE_AGENTS = [
   { id: 'auto', label: 'Auto (Smart Route)' },
@@ -45,9 +45,21 @@ const DEEP_COMPLEX_PROMPT = [
   'No placeholders, no TODOs, no pseudo-code. End with a concise completion summary listing each file and what was implemented.',
 ].join(' ');
 
+const HACKATHON_RADIATOR_ROUTES_PROMPT = [
+  'Hackathon PS: Radiator Routes. Build an implementation-ready intelligent travel planning system with voice-first interaction and adaptive trip management.',
+  'Deliver architecture, data model, APIs, and execution plan for: voice+text context continuity, regret-aware what-if planning, personal AI proxy per traveler, and persistent travel personality memory.',
+  'Include multi-source travel integration (flights, trains, hotels, local transport), live disruption monitoring, automatic itinerary replanning, and explainable trade-offs for cost, fatigue, and risk.',
+  'Add collaborative group itinerary editing with in-line rationale, role-aware group balancing, and social-vibe matching for activities.',
+  'Return concrete output only: system architecture, SQL schema, API contracts, event-driven replanning flow, fallback behavior, and 24-hour hackathon MVP plan + 5-minute demo script.',
+].join(' ');
+
 export default function CoreConsole({ workspace }) {
   const [agentId, setAgentId] = useState('auto');
   const [buildMode, setBuildMode] = useState('quick');
+  const [useAiPlanner, setUseAiPlanner] = useState(true);
+  const [plannerStyle, setPlannerStyle] = useState('balanced');
+  const [plannerNotes, setPlannerNotes] = useState('');
+  const [showPlannerSettings, setShowPlannerSettings] = useState(false);
   const [cwd, setCwd] = useState(TESTING_CWD);
   const [prompt, setPrompt] = useState('');
   const [output, setOutput] = useState('');
@@ -59,6 +71,14 @@ export default function CoreConsole({ workspace }) {
   const [synthesisStatus, setSynthesisStatus] = useState({ started: false, finished: false, exitCode: null });
   const [primaryRole, setPrimaryRole] = useState('');
   const [specialistsPlanned, setSpecialistsPlanned] = useState([]);
+  const [resolvedWorkerCount, setResolvedWorkerCount] = useState(null);
+  const [maxWorkerCount, setMaxWorkerCount] = useState(null);
+  const [plannerInfo, setPlannerInfo] = useState({ useAiPlanner: true, plannerUsed: null, plannerStyle: '', plannerReason: '' });
+  const [pendingQuestions, setPendingQuestions] = useState([]);
+  const [pendingInputAnswers, setPendingInputAnswers] = useState({});
+  const [questionCursor, setQuestionCursor] = useState(0);
+  const [optionCursorByQuestion, setOptionCursorByQuestion] = useState({});
+  const [submittingInput, setSubmittingInput] = useState(false);
   const [roleMap, setRoleMap] = useState({});
   const [orderError, setOrderError] = useState('');
   const [agentLanes, setAgentLanes] = useState({});
@@ -67,6 +87,7 @@ export default function CoreConsole({ workspace }) {
   const [termError, setTermError] = useState('');
   const [killingId, setKillingId] = useState(null);
   const outputRef = useRef(null);
+  const questionPanelRef = useRef(null);
   const completionMarkedRef = useRef(false);
   const knownWorkersRef = useRef([]);
   const online = !!workspace?.online;
@@ -78,7 +99,7 @@ export default function CoreConsole({ workspace }) {
   }, [agentLanes]);
 
   const orderActive = useMemo(
-    () => !!lastOrderId && (orderStatus === 'queued' || orderStatus === 'running'),
+    () => !!lastOrderId && (orderStatus === 'queued' || orderStatus === 'running' || orderStatus === 'waiting_input'),
     [lastOrderId, orderStatus],
   );
 
@@ -95,7 +116,7 @@ export default function CoreConsole({ workspace }) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (lastOrderId && (orderStatus === 'queued' || orderStatus === 'running')) {
+    if (lastOrderId && (orderStatus === 'queued' || orderStatus === 'running' || orderStatus === 'waiting_input')) {
       window.sessionStorage.setItem(ACTIVE_ORDER_SESSION_KEY, lastOrderId);
       return;
     }
@@ -129,6 +150,93 @@ export default function CoreConsole({ workspace }) {
     return meta;
   }, [workerStatus, synthesisStatus, roleMap]);
 
+  function laneHeading(laneId, meta = {}) {
+    if (laneId === 'synthesis') {
+      const persona = meta.role || 'lead-synthesizer';
+      return `Synthesis · persona: ${persona}`;
+    }
+
+    const match = String(laneId).match(/^([a-z-]+)-(\d+)$/i);
+    const agentBase = (meta.agent || match?.[1] || laneId || 'agent')
+      .split(/[-_\s]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+    const index = match?.[2] || '?';
+    const persona = meta.specialist || meta.role || 'generalist';
+    return `${agentBase} (${index}) · persona: ${persona}`;
+  }
+
+  function appendLiveChunk(chunk) {
+    const text = String(chunk || '');
+    if (!text) return;
+
+    const cleanedLines = [];
+    const workerSeen = new Set();
+    let synthesisSeen = false;
+
+    setAgentLanes((prev) => {
+      const next = { ...(prev || {}) };
+      for (const line of text.split('\n')) {
+        const synth = line.match(/^\[synthesis:([^\]]+)\]\s?(.*)$/i);
+        if (synth) {
+          synthesisSeen = true;
+          next.synthesis = (next.synthesis || '') + `${synth[2]}\n`;
+          cleanedLines.push(synth[2]);
+          continue;
+        }
+
+        const workerStdErr = line.match(/^\[worker:([^|\]]+)\|agent:([^:\]]+):stderr\]\s?(.*)$/i);
+        if (workerStdErr) {
+          const workerId = workerStdErr[1];
+          workerSeen.add(workerId);
+          next[workerId] = (next[workerId] || '') + `[stderr] ${workerStdErr[3]}\n`;
+          cleanedLines.push(`[stderr] ${workerStdErr[3]}`);
+          continue;
+        }
+
+        const worker = line.match(/^\[worker:([^|\]]+)\|agent:([^\]]+)\]\s?(.*)$/i);
+        if (worker) {
+          const workerId = worker[1];
+          workerSeen.add(workerId);
+          next[workerId] = (next[workerId] || '') + `${worker[3]}\n`;
+          cleanedLines.push(worker[3]);
+          continue;
+        }
+
+        cleanedLines.push(line);
+      }
+      return next;
+    });
+
+    if (workerSeen.size > 0) {
+      setWorkerStatus((prev) => {
+        const next = { ...(prev || {}) };
+        for (const workerId of workerSeen) {
+          if (!next[workerId]) {
+            next[workerId] = {
+              state: 'running',
+              exitCode: null,
+              role: roleMap[workerId] || '',
+              label: workerId,
+              specialist: '',
+              focus: '',
+              agent: workerId.split('-')[0] || workerId,
+            };
+          }
+        }
+        return next;
+      });
+    }
+
+    if (synthesisSeen) {
+      setSynthesisStatus((prev) => ({ ...prev, started: true }));
+    }
+
+    const cleaned = cleanedLines.join('\n');
+    setOutput((prev) => prev + cleaned);
+  }
+
   async function handleRun() {
     const text = prompt.trim();
     if (!text || !workspace?.sendPrompt || running) return;
@@ -142,6 +250,14 @@ export default function CoreConsole({ workspace }) {
     setSynthesisStatus({ started: false, finished: false, exitCode: null });
     setPrimaryRole('');
     setSpecialistsPlanned([]);
+    setResolvedWorkerCount(null);
+    setMaxWorkerCount(null);
+    setPlannerInfo({ useAiPlanner: true, plannerUsed: null, plannerStyle: '', plannerReason: '' });
+    setPendingQuestions([]);
+    setPendingInputAnswers({});
+    setQuestionCursor(0);
+    setOptionCursorByQuestion({});
+    setSubmittingInput(false);
     setRoleMap({});
     setOrderError('');
     setAgentLanes({});
@@ -156,9 +272,14 @@ export default function CoreConsole({ workspace }) {
           buildMode,
           cwd,
           orchestrationMode: buildMode === 'deep' ? 'parallel' : 'single',
+          useAiPlanner,
+          plannerStyle,
+          plannerNotes,
+          returnOrderImmediately: true,
         },
-        (chunk) => {
-          setOutput((prev) => prev + chunk);
+        (chunk, done) => {
+          if (done) return;
+          appendLiveChunk(chunk);
         },
       );
       setLastOrderId(orderId || null);
@@ -178,6 +299,12 @@ export default function CoreConsole({ workspace }) {
   }, [output]);
 
   useEffect(() => {
+    if (pendingQuestions.length > 0) {
+      questionPanelRef.current?.focus?.();
+    }
+  }, [pendingQuestions.length]);
+
+  useEffect(() => {
     if (!workspace?.getOrderDetail || !lastOrderId) return;
 
     let cancelled = false;
@@ -187,10 +314,27 @@ export default function CoreConsole({ workspace }) {
       const events = Array.isArray(detail.events) ? detail.events : [];
       setOrderStatus(detail.status || 'unknown');
       setOrderEventCount(events.length);
-      setRunning(detail.status === 'queued' || detail.status === 'running');
+      setRunning(detail.status === 'queued' || detail.status === 'running' || detail.status === 'waiting_input');
       const selected = events.find((e) => e.type === 'route.selected');
       setPrimaryRole(selected?.primaryRole || '');
       setSpecialistsPlanned(Array.isArray(selected?.specialistsPlanned) ? selected.specialistsPlanned : []);
+      setResolvedWorkerCount(Number.isFinite(selected?.deepPolicy?.workerCountResolved) ? selected.deepPolicy.workerCountResolved : null);
+      setMaxWorkerCount(Number.isFinite(selected?.deepPolicy?.workerCountMax) ? selected.deepPolicy.workerCountMax : null);
+      setPlannerInfo({
+        useAiPlanner: selected?.deepPolicy?.useAiPlanner !== false,
+        plannerUsed: selected?.deepPolicy?.plannerUsed === true,
+        plannerStyle: selected?.deepPolicy?.plannerStyle || '',
+        plannerReason: selected?.deepPolicy?.plannerReason || '',
+      });
+
+      const incomingQuestions = Array.isArray(detail?.pendingQuestions) ? detail.pendingQuestions : [];
+      setPendingQuestions(incomingQuestions);
+      if (incomingQuestions.length === 0) {
+        setPendingInputAnswers({});
+        setQuestionCursor(0);
+        setOptionCursorByQuestion({});
+        setSubmittingInput(false);
+      }
 
       const nextWorkers = {};
       const nextRoles = {};
@@ -235,11 +379,15 @@ export default function CoreConsole({ workspace }) {
 
       if ((detail.status === 'completed' || detail.status === 'failed' || detail.status === 'cancelled') && !completionMarkedRef.current) {
         completionMarkedRef.current = true;
+        const createdFiles = Array.isArray(detail?.createdFiles) ? detail.createdFiles : [];
+        const filesLine = createdFiles.length > 0
+          ? `\n[core] Created artifacts:\n- ${createdFiles.join('\n- ')}`
+          : '';
         const finalLine = detail.status === 'completed'
-          ? `\n\n[core] Prompt completed successfully. exitCode=${detail.exitCode ?? 0}`
+          ? `\n\n[core] Prompt completed successfully. exitCode=${detail.exitCode ?? 0}${filesLine}`
           : detail.status === 'cancelled'
-            ? `\n\n[core] Prompt cancelled. exitCode=${detail.exitCode ?? 130}`
-            : `\n\n[core] Prompt failed. exitCode=${detail.exitCode ?? 'unknown'}`;
+            ? `\n\n[core] Prompt cancelled. exitCode=${detail.exitCode ?? 130}${filesLine}`
+            : `\n\n[core] Prompt failed. exitCode=${detail.exitCode ?? 'unknown'}${filesLine}`;
         setOutput((prev) => prev + finalLine);
         setOrderError(detail.status === 'failed' ? ((detail.stderr || '').slice(-400) || 'Execution failed') : '');
       }
@@ -342,8 +490,110 @@ export default function CoreConsole({ workspace }) {
     return () => clearInterval(interval);
   }, [online]);
 
+  function setAnswerForQuestion(question, optionId) {
+    setPendingInputAnswers((prev) => {
+      const current = Array.isArray(prev[question.id]) ? prev[question.id] : [];
+      let next;
+      if (question.multiSelect) {
+        next = current.includes(optionId)
+          ? current.filter((id) => id !== optionId)
+          : [...current, optionId];
+      } else {
+        next = [optionId];
+      }
+      return { ...prev, [question.id]: next };
+    });
+  }
+
+  async function submitPendingQuestions() {
+    if (!lastOrderId || pendingQuestions.length === 0 || !workspace?.submitOrderInput) return;
+    setSubmittingInput(true);
+    setTermError('');
+    try {
+      const answers = {};
+      for (const q of pendingQuestions) {
+        const selected = Array.isArray(pendingInputAnswers[q.id]) ? pendingInputAnswers[q.id] : [];
+        answers[q.id] = q.multiSelect ? selected : selected.slice(0, 1);
+      }
+      await workspace.submitOrderInput(lastOrderId, answers);
+    } catch (err) {
+      setTermError(err?.message || 'Failed to submit planner answers');
+    } finally {
+      setSubmittingInput(false);
+    }
+  }
+
+  function handleQuestionPanelKeyDown(event) {
+    if (pendingQuestions.length === 0) return;
+    const activeQuestion = pendingQuestions[Math.max(0, Math.min(questionCursor, pendingQuestions.length - 1))];
+    const activeOptionIndex = optionCursorByQuestion[activeQuestion.id] || 0;
+    const activeOptions = Array.isArray(activeQuestion.options) ? activeQuestion.options : [];
+
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      setQuestionCursor((prev) => {
+        if (event.shiftKey) return Math.max(0, prev - 1);
+        return Math.min(pendingQuestions.length - 1, prev + 1);
+      });
+      return;
+    }
+
+    if (event.key === 'ArrowUp' && (event.altKey || event.metaKey)) {
+      event.preventDefault();
+      setQuestionCursor((prev) => Math.max(0, prev - 1));
+      return;
+    }
+    if (event.key === 'ArrowDown' && (event.altKey || event.metaKey)) {
+      event.preventDefault();
+      setQuestionCursor((prev) => Math.min(pendingQuestions.length - 1, prev + 1));
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setOptionCursorByQuestion((prev) => ({
+        ...prev,
+        [activeQuestion.id]: Math.max(0, activeOptionIndex - 1),
+      }));
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setOptionCursorByQuestion((prev) => ({
+        ...prev,
+        [activeQuestion.id]: Math.min(activeOptions.length - 1, activeOptionIndex + 1),
+      }));
+      return;
+    }
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      setOptionCursorByQuestion((prev) => ({
+        ...prev,
+        [activeQuestion.id]: Math.max(0, activeOptionIndex - 1),
+      }));
+      return;
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      setOptionCursorByQuestion((prev) => ({
+        ...prev,
+        [activeQuestion.id]: Math.min(activeOptions.length - 1, activeOptionIndex + 1),
+      }));
+      return;
+    }
+    if (event.key === ' ' || event.key === 'Spacebar') {
+      event.preventDefault();
+      const opt = activeOptions[activeOptionIndex];
+      if (opt) setAnswerForQuestion(activeQuestion, opt.id);
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void submitPendingQuestions();
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-bg-base text-text-pri p-4 sm:p-8">
+    <div className="min-h-screen bg-[radial-gradient(1200px_500px_at_10%_-10%,rgba(56,189,248,0.14),transparent),radial-gradient(1000px_500px_at_100%_0%,rgba(99,102,241,0.12),transparent)] bg-bg-base text-text-pri p-4 sm:p-8">
       <div className="max-w-4xl mx-auto space-y-4">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-md bg-accent/15 border border-accent/30 flex items-center justify-center">
@@ -385,12 +635,90 @@ export default function CoreConsole({ workspace }) {
           </label>
         </div>
 
+        {buildMode === 'deep' ? (
+          <div className="bg-bg-surface/80 border border-border-subtle/60 rounded-md p-3 space-y-3">
+            <div className="text-[11px] uppercase tracking-wider text-text-faint">Planner Controls</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-xs text-text-sec">
+                <input
+                  type="checkbox"
+                  checked={useAiPlanner}
+                  onChange={(e) => setUseAiPlanner(e.target.checked)}
+                />
+                AI planner enabled
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowPlannerSettings((prev) => !prev)}
+                className="px-2 py-1 rounded-md text-xs bg-bg-elevated border border-border-subtle text-text-sec hover:text-text-pri"
+              >
+                {showPlannerSettings ? 'Hide planner options' : 'Show planner options'}
+              </button>
+            </div>
+
+            {showPlannerSettings ? (
+              <>
+                <div className="text-xs text-text-sec">Planning profile</div>
+                <div className="text-[11px] text-accent">Selected: {plannerStyle}</div>
+                <div className="grid sm:grid-cols-2 gap-2">
+                  {[
+                    {
+                      id: 'balanced',
+                      title: 'Balanced Plan',
+                      desc: 'Mix feasibility, delivery speed, and quality checks.',
+                    },
+                    {
+                      id: 'judge-defense',
+                      title: 'Judge Defense',
+                      desc: 'Prioritize research rigor, tradeoffs, and cross-question prep.',
+                    },
+                    {
+                      id: 'build-fast',
+                      title: 'Build Fast',
+                      desc: 'Bias to fastest realistic execution and MVP shipping.',
+                    },
+                    {
+                      id: 'research-heavy',
+                      title: 'Research Heavy',
+                      desc: 'Bias toward alternatives, benchmarking, and evidence depth.',
+                    },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setPlannerStyle(opt.id)}
+                      className={`text-left border rounded-md px-2 py-2 ${plannerStyle === opt.id ? 'border-accent bg-accent/20 text-text-pri ring-2 ring-accent/60' : 'border-border-subtle/60 text-text-sec bg-bg-elevated/70'}`}
+                    >
+                      <div className="text-xs font-medium flex items-center gap-1.5">
+                        {plannerStyle === opt.id ? <Check size={12} className="text-accent" /> : null}
+                        {opt.title}
+                      </div>
+                      <div className="text-[11px] text-text-faint">{opt.desc}</div>
+                    </button>
+                  ))}
+                </div>
+
+                <label className="block text-xs text-text-sec">
+                  Notes For Planner (optional)
+                  <textarea
+                    value={plannerNotes}
+                    onChange={(e) => setPlannerNotes(e.target.value)}
+                    rows={3}
+                    placeholder="Example: prioritize feasibility over flashy features, include fallback demo path, and generate likely judge Q&A."
+                    className="mt-1 w-full bg-bg-elevated border border-border-subtle rounded-md px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                  />
+                </label>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+
         <label className="block text-xs text-text-sec">
           Working Directory
           <input
             value={cwd}
             onChange={(e) => setCwd(e.target.value)}
-            className="mt-1 w-full bg-bg-surface border border-border-subtle rounded-md px-3 py-2 text-sm focus:outline-none focus:border-accent"
+            className="mt-1 w-full bg-bg-surface/80 border border-border-subtle/60 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-accent/80"
             placeholder="/absolute/path"
           />
         </label>
@@ -425,6 +753,16 @@ export default function CoreConsole({ workspace }) {
           >
             Use Advanced Parallel Systems Prompt
           </button>
+          <button
+            onClick={() => {
+              setCwd(TESTING_CWD);
+              setBuildMode('deep');
+              setPrompt(HACKATHON_RADIATOR_ROUTES_PROMPT);
+            }}
+            className="px-2 py-1 rounded-md text-xs bg-bg-elevated border border-border-subtle text-text-sec hover:text-text-pri"
+          >
+            Use Hackathon PS (Radiator Routes)
+          </button>
           <div className="w-full text-[11px] text-text-faint">
             UI guardrails: no overlapping hover layers, no decorative drag rotation, stable z-index and clipping behavior.
           </div>
@@ -437,7 +775,7 @@ export default function CoreConsole({ workspace }) {
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="Describe what you want to build..."
             rows={6}
-            className="mt-1 w-full bg-bg-surface border border-border-subtle rounded-md px-3 py-2 text-sm focus:outline-none focus:border-accent"
+            className="mt-1 w-full bg-bg-surface/80 border border-border-subtle/60 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-accent/80"
           />
         </label>
 
@@ -461,7 +799,7 @@ export default function CoreConsole({ workspace }) {
         </div>
 
         {lastOrderId ? (
-          <div className="bg-bg-surface border border-border-subtle rounded-md p-3 space-y-2">
+          <div className="bg-bg-surface/80 border border-border-subtle/60 rounded-md p-3 space-y-2">
             <div className="text-[11px] uppercase tracking-wider text-text-faint">Parallel Visibility</div>
             <div className="text-xs text-text-sec">
               Deep mode uses child worker processes (not PTY terminals), so active terminals can stay at 0 while workers still run in parallel.
@@ -478,6 +816,19 @@ export default function CoreConsole({ workspace }) {
                     {name}
                   </span>
                 ))}
+              </div>
+            ) : null}
+            {resolvedWorkerCount != null ? (
+              <div className="text-xs text-text-sec">
+                resolved workers: <span className="text-text-pri">{resolvedWorkerCount}</span>
+                {maxWorkerCount != null ? ` / max ${maxWorkerCount}` : ''}
+              </div>
+            ) : null}
+            {plannerInfo ? (
+              <div className="text-xs text-text-sec">
+                planner: <span className="text-text-pri">{plannerInfo.useAiPlanner === false ? 'off' : (plannerInfo.plannerUsed ? 'ai' : 'fallback')}</span>
+                {plannerInfo.plannerStyle ? ` • style: ${plannerInfo.plannerStyle}` : ''}
+                {plannerInfo.plannerReason ? ` • reason: ${plannerInfo.plannerReason}` : ''}
               </div>
             ) : null}
             <div className="flex flex-wrap gap-2">
@@ -512,7 +863,7 @@ export default function CoreConsole({ workspace }) {
           </div>
         ) : null}
 
-        <div className="bg-bg-surface border border-border-subtle rounded-md p-3 space-y-2">
+        <div className="bg-bg-surface/80 border border-border-subtle/60 rounded-md p-3 space-y-2">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-[11px] uppercase tracking-wider text-text-faint">Active Terminals</div>
@@ -556,31 +907,85 @@ export default function CoreConsole({ workspace }) {
           )}
         </div>
 
-        <div className="bg-bg-surface border border-border-subtle rounded-md p-3 min-h-[240px]">
+        <div className="bg-bg-surface/80 border border-border-subtle/60 rounded-md p-3 min-h-[240px]">
           <div className="text-[11px] uppercase tracking-wider text-text-faint mb-2">Output</div>
+          {orderStatus !== 'waiting_input' ? (
+            <div className="mb-2 text-[11px] text-text-faint">Interactive planner questions will appear here only when the run enters waiting-input.</div>
+          ) : null}
+          {orderStatus === 'waiting_input' && pendingQuestions.length > 0 ? (
+            <div
+              ref={questionPanelRef}
+              tabIndex={0}
+              onKeyDown={handleQuestionPanelKeyDown}
+              className="mb-3 bg-bg-surface/85 border border-sky-400/35 rounded-md p-3 space-y-3 outline-none shadow-[0_0_0_1px_rgba(56,189,248,0.14)]"
+            >
+              <div className="text-[11px] uppercase tracking-wider text-sky-300">Planner Needs Input</div>
+              <div className="text-xs text-text-sec">Keys: up/down option, left/right option, tab next question, shift+tab previous, space select, enter submit, alt+up/down question.</div>
+              {pendingQuestions.map((q, qIdx) => {
+                const selected = Array.isArray(pendingInputAnswers[q.id]) ? pendingInputAnswers[q.id] : [];
+                const activeOption = optionCursorByQuestion[q.id] || 0;
+                const isActiveQuestion = qIdx === questionCursor;
+                return (
+                  <div key={q.id} className={`rounded-md border p-2 ${isActiveQuestion ? 'border-accent/60 bg-accent/10' : 'border-border-subtle bg-bg-elevated/70'}`}>
+                    <div className="text-xs text-text-pri mb-1">{q.question}</div>
+                    <div className="grid sm:grid-cols-2 gap-1">
+                      {q.options.map((opt, oIdx) => {
+                        const checked = selected.includes(opt.id);
+                        const focused = isActiveQuestion && activeOption === oIdx;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setQuestionCursor(qIdx);
+                              setOptionCursorByQuestion((prev) => ({ ...prev, [q.id]: oIdx }));
+                              setAnswerForQuestion(q, opt.id);
+                            }}
+                            className={`text-left rounded border px-2 py-1 ${checked ? 'border-emerald-400/60 bg-emerald-500/15 text-text-pri' : 'border-border-subtle text-text-sec bg-bg-surface'} ${focused ? 'ring-1 ring-sky-300' : ''}`}
+                          >
+                            <div className="text-xs">{opt.label}</div>
+                            {opt.description ? <div className="text-[11px] text-text-faint">{opt.description}</div> : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => submitPendingQuestions()}
+                  disabled={submittingInput}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-accent text-white disabled:opacity-50"
+                >
+                  {submittingInput ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  Submit & Continue
+                </button>
+                <div className="text-xs text-text-faint">{lastOrderId ? `order ${lastOrderId}` : ''}</div>
+              </div>
+            </div>
+          ) : null}
           <div ref={outputRef} className="max-h-[420px] overflow-y-auto pr-1">
             <pre className="text-xs whitespace-pre-wrap break-words leading-relaxed text-text-sec">{output || 'No output yet.'}</pre>
           </div>
         </div>
 
-        <div className="bg-bg-surface border border-border-subtle rounded-md p-3 min-h-[180px]">
+        <div className="bg-bg-surface/80 border border-border-subtle/60 rounded-md p-3 min-h-[180px]">
           <div className="text-[11px] uppercase tracking-wider text-text-faint mb-2">Agent Lanes (Live Stream)</div>
           {laneOrder.length === 0 ? (
             <div className="text-xs text-text-faint">No lane output yet.</div>
           ) : (
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 grid-cols-2">
               {laneOrder.map((lane) => (
                 <div key={lane} className="border border-border-subtle rounded p-2 bg-bg-elevated">
-                  <div className="text-[11px] font-medium text-text-sec mb-1">
-                    {laneMeta[lane]?.label || lane}
-                    {laneMeta[lane]?.agent && laneMeta[lane]?.agent !== lane ? ` • ${laneMeta[lane].agent}` : ''}
-                    {laneMeta[lane]?.specialist ? ` • ${laneMeta[lane].specialist}` : ''}
-                    {laneMeta[lane]?.role ? ` • ${laneMeta[lane].role}` : ''}
+                  <div className="text-[10px] font-medium text-text-sec mb-1">
+                    {laneHeading(lane, laneMeta[lane] || {})}
                     {laneMeta[lane]?.state ? ` • ${laneMeta[lane].state}` : ''}
                     {laneMeta[lane]?.exitCode != null ? ` (${laneMeta[lane].exitCode})` : ''}
                   </div>
                   <div className="max-h-[180px] overflow-y-auto">
-                    <pre className="text-[11px] whitespace-pre-wrap break-words leading-relaxed text-text-sec">{agentLanes[lane] || 'No output yet for this lane.'}</pre>
+                    <pre className="text-[10px] whitespace-pre-wrap break-words leading-[1.2] text-text-sec">{agentLanes[lane] || 'No output yet for this lane.'}</pre>
                   </div>
                 </div>
               ))}

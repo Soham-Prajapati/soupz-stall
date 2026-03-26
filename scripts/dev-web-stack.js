@@ -13,7 +13,8 @@ const __dirname = dirname(__filename);
 config({ path: join(__dirname, '..', '.env') });
 
 const REMOTE_PORT = process.env.SOUPZ_REMOTE_PORT || '7533';
-const REMOTE_URL = process.env.SOUPZ_REMOTE_URL || `http://localhost:${REMOTE_PORT}`;
+const BACKEND_URL = `http://localhost:${REMOTE_PORT}`;
+const DASHBOARD_REMOTE_URL = (process.env.SOUPZ_REMOTE_URL || BACKEND_URL).trim();
 const DASHBOARD_PORT = process.env.SOUPZ_DASHBOARD_PORT || '5173';
 const REPO_ROOT = join(__dirname, '..');
 const DASHBOARD_DIR = join(REPO_ROOT, 'packages/dashboard');
@@ -62,7 +63,7 @@ async function waitForHealth(timeoutMs = 20000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`${REMOTE_URL}/health`);
+      const res = await fetch(`${BACKEND_URL}/health`);
       if (res.ok) return true;
     } catch {
       // ignore until server is up
@@ -73,27 +74,44 @@ async function waitForHealth(timeoutMs = 20000) {
 }
 
 async function createToken() {
-  const pairRes = await fetch(`${REMOTE_URL}/pair`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  });
-  if (!pairRes.ok) throw new Error(`Failed to create pairing code (${pairRes.status})`);
-  const pairJson = await pairRes.json();
+  const attempts = 4;
+  let lastError = null;
 
-  const code = pairJson.code;
-  if (!code) throw new Error('Pairing code missing in /pair response');
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const pairRes = await fetch(`${BACKEND_URL}/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!pairRes.ok) throw new Error(`Failed to create pairing code (${pairRes.status})`);
+      const pairJson = await pairRes.json();
+      const code = pairJson.code;
+      if (!code) throw new Error('Pairing code missing in /pair response');
 
-  const validateRes = await fetch(`${REMOTE_URL}/pair/validate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
-  });
-  if (!validateRes.ok) throw new Error(`Failed to validate pairing code (${validateRes.status})`);
-  const validateJson = await validateRes.json();
+      const endpoints = ['/pair/validate', '/api/pair'];
+      for (const endpoint of endpoints) {
+        const validateRes = await fetch(`${BACKEND_URL}${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+        if (!validateRes.ok) {
+          lastError = new Error(`Failed to validate pairing code (${validateRes.status}) via ${endpoint}`);
+          continue;
+        }
+        const validateJson = await validateRes.json();
+        if (validateJson?.token) return validateJson.token;
+        lastError = new Error(`Token missing in ${endpoint} response`);
+      }
+    } catch (err) {
+      lastError = err;
+    }
 
-  if (!validateJson.token) throw new Error('Token missing in /pair/validate response');
-  return validateJson.token;
+    await wait(120 + (i * 80));
+  }
+
+  throw lastError || new Error('Failed to obtain pairing token');
 }
 
 function extractTryCloudflareUrl(line) {
@@ -140,7 +158,7 @@ function waitForTryCloudflareUrl(proc, prefix, timeoutMs = TUNNEL_TIMEOUT_MS) {
 }
 
 async function updatePairingRuntimeConfig({ webappUrl, tunnelUrls }) {
-  const res = await fetch(`${REMOTE_URL}/api/system/pairing-config`, {
+  const res = await fetch(`${BACKEND_URL}/api/system/pairing-config`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ webappUrl, tunnelUrls }),
@@ -207,8 +225,8 @@ async function startBackend() {
   });
 
   const healthy = await waitForHealth();
-  if (!healthy) throw new Error(`Backend did not become healthy at ${REMOTE_URL}`);
-  log(`Backend is healthy at ${REMOTE_URL}`);
+  if (!healthy) throw new Error(`Backend did not become healthy at ${BACKEND_URL}`);
+  log(`Backend is healthy at ${BACKEND_URL}`);
 }
 
 function startDashboard(token) {
@@ -229,7 +247,9 @@ function startDashboard(token) {
       const localMatch = line.match(/(http:\/\/127\.0\.0\.1:\d+)/i) || line.match(/(http:\/\/localhost:\d+)/i);
       if (localMatch) {
         const base = localMatch[1].replace('127.0.0.1', 'localhost');
-        const finalUrl = `${base}/?remote=${encodeURIComponent(REMOTE_URL)}&token=${encodeURIComponent(token)}`;
+        const params = new URLSearchParams({ remote: DASHBOARD_REMOTE_URL });
+        if (token) params.set('token', token);
+        const finalUrl = `${base}/?${params.toString()}`;
         log('');
         log('Ready. Open this URL:');
         log(finalUrl);
@@ -297,7 +317,12 @@ process.on('SIGTERM', shutdown);
 (async function main() {
   try {
     await startBackend();
-    const token = await createToken();
+    let token = null;
+    try {
+      token = await createToken();
+    } catch (err) {
+      log(`Warning: pairing bootstrap failed (${err.message}). Continuing in local no-token mode.`);
+    }
     const localDashboardUrl = await startDashboard(token);
     if (ENABLE_FREE_TUNNELS) {
       let webPort = DASHBOARD_PORT;

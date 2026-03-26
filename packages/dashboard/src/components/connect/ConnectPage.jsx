@@ -49,22 +49,41 @@ async function parseJsonSafe(response) {
   }
 }
 
-async function tryPairAgainstBase(baseUrl, code, timeoutMs = 2000) {
-  const target = baseUrl
-    ? `${baseUrl.replace(/\/$/, '')}/api/pair`
-    : '/api/pair';
+function normalizePairingPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const token = payload.token || payload.sessionToken || null;
+  if (!token) return null;
+  return {
+    ...payload,
+    token,
+    success: payload.success !== false,
+  };
+}
 
-  const res = await fetch(target, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  const data = await parseJsonSafe(res);
-  if (res.ok && data?.success) {
-    return { ok: true, data, baseUrl: baseUrl || window.location.origin };
+async function tryPairAgainstBase(baseUrl, code, timeoutMs = 2000) {
+  const base = baseUrl ? baseUrl.replace(/\/$/, '') : '';
+  const endpoints = [
+    base ? `${base}/api/pair` : '/api/pair',
+    base ? `${base}/pair/validate` : '/pair/validate',
+  ];
+  let lastData = null;
+
+  for (const target of endpoints) {
+    const res = await fetch(target, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const data = await parseJsonSafe(res);
+    lastData = data;
+    const normalized = normalizePairingPayload(data);
+    if (res.ok && normalized?.token) {
+      return { ok: true, data: normalized, baseUrl: baseUrl || window.location.origin };
+    }
   }
-  return { ok: false, data };
+
+  return { ok: false, data: lastData };
 }
 
 export default function ConnectPage({ getParam, navigate }) {

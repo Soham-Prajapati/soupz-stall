@@ -74,3 +74,4 @@ Updated: 2026-03-24 (night pass completed)
 - [x] Fixed deep terminal-state consistency: if synthesis exits 0, order now resolves to `completed` (even with 0 successful workers), preventing `failed + exitCode=0` mismatch.
 - [x] Added `allowSynthesisFallback` deep policy switch (default enabled) for runtime control.
 - [x] Added lightweight output saturation guard for order streaming: throttled `*.output.delta` event emission and clamped oversized WS stream chunks to reduce deep benchmark event-loop pressure.
+- [x] Fixed pairing code staleness in connect flow: `POST /pair` now updates active snapshot and consumed active codes auto-rotate immediately, preventing `/pair/current` from serving invalid one-time codes.

@@ -154,6 +154,13 @@ function validatePairingCode(code) {
     const { token } = data;
     pairingCodes.delete(code);
     activeSessions.set(token, { createdAt: Date.now(), lastSeen: Date.now(), clientType: 'unknown' });
+
+    // If the consumed code is currently displayed, rotate immediately so /pair/current and QR stay valid.
+    if (currentPairingCode?.code === code) {
+        currentPairingCode = createPairingCode();
+        if (codeRefreshCallback) codeRefreshCallback(currentPairingCode);
+    }
+
     return token;
 }
 
@@ -514,16 +521,31 @@ function toOrderSummary(order) {
         durationMs: order.startedAt && order.finishedAt ? (new Date(order.finishedAt).getTime() - new Date(order.startedAt).getTime()) : null,
         eventCount: order.events.length,
         cancelRequested: !!order.cancelRequested,
+        createdFiles: Array.isArray(order.createdFiles) ? order.createdFiles : [],
+        pendingQuestionCount: Array.isArray(order.pendingQuestions) ? order.pendingQuestions.length : 0,
     };
 }
 
 function pushOrderEvent(order, type, data = {}) {
-    order.events.push({
+    const event = {
         type,
         at: nowIso(),
         ...data,
-    });
-    if (order.events.length > 500) order.events = order.events.slice(-500);
+    };
+    order.events.push(event);
+
+    const maxEvents = 500;
+    if (order.events.length <= maxEvents) return;
+
+    // Keep critical lifecycle events for UI visibility/debugging by dropping noisy deltas first.
+    while (order.events.length > maxEvents) {
+        const dropIdx = order.events.findIndex((e) => /\.output\.delta$/.test(String(e.type || '')));
+        if (dropIdx >= 0) {
+            order.events.splice(dropIdx, 1);
+            continue;
+        }
+        order.events.shift();
+    }
 }
 
 function toOrderRecord(order) {
@@ -669,7 +691,8 @@ app.use(express.json());
 
 // PUBLIC: Generate a pairing code (called from laptop CLI)
 app.post('/pair', (req, res) => {
-    createPairingCode();
+    currentPairingCode = createPairingCode();
+    if (codeRefreshCallback) codeRefreshCallback(currentPairingCode);
     const snapshot = getCurrentPairingSnapshot();
 
     if (!silentMode) {
@@ -1033,10 +1056,14 @@ const AGENT_BINARY_MAP = {
 
 const AUTO_ENABLE_KIRO = process.env.SOUPZ_ENABLE_KIRO_AUTO === 'true';
 const DEFAULT_DEEP_WORKERS = Math.max(1, Number.parseInt(process.env.SOUPZ_DEEP_WORKER_COUNT || '4', 10) || 4);
-const DEFAULT_SPECIALIST_SEQUENCE = ['architect', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance'];
+const DEFAULT_SPECIALIST_SEQUENCE = ['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security'];
 
 // Ordered fallback chain — try free agents first
 const AGENT_FALLBACK_CHAIN = ['gemini', 'copilot', 'ollama', 'claude-code'];
+const MAX_DEEP_WORKERS = Math.max(
+    DEFAULT_DEEP_WORKERS,
+    Number.parseInt(process.env.SOUPZ_DEEP_WORKER_MAX || '64', 10) || 64,
+);
 
 function isAgentInstalled(agentId) {
     const bin = AGENT_BINARY_MAP[agentId];
@@ -1080,6 +1107,9 @@ function inferExecutionRole(agentId, prompt = '') {
     if (/\b(ui|ux|design|visual|layout|css|theme|accessibility)\b/.test(text)) {
         return agentId === 'ollama' ? 'researcher' : 'designer';
     }
+    if (/\b(product|user journey|experience|workflow|persona|journey|interaction|frontend|web app|mobile app)\b/.test(text)) {
+        return agentId === 'ollama' ? 'researcher' : 'designer';
+    }
     if (/\b(devops|infra|infrastructure|docker|k8s|kubernetes|deploy|ci\/cd|pipeline|aws|gcp|azure)\b/.test(text)) {
         return 'devops';
     }
@@ -1108,13 +1138,17 @@ function inferSpecialistsFromPrompt(prompt = '', count = DEFAULT_DEEP_WORKERS) {
         if (condition && !picked.includes(name)) picked.push(name);
     };
 
-    maybePush('architect', /\b(architecture|module|boundary|tradeoff|system design)\b/.test(text));
-    maybePush('designer', /\b(ui|ux|design|visual|layout|css|accessibility)\b/.test(text));
+    maybePush('architect', /\b(architecture|module|boundary|tradeoff|system design|component graph|domain model)\b/.test(text));
+    maybePush('researcher', /\b(research|competitor|benchmark|survey|market scan|references?)\b/.test(text));
+    maybePush('strategist', /\b(strategy|positioning|go-to-market|pitch|judges?|differentiator|moat)\b/.test(text));
+    maybePush('pm', /\b(mvp|scope|roadmap|milestone|prioritization|timeline|execution plan)\b/.test(text));
+    maybePush('designer', /\b(ui|ux|design|visual|layout|css|accessibility|product|user journey|experience|workflow|persona|interaction|frontend|web app|mobile app)\b/.test(text));
     maybePush('qa', /\b(test|qa|checklist|edge case|risk|validation)\b/.test(text));
     maybePush('devops', /\b(devops|infra|docker|k8s|deploy|pipeline|ci\/cd|aws|gcp|azure)\b/.test(text));
     maybePush('analyst', /\b(analysis|benchmark|metrics|performance|investigate|compare)\b/.test(text));
     maybePush('finance', /\b(cost|budget|pricing|financial|economics)\b/.test(text));
     maybePush('evaluator', /\b(evaluate|review|score|audit|judge)\b/.test(text));
+    maybePush('security', /\b(security|auth|privacy|compliance|threat|abuse|attack)\b/.test(text));
     maybePush('developer', true);
 
     for (const specialist of DEFAULT_SPECIALIST_SEQUENCE) {
@@ -1125,9 +1159,51 @@ function inferSpecialistsFromPrompt(prompt = '', count = DEFAULT_DEEP_WORKERS) {
     return picked.slice(0, count);
 }
 
+function estimateDeepWorkerCount(prompt = '', requestedWorkerCount = null) {
+    if (Number.isFinite(requestedWorkerCount)) {
+        return Math.max(1, Math.min(MAX_DEEP_WORKERS, requestedWorkerCount));
+    }
+
+    const text = String(prompt || '');
+    const lower = text.toLowerCase();
+    const tokenBudget = lower.split(/\s+/).filter(Boolean).length;
+
+    const signalPatterns = [
+        /\barchitecture\b/g,
+        /\bapi\b/g,
+        /\bdatabase|schema|sql\b/g,
+        /\breal[-\s]?time|stream|websocket\b/g,
+        /\bsecurity|auth|privacy|compliance\b/g,
+        /\bdeploy|infra|devops|ci\/cd\b/g,
+        /\boffline|sync|conflict|merge\b/g,
+        /\bml|ai|model|inference|training\b/g,
+        /\bperformance|benchmark|latency|scale\b/g,
+        /\broadmap|milestone|execution plan\b/g,
+    ];
+
+    const matchedSignals = signalPatterns.reduce((acc, pattern) => {
+        const matches = lower.match(pattern);
+        return acc + (matches ? Math.min(2, matches.length) : 0);
+    }, 0);
+
+    const numberedItems = (text.match(/(^|\n)\s*\d+[\).:-]/g) || []).length;
+    const sectionHeaders = (text.match(/(^|\n)\s*(key features|objectives|background|brownie points|submission deliverables|advanced considerations)\b/gi) || []).length;
+
+    const sizeScore = Math.min(14, Math.floor(tokenBudget / 180));
+    const structureScore = Math.min(10, Math.floor(numberedItems / 4) + sectionHeaders);
+    const domainScore = Math.min(12, matchedSignals);
+    const base = DEFAULT_DEEP_WORKERS;
+
+    const estimated = base + sizeScore + structureScore + domainScore;
+    return Math.max(1, Math.min(MAX_DEEP_WORKERS, estimated));
+}
+
 function specialistFocusSummary(specialist) {
     const map = {
         architect: 'define architecture and module boundaries',
+        researcher: 'surface deep research, references, and comparative insights',
+        strategist: 'shape winning narrative, differentiation, and judge strategy',
+        pm: 'define feasible MVP scope and execution milestones',
         developer: 'implement core functionality and code paths',
         designer: 'own UI/UX behavior and accessibility details',
         qa: 'validate edge cases, regressions, and testability',
@@ -1135,8 +1211,485 @@ function specialistFocusSummary(specialist) {
         analyst: 'analyze structure, tradeoffs, and performance',
         evaluator: 'review quality and decision robustness',
         finance: 'optimize cost and resource usage decisions',
+        security: 'identify trust boundaries, misuse risks, and mitigation controls',
     };
     return map[specialist] || 'deliver concrete implementation guidance';
+}
+
+function analyzePromptIntent(prompt = '') {
+    const text = String(prompt || '');
+    const lower = text.toLowerCase();
+    const lines = text.split(/\r?\n/).length;
+
+    return {
+        isHackathon: /\b(hackathon|finalist|judg(e|ing)|demo day|cross[-\s]?question|pitch)\b/.test(lower),
+        needsResearch: /\b(research|competitor|benchmark|references?|market|survey)\b/.test(lower),
+        needsFeasibility: /\b(feasible|feasibility|constraints?|trade-?offs?|realistic|timeline)\b/.test(lower),
+        needsExecutionPlan: /\b(execution plan|roadmap|milestone|sprint|timeline|how to build)\b/.test(lower),
+        needsCrossQuestionPrep: /\b(cross[-\s]?question|objection|defend|judge q&a|grill)\b/.test(lower),
+        isBroadScope: lines >= 80 || /\b(end[-\s]?to[-\s]?end|full stack|complete system|production grade)\b/.test(lower),
+    };
+}
+
+function buildDeepExecutionPolicy(prompt = '') {
+    const intent = analyzePromptIntent(prompt);
+
+    const policyLines = [
+        'Execution policy (auto-injected by orchestrator):',
+        '- Optimize for correctness, feasibility, and implementation realism over cosmetic language.',
+        '- Every major claim must include at least one concrete justification, assumption, or tradeoff.',
+        '- Produce output that can be converted directly into engineering tasks and review checklists.',
+    ];
+
+    if (intent.isHackathon) {
+        policyLines.push('- Treat this as a competitive hackathon scenario: include judge-facing differentiation and demo defense points.');
+    }
+    if (intent.needsResearch || intent.isHackathon) {
+        policyLines.push('- Include compact research synthesis: alternatives considered, why chosen approach wins, and known limitations.');
+    }
+    if (intent.needsFeasibility || intent.isBroadScope) {
+        policyLines.push('- Add feasibility pass: risk table, dependency assumptions, and fallback path if critical components fail.');
+    }
+    if (intent.needsExecutionPlan || intent.isBroadScope) {
+        policyLines.push('- Include phased execution plan: immediate MVP, stretch goals, and explicit time/cost constraints.');
+    }
+    if (intent.needsCrossQuestionPrep || intent.isHackathon) {
+        policyLines.push('- Add cross-question prep: likely judge objections and concise, evidence-driven rebuttals.');
+    }
+
+    const outputContract = [
+        'Output contract:',
+        '1) Problem framing + assumptions',
+        '2) Feasibility and tradeoffs',
+        '3) Technical plan with implementation steps',
+        '4) Risks, mitigations, and validation checklist',
+        '5) Judge/defense notes (when relevant)',
+    ];
+
+    return {
+        intent,
+        policyText: [...policyLines, '', ...outputContract].join('\n'),
+    };
+}
+
+function extractJsonObject(text = '') {
+    const raw = String(text || '').trim();
+    if (!raw) return null;
+
+    try {
+        return JSON.parse(raw);
+    } catch {
+        // Continue with object-fragment extraction.
+    }
+
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+        const fragment = raw.slice(start, end + 1);
+        try {
+            return JSON.parse(fragment);
+        } catch {
+            return null;
+        }
+    }
+    return null;
+}
+
+function normalizePlannerSpecialists(items = [], targetCount = DEFAULT_DEEP_WORKERS) {
+    const allowed = new Set([...DEFAULT_SPECIALIST_SEQUENCE, 'developer']);
+    const normalized = [];
+
+    for (const item of Array.isArray(items) ? items : []) {
+        const name = String(item?.name || item?.specialist || '').trim().toLowerCase();
+        if (!allowed.has(name)) continue;
+        if (normalized.some((s) => s.name === name)) continue;
+        normalized.push({
+            name,
+            focus: String(item?.focus || specialistFocusSummary(name)).trim() || specialistFocusSummary(name),
+        });
+    }
+
+    for (const fallback of DEFAULT_SPECIALIST_SEQUENCE) {
+        if (normalized.length >= targetCount) break;
+        if (normalized.some((s) => s.name === fallback)) continue;
+        normalized.push({ name: fallback, focus: specialistFocusSummary(fallback) });
+    }
+
+    return normalized.slice(0, targetCount);
+}
+
+function normalizePlannerIntent(input = {}) {
+    const base = analyzePromptIntent('');
+    return {
+        isHackathon: input?.isHackathon === true || base.isHackathon,
+        needsResearch: input?.needsResearch === true || base.needsResearch,
+        needsFeasibility: input?.needsFeasibility === true || base.needsFeasibility,
+        needsExecutionPlan: input?.needsExecutionPlan === true || base.needsExecutionPlan,
+        needsCrossQuestionPrep: input?.needsCrossQuestionPrep === true || base.needsCrossQuestionPrep,
+        isBroadScope: input?.isBroadScope === true || base.isBroadScope,
+    };
+}
+
+function normalizePlannerQuestions(items = []) {
+    const questions = [];
+    for (const [idx, raw] of (Array.isArray(items) ? items : []).entries()) {
+        const question = String(raw?.question || raw?.prompt || '').trim();
+        const options = Array.isArray(raw?.options) ? raw.options : [];
+        const normalizedOptions = options
+            .map((opt, oIdx) => {
+                const id = String(opt?.id || `opt_${oIdx + 1}`).trim();
+                const label = String(opt?.label || opt?.text || '').trim();
+                const description = String(opt?.description || '').trim();
+                if (!id || !label) return null;
+                return { id, label, description, recommended: opt?.recommended === true };
+            })
+            .filter(Boolean)
+            .slice(0, 8);
+
+        if (!question || normalizedOptions.length < 2) continue;
+        questions.push({
+            id: String(raw?.id || `q_${idx + 1}`).trim() || `q_${idx + 1}`,
+            question,
+            multiSelect: raw?.multiSelect === true,
+            required: raw?.required !== false,
+            options: normalizedOptions,
+        });
+    }
+    return questions.slice(0, 8);
+}
+
+function buildFallbackClarifyingQuestions(intent = {}) {
+    const base = [
+        {
+            id: 'priority_axis',
+            question: 'What should the orchestrator optimize for first?',
+            multiSelect: false,
+            required: true,
+            options: [
+                { id: 'ship_fast', label: 'Speed to MVP', description: 'Prefer fastest demo-ready delivery path.', recommended: true },
+                { id: 'technical_depth', label: 'Technical depth', description: 'Prefer robust architecture and deeper implementation detail.', recommended: false },
+                { id: 'judge_defense', label: 'Judge defense', description: 'Prefer tradeoffs, rationale, and objection handling.', recommended: false },
+            ],
+        },
+        {
+            id: 'output_shape',
+            question: 'Which output shape should be emphasized?',
+            multiSelect: false,
+            required: true,
+            options: [
+                { id: 'implementation_first', label: 'Implementation-first', description: 'Concrete APIs, schema, and execution steps.', recommended: true },
+                { id: 'strategy_first', label: 'Strategy-first', description: 'Problem framing, positioning, and evaluation criteria.', recommended: false },
+                { id: 'balanced_output', label: 'Balanced', description: 'Equal focus on implementation and strategy.', recommended: false },
+            ],
+        },
+    ];
+
+    if (intent?.isHackathon || intent?.needsCrossQuestionPrep) {
+        base.push({
+            id: 'demo_mode',
+            question: 'How aggressive should demo framing be?',
+            multiSelect: false,
+            required: false,
+            options: [
+                { id: 'safe_demo', label: 'Safe and reliable', description: 'Minimize risk and keep flow stable.', recommended: true },
+                { id: 'showcase_demo', label: 'High-impact showcase', description: 'Highlight bold differentiators for judges.', recommended: false },
+            ],
+        });
+    }
+
+    return normalizePlannerQuestions(base);
+}
+
+async function planDeepExecutionWithAI({ prompt, plannerAgent, cwd, mcpServers, timeoutMs = 25000, plannerStyle = 'balanced', plannerNotes = '' }) {
+    const style = String(plannerStyle || 'balanced').trim().toLowerCase();
+    const notes = String(plannerNotes || '').trim();
+    const planningPrompt = [
+        'System role: You are an orchestration planner for a multi-agent coding daemon.',
+        'Task: Produce an execution plan for deep parallel work. Reply with ONLY valid JSON and no surrounding markdown.',
+        `Planning style requested by user: ${style}.`,
+        notes ? `User planner notes: ${notes}` : 'User planner notes: none.',
+        'Constraints:',
+        `- workerCount must be an integer between 1 and ${MAX_DEEP_WORKERS}.`,
+        `- specialist names must be chosen from: ${DEFAULT_SPECIALIST_SEQUENCE.join(', ')}.`,
+        '- Provide 1 focus sentence per specialist.',
+        '- Prefer feasibility and concrete implementation over generic advice.',
+        '- If hackathon-like, include defense-oriented preparation cues in policy lines.',
+        'JSON schema:',
+        '{',
+        '  "workerCount": number,',
+        '  "intent": {',
+        '    "isHackathon": boolean,',
+        '    "needsResearch": boolean,',
+        '    "needsFeasibility": boolean,',
+        '    "needsExecutionPlan": boolean,',
+        '    "needsCrossQuestionPrep": boolean,',
+        '    "isBroadScope": boolean',
+        '  },',
+        '  "policyLines": [string, string, ...],',
+        '  "specialists": [',
+        '    { "name": string, "focus": string }',
+        '  ],',
+        '  "clarifyingQuestions": [',
+        '    {',
+        '      "id": string,',
+        '      "question": string,',
+        '      "multiSelect": boolean,',
+        '      "required": boolean,',
+        '      "options": [',
+        '        { "id": string, "label": string, "description": string, "recommended": boolean }',
+        '      ]',
+        '    }',
+        '  ]',
+        '}',
+        'User task to plan:',
+        prompt,
+    ].join('\n');
+
+    const planResult = await runChildAgent({
+        agent: plannerAgent,
+        prompt: planningPrompt,
+        cwd,
+        mcpServers,
+        timeoutMs,
+    });
+
+    if ((planResult?.code ?? 1) !== 0) {
+        return { ok: false, reason: 'planner_non_zero_exit', stderr: planResult?.stderr || '' };
+    }
+
+    const parsed = extractJsonObject(planResult?.stdout || '');
+    if (!parsed || typeof parsed !== 'object') {
+        return { ok: false, reason: 'planner_invalid_json' };
+    }
+
+    const requestedCount = Number.parseInt(parsed.workerCount, 10);
+    const workerCount = Number.isFinite(requestedCount)
+        ? Math.max(1, Math.min(MAX_DEEP_WORKERS, requestedCount))
+        : null;
+    const specialists = normalizePlannerSpecialists(parsed.specialists, workerCount || DEFAULT_DEEP_WORKERS);
+    const intent = normalizePlannerIntent(parsed.intent || {});
+    const policyLines = Array.isArray(parsed.policyLines)
+        ? parsed.policyLines.map((line) => String(line || '').trim()).filter(Boolean).slice(0, 14)
+        : [];
+    const clarifyingQuestions = normalizePlannerQuestions(parsed.clarifyingQuestions);
+
+    if (specialists.length === 0) {
+        return { ok: false, reason: 'planner_empty_specialists' };
+    }
+
+    return {
+        ok: true,
+        workerCount,
+        specialists,
+        intent,
+        policyLines,
+        plannerAgent,
+        clarifyingQuestions,
+    };
+}
+
+function createInputAnswerSummary(questions = [], answers = {}) {
+    const lines = [];
+    for (const q of questions) {
+        const selected = Array.isArray(answers?.[q.id]) ? answers[q.id] : [];
+        if (selected.length === 0) continue;
+        const optionLabels = selected
+            .map((id) => q.options.find((opt) => opt.id === id)?.label || id)
+            .join(', ');
+        lines.push(`- ${q.question}: ${optionLabels}`);
+    }
+    return lines;
+}
+
+async function waitForOrderInput(order, runtime, questions = [], timeoutMs = 10 * 60 * 1000) {
+    if (!runtime || !Array.isArray(questions) || questions.length === 0) {
+        return { answers: {}, timedOut: false, skipped: true };
+    }
+
+    return await new Promise((resolve) => {
+        const request = {
+            questions,
+            createdAt: Date.now(),
+            resolve,
+            timeoutHandle: null,
+        };
+        runtime.inputRequest = request;
+
+        order.status = 'waiting_input';
+        order.pendingQuestions = questions;
+        order.pendingAnswers = {};
+        pushOrderEvent(order, 'input.requested', { questionCount: questions.length, timeoutMs });
+        void persistOrder(order);
+        broadcastOrderUpdate(order);
+
+        request.timeoutHandle = setTimeout(() => {
+            if (runtime.inputRequest !== request) return;
+            runtime.inputRequest = null;
+            order.status = 'running';
+            order.pendingQuestions = [];
+            order.pendingAnswers = {};
+            pushOrderEvent(order, 'input.timed_out', { questionCount: questions.length });
+            void persistOrder(order);
+            broadcastOrderUpdate(order);
+            resolve({ answers: {}, timedOut: true, skipped: false });
+        }, Math.max(15000, timeoutMs));
+    });
+}
+
+function submitOrderInput(order, runtime, answers = {}) {
+    const request = runtime?.inputRequest;
+    if (!request) {
+        return { ok: false, status: 409, error: 'No pending input request for this order' };
+    }
+
+    const normalized = {};
+    for (const q of request.questions) {
+        const raw = answers?.[q.id];
+        const selected = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+        const valid = selected
+            .map((v) => String(v || '').trim())
+            .filter((id) => q.options.some((opt) => opt.id === id));
+        const unique = [...new Set(valid)];
+        if (unique.length === 0 && q.required) {
+            return { ok: false, status: 400, error: `Missing selection for required question: ${q.id}` };
+        }
+        normalized[q.id] = q.multiSelect ? unique : unique.slice(0, 1);
+    }
+
+    if (request.timeoutHandle) clearTimeout(request.timeoutHandle);
+    runtime.inputRequest = null;
+
+    order.status = 'running';
+    order.pendingQuestions = [];
+    order.pendingAnswers = normalized;
+    pushOrderEvent(order, 'input.received', { answers: normalized });
+    void persistOrder(order);
+    broadcastOrderUpdate(order);
+
+    request.resolve({ answers: normalized, timedOut: false, skipped: false });
+    return { ok: true };
+}
+
+function summarizePromptForWorkspace(prompt = '', maxChars = 3000) {
+    const text = String(prompt || '').trim();
+    if (text.length <= maxChars) return text;
+    return `${text.slice(0, maxChars)}\n\n[truncated ${text.length - maxChars} chars for workspace brief]`;
+}
+
+function registerCreatedFile(order, filePath) {
+    if (!order || !filePath) return;
+    if (!Array.isArray(order.createdFiles)) order.createdFiles = [];
+    if (!order.createdFiles.includes(filePath)) {
+        order.createdFiles.push(filePath);
+    }
+}
+
+function toWorkspaceRelativePath(cwd, filePath) {
+    try {
+        const root = resolve(cwd || REPO_ROOT);
+        const rel = relative(root, filePath);
+        return rel && !rel.startsWith('..') ? rel : filePath;
+    } catch {
+        return filePath;
+    }
+}
+
+async function initializeDeepWorkspaceArtifacts(order, workers, workerMeta, executionPolicy) {
+    const cwd = resolve(order.cwd || REPO_ROOT);
+    const runRoot = join(cwd, '.soupz-runs', order.id);
+    if (!isPathInside(cwd, runRoot)) {
+        throw new Error('artifact_root_outside_workspace');
+    }
+
+    await mkdir(runRoot, { recursive: true });
+    const briefPath = join(runRoot, 'RUN_BRIEF.md');
+    const sharedPath = join(runRoot, 'SHARED_MEMORY.md');
+
+    const workerPlan = workers.map((w, idx) => {
+        const meta = workerMeta[w.workerId] || {};
+        return `${idx + 1}. ${w.workerId} (${w.agent}) - specialist: ${meta.specialist || 'developer'} - focus: ${meta.focus || 'implementation guidance'}`;
+    }).join('\n');
+
+    const brief = [
+        `# Soupz Deep Run ${order.id}`,
+        '',
+        '## Task',
+        summarizePromptForWorkspace(order.prompt),
+        '',
+        '## Execution Policy',
+        executionPolicy,
+        '',
+        '## Worker Plan',
+        workerPlan,
+        '',
+        '## Notes',
+        '- Worker outputs are persisted as markdown files in this folder.',
+        '- SHARED_MEMORY.md aggregates distilled learnings from all workers + synthesis.',
+    ].join('\n');
+
+    await writeFile(briefPath, brief, 'utf8');
+    await writeFile(sharedPath, '# Shared Memory\n\n', 'utf8');
+
+    registerCreatedFile(order, toWorkspaceRelativePath(cwd, briefPath));
+    registerCreatedFile(order, toWorkspaceRelativePath(cwd, sharedPath));
+
+    return { cwd, runRoot, briefPath, sharedPath };
+}
+
+async function persistWorkerArtifact(order, artifactContext, workerId, agent, workerMetaInfo, result) {
+    if (!artifactContext) return;
+    const safeWorkerId = String(workerId || 'worker').replace(/[^a-zA-Z0-9-_]/g, '_');
+    const workerFile = join(artifactContext.runRoot, `${safeWorkerId}.md`);
+    const body = [
+        `# ${safeWorkerId}`,
+        '',
+        `- Agent: ${agent}`,
+        `- Specialist: ${workerMetaInfo?.specialist || 'developer'}`,
+        `- Focus: ${workerMetaInfo?.focus || 'implementation guidance'}`,
+        `- Exit code: ${result?.code ?? 1}`,
+        `- Timed out: ${result?.timedOut ? 'yes' : 'no'}`,
+        '',
+        '## Output',
+        '```text',
+        String(result?.stdout || result?.stderr || '').slice(0, 70000),
+        '```',
+    ].join('\n');
+
+    await writeFile(workerFile, body, 'utf8');
+    registerCreatedFile(order, toWorkspaceRelativePath(artifactContext.cwd, workerFile));
+
+    const sharedSnippet = [
+        `## ${safeWorkerId}`,
+        `Agent: ${agent} | Specialist: ${workerMetaInfo?.specialist || 'developer'} | Exit: ${result?.code ?? 1}`,
+        '',
+        String(result?.stdout || result?.stderr || '').slice(0, 3000),
+        '',
+    ].join('\n');
+    await writeFile(artifactContext.sharedPath, sharedSnippet, { encoding: 'utf8', flag: 'a' });
+}
+
+async function persistSynthesisArtifact(order, artifactContext, synthesisText, synthesisMeta = {}) {
+    if (!artifactContext) return;
+    const synthesisPath = join(artifactContext.runRoot, 'FINAL_SYNTHESIS.md');
+    const body = [
+        '# Final Synthesis',
+        '',
+        `- Agent: ${synthesisMeta.agent || 'unknown'}`,
+        `- Exit code: ${synthesisMeta.exitCode ?? 1}`,
+        `- Fallback used: ${synthesisMeta.fallbackUsed ? 'yes' : 'no'}`,
+        '',
+        String(synthesisText || '').trim() || '_No synthesis output produced._',
+    ].join('\n');
+
+    await writeFile(synthesisPath, body, 'utf8');
+    registerCreatedFile(order, toWorkspaceRelativePath(artifactContext.cwd, synthesisPath));
+
+    const sharedSnippet = [
+        '## Synthesis',
+        String(synthesisText || '').slice(0, 5000),
+        '',
+    ].join('\n');
+    await writeFile(artifactContext.sharedPath, sharedSnippet, { encoding: 'utf8', flag: 'a' });
 }
 
 function toTitleToken(text = '') {
@@ -1224,7 +1777,7 @@ function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WORKERS, 
     const perAgentCounts = {};
     const primaryCopies = Number.isFinite(deepPolicy.primaryCopies)
         ? Math.max(1, Math.min(count, deepPolicy.primaryCopies))
-        : Math.min(2, count);
+        : Math.max(2, Math.min(count, Math.ceil(count * 0.35)));
     const sameAgentOnly = deepPolicy.sameAgentOnly === true;
 
     const pushSlot = (agent) => {
@@ -1416,13 +1969,90 @@ async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStder
 async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     const runtime = createOrderRuntime(order);
     const deepPolicy = order.deepPolicy || {};
+    const plannerStyle = String(deepPolicy.plannerStyle || 'balanced');
+    const plannerNotes = String(deepPolicy.plannerNotes || '');
+    const useAiPlanner = deepPolicy.useAiPlanner !== false;
+    let planner = null;
+    if (useAiPlanner) {
+        try {
+            planner = await planDeepExecutionWithAI({
+                prompt: order.prompt,
+                plannerAgent: runAgent,
+                cwd: order.cwd,
+                mcpServers,
+                timeoutMs: 25000,
+                plannerStyle,
+                plannerNotes,
+            });
+        } catch (err) {
+            planner = { ok: false, reason: err?.message || 'planner_exception' };
+        }
+    }
+
+    const heuristicPolicy = buildDeepExecutionPolicy(order.prompt);
+    const promptIntent = planner?.ok ? planner.intent : heuristicPolicy.intent;
     const workerCount = Number.isFinite(deepPolicy.workerCount)
-        ? Math.max(1, Math.min(8, deepPolicy.workerCount))
-        : DEFAULT_DEEP_WORKERS;
+        ? Math.max(1, Math.min(MAX_DEEP_WORKERS, deepPolicy.workerCount))
+        : (planner?.ok && Number.isFinite(planner.workerCount)
+            ? planner.workerCount
+            : estimateDeepWorkerCount(order.prompt, null));
+    let executionPolicy = planner?.ok
+        ? [
+            'Execution policy (AI-planned by orchestrator):',
+            ...planner.policyLines,
+            '',
+            'Output contract:',
+            '1) Problem framing + assumptions',
+            '2) Feasibility and tradeoffs',
+            '3) Technical plan with implementation steps',
+            '4) Risks, mitigations, and validation checklist',
+            '5) Judge/defense notes (when relevant)',
+        ].join('\n')
+        : heuristicPolicy.policyText;
+
+    let userClarifications = {};
+    const plannerQuestions = (planner?.ok && Array.isArray(planner.clarifyingQuestions) && planner.clarifyingQuestions.length > 0)
+        ? planner.clarifyingQuestions
+        : [];
+    if (plannerQuestions.length > 0) {
+        const inputResult = await waitForOrderInput(order, runtime, plannerQuestions, 8 * 60 * 1000);
+        if (!inputResult?.timedOut && inputResult?.answers) {
+            const answerLines = createInputAnswerSummary(plannerQuestions, inputResult.answers);
+            if (answerLines.length > 0) {
+                executionPolicy = [
+                    executionPolicy,
+                    '',
+                    'User Clarifications (selected interactively):',
+                    ...answerLines,
+                ].join('\n');
+            }
+            userClarifications = inputResult.answers;
+        }
+    }
+
+    order.deepPolicy = {
+        ...deepPolicy,
+        useAiPlanner,
+        plannerStyle,
+        plannerUsed: !!planner?.ok,
+        plannerReason: planner?.ok ? 'ok' : (planner?.reason || 'disabled'),
+        workerCountResolved: workerCount,
+        workerCountMax: MAX_DEEP_WORKERS,
+        promptIntent,
+        pendingQuestionCount: plannerQuestions.length,
+        userClarifications,
+    };
     const { workers, skipped } = selectParallelWorkers(runAgent, workerCount, order.cwd, deepPolicy);
-    const workerRoles = Object.fromEntries(workers.map((w) => [w.workerId, inferExecutionRole(w.agent, order.prompt)]));
     const workerAgents = Object.fromEntries(workers.map((w) => [w.workerId, w.agent]));
-    const specialistPlan = inferSpecialistsFromPrompt(order.prompt, workers.length);
+    const specialistPlan = planner?.ok
+        ? planner.specialists.map((item) => item.name).slice(0, workers.length)
+        : inferSpecialistsFromPrompt(order.prompt, workers.length);
+    const specialistFocusPlan = planner?.ok
+        ? planner.specialists.reduce((acc, item) => {
+            acc[item.name] = item.focus || specialistFocusSummary(item.name);
+            return acc;
+        }, {})
+        : {};
     const labelCounts = {};
     const workerMeta = Object.fromEntries(workers.map((w, idx) => {
         const specialist = specialistPlan[idx] || 'developer';
@@ -1432,6 +2062,10 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         const workerLabel = labelCounts[base] > 1 ? `${base} #${labelCounts[base]}` : base;
         return [w.workerId, { workerLabel, specialist, focus }];
     }));
+    const workerRoles = Object.fromEntries(workers.map((w) => [
+        w.workerId,
+        workerMeta[w.workerId]?.specialist || inferExecutionRole(w.agent, order.prompt),
+    ]));
     order.status = 'running';
     order.startedAt = nowIso();
     pushOrderEvent(order, 'parallel.plan', {
@@ -1441,11 +2075,30 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         workerMeta,
         workerCount: workers.length,
         mode: 'deep',
-        deepPolicy,
+        deepPolicy: order.deepPolicy,
+                planner: planner?.ok
+                        ? {
+                                agent: planner.plannerAgent,
+                                workerCount: planner.workerCount,
+                                specialists: planner.specialists,
+                            }
+                        : { enabled: useAiPlanner, used: false, reason: planner?.reason || 'disabled' },
         skippedWorkers: skipped,
     });
     void persistOrder(order);
     broadcastOrderUpdate(order);
+
+    let artifactContext = null;
+    try {
+        artifactContext = await initializeDeepWorkspaceArtifacts(order, workers, workerMeta, executionPolicy);
+        pushOrderEvent(order, 'artifacts.initialized', {
+            runRoot: toWorkspaceRelativePath(artifactContext.cwd, artifactContext.runRoot),
+            brief: toWorkspaceRelativePath(artifactContext.cwd, artifactContext.briefPath),
+            sharedMemory: toWorkspaceRelativePath(artifactContext.cwd, artifactContext.sharedPath),
+        });
+    } catch (err) {
+        pushOrderEvent(order, 'artifacts.init_failed', { message: err?.message || 'artifact_init_failed' });
+    }
 
     if (workers.length === 0) {
         order.status = 'failed';
@@ -1461,11 +2114,18 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     const workerRuns = workers.map(async (worker, idx) => {
         const { workerId, agent } = worker;
         const childKey = `worker:${workerId}`;
+        const perWorkerTimeoutMs = agent === 'ollama'
+            ? Math.max(workerTimeoutMs, 180000)
+            : workerTimeoutMs;
         const meta = workerMeta[workerId] || { workerLabel: workerId, specialist: 'developer', focus: 'deliver concrete implementation guidance' };
+        if (specialistFocusPlan[meta.specialist]) {
+            meta.focus = specialistFocusPlan[meta.specialist];
+        }
         const workerPrompt = [
             `You are worker ${idx + 1}/${workers.length} (${meta.workerLabel}; id=${workerId}; agent=${agent}).`,
             `Assigned specialist persona: ${meta.specialist}.`,
             `Assigned focus: ${meta.focus}.`,
+            executionPolicy,
             'Focus on a distinct implementation strategy and return concrete, actionable output.',
             'If coding is needed, provide exact file paths and code blocks.',
             'Return the answer directly. Do not invoke tools, shell commands, file writes, skills, or external actions.',
@@ -1501,7 +2161,7 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
                 runtime,
                 childKey,
                 childMeta: { kind: 'worker', workerId, agent },
-                timeoutMs: workerTimeoutMs,
+                timeoutMs: perWorkerTimeoutMs,
                 onStdout: (text, pid) => {
                     const tagged = `[worker:${workerId}|agent:${agent}] ${text}`;
                     order.stdout += tagged;
@@ -1541,6 +2201,14 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             exitCode,
             reason: runtime.cancelRequested ? 'cancelled' : (result?.timedOut ? 'timeout' : (result?.errored ? 'error' : 'exit')),
         });
+        try {
+            await persistWorkerArtifact(order, artifactContext, workerId, agent, meta, result);
+        } catch (err) {
+            pushOrderEvent(order, 'artifacts.worker_write_failed', {
+                workerId,
+                message: err?.message || 'worker_artifact_write_failed',
+            });
+        }
         finishedWorkerIds.add(workerId);
         return { workerId, agent, ...result };
     });
@@ -1616,6 +2284,7 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     const synthesisTimeoutMs = Math.max(workerTimeoutMs, Math.min(300000, DEEP_SYNTHESIS_TIMEOUT_MS * 2));
     const synthesisPrompt = [
         'You are the lead synthesizer. Merge worker outputs into a single final answer.',
+        executionPolicy,
         'Prioritize correctness, concrete file paths, and executable steps.',
         'Do not invoke tools, shell commands, file writes, skills, or external actions. Synthesize directly from provided worker outputs.',
         `Original task:\n${order.prompt}`,
@@ -1680,6 +2349,24 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         });
     }
 
+    const synthesisText = canFallbackComplete
+        ? [
+            '[synthesis:fallback] Primary synthesis timed out/failed; deterministic merge below.',
+            ...successfulWorkers.slice(0, 3).map((r) => `\n## ${r.workerId} (${r.agent})\n${(r.stdout || r.stderr || '').slice(0, 12000)}`),
+        ].join('\n')
+        : (synth.stdout || synth.stderr || '');
+    try {
+        await persistSynthesisArtifact(order, artifactContext, synthesisText, {
+            agent: synthesisAgent,
+            exitCode: canFallbackComplete ? 0 : synth.code,
+            fallbackUsed: canFallbackComplete,
+        });
+    } catch (err) {
+        pushOrderEvent(order, 'artifacts.synthesis_write_failed', {
+            message: err?.message || 'synthesis_artifact_write_failed',
+        });
+    }
+
     const finalSynthesisExitCode = canFallbackComplete ? 0 : synth.code;
     pushOrderEvent(order, 'synthesis.finished', { agent: synthesisAgent, role: 'lead-synthesizer', exitCode: finalSynthesisExitCode });
 
@@ -1694,6 +2381,7 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             fallbackUsed: canFallbackComplete,
             synthesisExitCode: synth.code,
             successfulWorkers: successfulWorkers.length,
+            createdFiles: order.createdFiles || [],
         });
     } else if (runtime.cancelRequested) {
         order.status = 'cancelled';
@@ -1720,12 +2408,21 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     const payloadWorkerCount = Number.parseInt(req.body?.workerCount, 10);
     const payloadPrimaryCopies = Number.parseInt(req.body?.primaryCopies, 10);
     const sameAgentOnly = req.body?.sameAgentOnly === true;
+    const useAiPlanner = req.body?.useAiPlanner !== false;
+    const plannerStyle = (req.body?.plannerStyle || 'balanced').toString().trim().toLowerCase();
+    const plannerNotes = (req.body?.plannerNotes || '').toString().trim().slice(0, 4000);
+    const previewWorkerCount = estimateDeepWorkerCount(prompt, Number.isFinite(payloadWorkerCount) ? payloadWorkerCount : null);
     const deepPolicy = {
-        workerCount: Number.isFinite(payloadWorkerCount) ? Math.max(1, Math.min(8, payloadWorkerCount)) : DEFAULT_DEEP_WORKERS,
-        primaryCopies: Number.isFinite(payloadPrimaryCopies) ? Math.max(1, Math.min(8, payloadPrimaryCopies)) : 2,
+        workerCount: Number.isFinite(payloadWorkerCount) ? Math.max(1, Math.min(MAX_DEEP_WORKERS, payloadWorkerCount)) : null,
+        primaryCopies: Number.isFinite(payloadPrimaryCopies) ? Math.max(1, Math.min(MAX_DEEP_WORKERS, payloadPrimaryCopies)) : null,
         sameAgentOnly,
+        useAiPlanner,
+        plannerStyle,
+        plannerNotes,
         timeoutMs: Number.parseInt(req.body?.timeoutMs, 10) || DEEP_SYNTHESIS_TIMEOUT_MS,
         allowSynthesisFallback: req.body?.allowSynthesisFallback !== false,
+        workerCountResolved: previewWorkerCount,
+        workerCountMax: MAX_DEEP_WORKERS,
     };
     const orderCwd = (req.body?.cwd || '').toString().trim() || REPO_ROOT;
     let runAgent = null;
@@ -1779,13 +2476,16 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         pid: null,
         cancelRequested: false,
         laneBuffers: {},
+        createdFiles: [],
+        pendingQuestions: [],
+        pendingAnswers: {},
     };
 
     pushOrderEvent(order, 'order.created', { prompt, agent, modelPolicy, orchestrationMode, cwd: orderCwd });
     pushOrderEvent(order, 'route.selected', {
         agent: runAgent,
         primaryRole: inferExecutionRole(runAgent, prompt),
-        specialistsPlanned: inferSpecialistsFromPrompt(prompt, deepPolicy.workerCount),
+        specialistsPlanned: inferSpecialistsFromPrompt(prompt, previewWorkerCount),
         deepPolicy,
         requested: requestedAgent,
         resolved: agent,
@@ -1847,6 +2547,9 @@ app.get('/api/orders/:id', requireAuth, async (req, res) => {
             pid: memOrder.pid, exitCode: memOrder.exitCode,
             events: memOrder.events, stdout: memOrder.stdout, stderr: memOrder.stderr,
             laneBuffers: memOrder.laneBuffers || {},
+            createdFiles: Array.isArray(memOrder.createdFiles) ? memOrder.createdFiles : [],
+            pendingQuestions: Array.isArray(memOrder.pendingQuestions) ? memOrder.pendingQuestions : [],
+            pendingAnswers: memOrder.pendingAnswers || {},
         });
     }
     // Fall back to DB for historical orders not in current memory
@@ -1864,6 +2567,9 @@ app.get('/api/orders/:id', requireAuth, async (req, res) => {
                     startedAt: data.started_at, finishedAt: data.finished_at, durationMs: data.duration_ms,
                     exitCode: data.exit_code, events: data.events || [], stdout: data.stdout || '',
                     stderr: data.stderr || '', laneBuffers: data.lane_buffers || {}, eventCount: (data.events || []).length,
+                    createdFiles: [],
+                    pendingQuestions: [],
+                    pendingAnswers: {},
                 });
             }
         } catch { /* fall through */ }
@@ -1875,7 +2581,7 @@ app.get('/api/orders/:id', requireAuth, async (req, res) => {
 app.post('/api/orders/:id/cancel', requireAuth, async (req, res) => {
     const order = orders.get(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
-    if (!(order.status === 'queued' || order.status === 'running')) {
+    if (!(order.status === 'queued' || order.status === 'running' || order.status === 'waiting_input')) {
         return res.status(409).json({ error: `Order not cancellable in status ${order.status}` });
     }
     const runtime = getOrderRuntime(order.id);
@@ -1895,6 +2601,19 @@ app.post('/api/orders/:id/cancel', requireAuth, async (req, res) => {
     }
 
     return res.json({ ok: true, id: order.id, status: order.status, ...result });
+});
+
+// AUTHENTICATED: submit interactive clarification input and resume waiting order
+app.post('/api/orders/:id/input', requireAuth, async (req, res) => {
+    const order = orders.get(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    const runtime = getOrderRuntime(order.id);
+    const answers = req.body?.answers && typeof req.body.answers === 'object' ? req.body.answers : {};
+    const submitted = submitOrderInput(order, runtime, answers);
+    if (!submitted.ok) {
+        return res.status(submitted.status || 400).json({ error: submitted.error || 'Input submission failed' });
+    }
+    return res.json({ ok: true, id: order.id, status: order.status });
 });
 
 function buildWorkerSummaryFromEvents(events = []) {
@@ -1977,6 +2696,7 @@ app.get('/api/orders/:id/summary', requireAuth, (req, res) => {
             : null,
         workers,
         synthesis,
+        createdFiles: Array.isArray(order.createdFiles) ? order.createdFiles : [],
     });
 });
 

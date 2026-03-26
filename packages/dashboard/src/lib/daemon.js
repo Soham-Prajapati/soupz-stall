@@ -191,6 +191,10 @@ export async function sendAgentPrompt(request, userId, onChunk) {
   const sameAgentOnly = request?.sameAgentOnly;
   const primaryCopies = request?.primaryCopies;
   const timeoutMs = request?.timeoutMs;
+  const useAiPlanner = typeof request?.useAiPlanner === 'boolean' ? request.useAiPlanner : undefined;
+  const plannerStyle = request?.plannerStyle;
+  const plannerNotes = request?.plannerNotes;
+  const returnOrderImmediately = request?.returnOrderImmediately === true;
   const token = getStoredToken();
   const daemonUrl = getDaemonUrl();
   const localDaemon = daemonUrl.includes('localhost') || daemonUrl.includes('127.0.0.1');
@@ -230,6 +234,9 @@ export async function sendAgentPrompt(request, userId, onChunk) {
             if (typeof sameAgentOnly === 'boolean') payload.sameAgentOnly = sameAgentOnly;
             if (Number.isFinite(primaryCopies)) payload.primaryCopies = primaryCopies;
             if (Number.isFinite(timeoutMs)) payload.timeoutMs = timeoutMs;
+            if (typeof useAiPlanner === 'boolean') payload.useAiPlanner = useAiPlanner;
+            if (typeof plannerStyle === 'string' && plannerStyle.trim()) payload.plannerStyle = plannerStyle.trim();
+            if (typeof plannerNotes === 'string' && plannerNotes.trim()) payload.plannerNotes = plannerNotes.trim().slice(0, 4000);
             if (mcpServers.length > 0) payload.mcpServers = mcpServers;
             return payload;
           })()),
@@ -241,26 +248,44 @@ export async function sendAgentPrompt(request, userId, onChunk) {
 
         const payload = await res.json();
         const order = payload?.order || payload;
+        let settled = false;
+        const settle = (value) => {
+          if (settled) return;
+          settled = true;
+          resolve(value);
+        };
 
         if (onChunk && order?.id) {
           // Register chunk handler for this order
           wsChunkHandlers.set(order.id, (chunk, done) => {
-            if (done) resolve(order.id);
-            else onChunk(chunk);
+            if (done) {
+              try { onChunk('', true); } catch { /* ignore callback errors */ }
+              settle(order.id);
+            } else {
+              onChunk(chunk, false);
+            }
           });
           wsChunkHandlers.set('*', (chunk, done) => {
-            if (done) resolve(order.id);
-            else onChunk(chunk);
+            if (done) {
+              try { onChunk('', true); } catch { /* ignore callback errors */ }
+              settle(order.id);
+            } else {
+              onChunk(chunk, false);
+            }
           }); // fallback for unkeyed messages
+
+          if (returnOrderImmediately) {
+            settle(order.id);
+          }
           
           // Safety cleanup resolving after timeout
           setTimeout(() => {
             wsChunkHandlers.delete(order.id);
             wsChunkHandlers.delete('*');
-            resolve(order.id);
+            settle(order.id);
           }, 300000);
         } else {
-          resolve(order?.id);
+          settle(order?.id);
         }
       } catch (err) {
         reject(new Error(`Daemon error: ${err.message}`));
@@ -391,6 +416,29 @@ export async function getOrderDetail(orderId) {
     return data || null;
   } catch {
     return null;
+  }
+}
+
+export async function submitOrderInput(orderId, answers) {
+  const t = getStoredToken();
+  if (!t && !isLocalDaemon()) return null;
+  try {
+    const res = await fetch(`${getDaemonUrl()}/api/orders/${orderId}/input`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(t ? { 'X-Soupz-Token': t } : {}),
+      },
+      body: JSON.stringify({ answers: answers || {} }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Failed to submit input (${res.status}): ${body}`);
+    }
+    return await res.json();
+  } catch (err) {
+    throw err;
   }
 }
 
