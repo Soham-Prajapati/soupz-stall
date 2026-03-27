@@ -9,7 +9,7 @@ import { cn } from '../../lib/cn';
 import { CLI_AGENTS, SPECIALISTS, BUILD_MODES, getAgentById } from '../../lib/agents';
 import { SKILLS, detectSkill, applySkill, getSkillById } from '../../lib/skills';
 import { getAutoSelection } from '../../lib/routing';
-import { checkAgentAvailability } from '../../lib/daemon';
+import { checkAgentAvailability, cancelOrder } from '../../lib/daemon';
 import { detectTeamTrigger, getTeamById } from '../../lib/teams';
 import InteractiveQuestions from './InteractiveQuestions';
 import PreviewPanel from '../shared/PreviewPanel';
@@ -22,6 +22,7 @@ import { useKokoroTTS } from '../../hooks/useKokoroTTS';
 const STORAGE_KEY = 'soupz_chat_history';
 const AGENT_KEY   = 'soupz_agent';
 const MODE_KEY    = 'soupz_build_mode';
+const ENABLED_AGENTS_KEY = 'soupz_enabled_agents';
 
 const ICON_MAP = {
   auto: Cpu, designer: Palette, dev: Code2, researcher: Search,
@@ -80,17 +81,30 @@ export default function SimpleMode({ daemon, compact = false }) {
   const [agentId, setAgentId] = useState(() => localStorage.getItem(AGENT_KEY) || 'auto');
   const [buildMode, setBuildMode] = useState(() => localStorage.getItem(MODE_KEY) || 'quick');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [currentOrderId, setCurrentOrderId] = useState(null);
   const [agentOpen, setAgentOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
   const [activeSkill, setActiveSkill] = useState(null);
+  const [enabledAgents, setEnabledAgents] = useState(() => {
+    try {
+      const stored = localStorage.getItem(ENABLED_AGENTS_KEY);
+      return stored ? JSON.parse(stored) : CLI_AGENTS.map(a => a.id);
+    } catch {
+      return CLI_AGENTS.map(a => a.id);
+    }
+  });
   
+  const filteredCLIAgents = useMemo(() => {
+    return CLI_AGENTS.filter(a => enabledAgents.includes(a.id));
+  }, [enabledAgents]);
+
   const allCommands = useMemo(() => {
     return [
       ...SKILLS.map(s => ({ ...s, type: 'skill' })),
-      ...CLI_AGENTS.map(a => ({ id: a.id, name: a.name, description: a.description || 'CLI Agent', color: a.color, type: 'agent' })),
+      ...filteredCLIAgents.map(a => ({ id: a.id, name: a.name, description: a.description || 'CLI Agent', color: a.color, type: 'agent' })),
       ...SPECIALISTS.map(a => ({ id: a.id, name: a.name, description: a.desc || 'Specialist Agent', color: a.color, type: 'agent' })),
     ];
-  }, []);
+  }, [filteredCLIAgents]);
 
   const [slashCommandOpen, setSlashCommandOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -153,20 +167,51 @@ export default function SimpleMode({ daemon, compact = false }) {
     const aiMsg = { id: Date.now() + 1, role: 'ai', content: '', agentId: effectiveAgentId, autoLabel, streaming: true };
     setMessages(prev => [...prev, { id: Date.now(), role: 'user', content: text }, aiMsg]);
     setIsStreaming(true);
+    setCurrentOrderId(null);
 
     try {
       if (daemon?.sendPrompt) {
-        await daemon.sendPrompt({ prompt: promptForDaemon, agentId: effectiveAgentId, buildMode }, chunk => {
+        const orderId = await daemon.sendPrompt({ prompt: promptForDaemon, agentId: effectiveAgentId, buildMode }, chunk => {
           setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: m.content + chunk } : m));
         });
+        setCurrentOrderId(orderId);
       }
     } catch (err) {
       setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: `Error: ${err.message}` } : m));
     } finally {
       setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, streaming: false } : m));
       setIsStreaming(false);
+      setCurrentOrderId(null);
       setActiveSkill(null);
     }
+  }
+
+  async function handleStop() {
+    if (!currentOrderId) return;
+    try {
+      await cancelOrder(currentOrderId);
+      setMessages(prev => prev.map(m => m.streaming ? { ...m, content: m.content + '\n\n[Cancelled by user]', streaming: false } : m));
+      setIsStreaming(false);
+      setCurrentOrderId(null);
+    } catch (err) {
+      console.error('Failed to cancel order:', err);
+    }
+  }
+
+  function toggleAgent(agentIdToToggle) {
+    setEnabledAgents(prev => {
+      const next = prev.includes(agentIdToToggle)
+        ? prev.filter(id => id !== agentIdToToggle)
+        : [...prev, agentIdToToggle];
+      localStorage.setItem(ENABLED_AGENTS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function toggleAllAgents(enable) {
+    const next = enable ? CLI_AGENTS.map(a => a.id) : [];
+    setEnabledAgents(next);
+    localStorage.setItem(ENABLED_AGENTS_KEY, JSON.stringify(next));
   }
 
   const currentAgent = getAgentById(agentId) || { name: 'Auto', color: '#6366F1' };
@@ -187,25 +232,69 @@ export default function SimpleMode({ daemon, compact = false }) {
             {agentOpen && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setAgentOpen(false)} />
-                <div className="absolute left-0 top-full mt-1 z-40 bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[160px] animate-fade-in">
-                  <p className="px-3 py-1 text-[9px] font-bold text-text-faint uppercase tracking-widest">Select Agent</p>
-                  <button
-                    onClick={() => { setAgentId('auto'); localStorage.setItem(AGENT_KEY, 'auto'); setAgentOpen(false); }}
-                    className={cn("w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors", agentId === 'auto' ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated")}
-                  >
-                    <Cpu size={12} className="text-accent" />
-                    Auto Select
-                  </button>
-                  {CLI_AGENTS.map(a => (
+                <div className="absolute left-0 top-full mt-1 z-40 bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden min-w-[200px] animate-fade-in">
+                  {/* Filter Section */}
+                  <div className="border-b border-border-subtle bg-white/5">
+                    <p className="px-3 py-1.5 text-[9px] font-bold text-text-faint uppercase tracking-widest">Filter Agents</p>
+                    <div className="px-3 pb-2 space-y-1">
+                      {CLI_AGENTS.map(a => (
+                        <label
+                          key={a.id}
+                          className="flex items-center gap-2 cursor-pointer hover:bg-white/5 rounded px-1 py-0.5 transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div
+                            className={cn(
+                              "w-3 h-3 rounded border flex items-center justify-center transition-all cursor-pointer",
+                              enabledAgents.includes(a.id)
+                                ? "bg-accent border-accent"
+                                : "border-border-subtle bg-bg-base"
+                            )}
+                            onClick={() => toggleAgent(a.id)}
+                          >
+                            {enabledAgents.includes(a.id) && <Check size={10} className="text-bg-base" />}
+                          </div>
+                          <a.icon size={11} style={{ color: a.color }} />
+                          <span className="text-[11px] text-text-sec">{a.name}</span>
+                        </label>
+                      ))}
+                      <div className="flex gap-1 pt-1">
+                        <button
+                          onClick={() => toggleAllAgents(true)}
+                          className="flex-1 text-[9px] text-accent hover:text-accent-hover px-1 py-0.5 rounded hover:bg-accent/10 transition-colors"
+                        >
+                          All
+                        </button>
+                        <button
+                          onClick={() => toggleAllAgents(false)}
+                          className="flex-1 text-[9px] text-text-faint hover:text-text-pri px-1 py-0.5 rounded hover:bg-white/5 transition-colors"
+                        >
+                          None
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Agent Selection */}
+                  <div className="py-1">
+                    <p className="px-3 py-1 text-[9px] font-bold text-text-faint uppercase tracking-widest">Select Agent</p>
                     <button
-                      key={a.id}
-                      onClick={() => { setAgentId(a.id); localStorage.setItem(AGENT_KEY, a.id); setAgentOpen(false); }}
-                      className={cn("w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors", agentId === a.id ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated")}
+                      onClick={() => { setAgentId('auto'); localStorage.setItem(AGENT_KEY, 'auto'); setAgentOpen(false); }}
+                      className={cn("w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors", agentId === 'auto' ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated")}
                     >
-                      <a.icon size={12} style={{ color: a.color }} />
-                      {a.name}
+                      <Cpu size={12} className="text-accent" />
+                      Auto Select
                     </button>
-                  ))}
+                    {filteredCLIAgents.map(a => (
+                      <button
+                        key={a.id}
+                        onClick={() => { setAgentId(a.id); localStorage.setItem(AGENT_KEY, a.id); setAgentOpen(false); }}
+                        className={cn("w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors", agentId === a.id ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated")}
+                      >
+                        <a.icon size={12} style={{ color: a.color }} />
+                        {a.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </>
             )}
@@ -352,9 +441,15 @@ export default function SimpleMode({ daemon, compact = false }) {
             className="flex-1 bg-transparent text-[13px] font-ui text-text-pri placeholder:text-text-faint focus:outline-none resize-none max-h-48 py-1 min-w-0"
             style={{ lineHeight: '1.5' }}
           />
-          <button onClick={sendMessage} disabled={!input.trim() || isStreaming} className={cn("p-1.5 rounded transition-all", input.trim() && !isStreaming ? "text-accent hover:text-accent-hover" : "text-text-faint/30")}>
-            <Send size={16} />
-          </button>
+          {isStreaming ? (
+            <button onClick={handleStop} className="p-1.5 rounded transition-all text-red-500 hover:text-red-400 hover:bg-red-500/10" title="Stop">
+              <Square size={16} />
+            </button>
+          ) : (
+            <button onClick={sendMessage} disabled={!input.trim()} className={cn("p-1.5 rounded transition-all", input.trim() ? "text-accent hover:text-accent-hover" : "text-text-faint/30")}>
+              <Send size={16} />
+            </button>
+          )}
         </div>
       </div>
     </div>

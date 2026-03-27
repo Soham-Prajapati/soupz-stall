@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Check, Loader2, RefreshCw, Send, Trash2 } from 'lucide-react';
+import { Bot, Check, Loader2, RefreshCw, Send, Trash2, Square } from 'lucide-react';
+import { cancelOrder } from '../../lib/daemon';
 
 const CORE_AGENTS = [
   { id: 'auto', label: 'Auto (Smart Route)' },
@@ -53,6 +54,8 @@ const HACKATHON_RADIATOR_ROUTES_PROMPT = [
   'Return concrete output only: system architecture, SQL schema, API contracts, event-driven replanning flow, fallback behavior, and 24-hour hackathon MVP plan + 5-minute demo script.',
 ].join(' ');
 
+const ENABLED_CORE_AGENTS_KEY = 'soupz_enabled_core_agents';
+
 export default function CoreConsole({ workspace }) {
   const [agentId, setAgentId] = useState('auto');
   const [buildMode, setBuildMode] = useState('quick');
@@ -65,6 +68,14 @@ export default function CoreConsole({ workspace }) {
   const [output, setOutput] = useState('');
   const [running, setRunning] = useState(false);
   const [lastOrderId, setLastOrderId] = useState(null);
+  const [enabledAgents, setEnabledAgents] = useState(() => {
+    try {
+      const stored = localStorage.getItem(ENABLED_CORE_AGENTS_KEY);
+      return stored ? JSON.parse(stored) : CORE_AGENTS.map(a => a.id);
+    } catch {
+      return CORE_AGENTS.map(a => a.id);
+    }
+  });
   const [orderStatus, setOrderStatus] = useState('idle');
   const [orderEventCount, setOrderEventCount] = useState(0);
   const [workerStatus, setWorkerStatus] = useState({});
@@ -92,6 +103,46 @@ export default function CoreConsole({ workspace }) {
   const knownWorkersRef = useRef([]);
   const online = !!workspace?.online;
 
+  const filteredCoreAgents = useMemo(() => {
+    return CORE_AGENTS.filter(a => a.id === 'auto' || enabledAgents.includes(a.id));
+  }, [enabledAgents]);
+
+  function toggleAgent(agentIdToToggle) {
+    setEnabledAgents(prev => {
+      const next = prev.includes(agentIdToToggle)
+        ? prev.filter(id => id !== agentIdToToggle)
+        : [...prev, agentIdToToggle];
+      localStorage.setItem(ENABLED_CORE_AGENTS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function toggleAllAgents(enable) {
+    const next = enable ? CORE_AGENTS.filter(a => a.id !== 'auto').map(a => a.id) : [];
+    setEnabledAgents(next);
+    localStorage.setItem(ENABLED_CORE_AGENTS_KEY, JSON.stringify(next));
+  }
+
+  async function handleStop() {
+    if (!lastOrderId) return;
+    try {
+      await cancelOrder(lastOrderId);
+      setOutput(prev => prev + '\n\n[core] Order cancelled by user\n');
+      setRunning(false);
+      setOrderStatus('cancelled');
+    } catch (err) {
+      console.error('Failed to cancel order:', err);
+      if (String(err?.message || '').includes('(404)')) {
+        setOutput(prev => prev + '\n\n[core] Cancel target no longer exists on daemon. Clearing stale run state.\n');
+        setRunning(false);
+        setOrderStatus('failed');
+        setLastOrderId(null);
+        return;
+      }
+      setOutput(prev => prev + `\n\n[core] Failed to cancel: ${err.message}\n`);
+    }
+  }
+
   const laneOrder = useMemo(() => {
     const keys = Object.keys(agentLanes || {});
     const workerFirst = keys.filter((k) => k !== 'synthesis').sort();
@@ -104,6 +155,12 @@ export default function CoreConsole({ workspace }) {
   );
 
   const canRun = useMemo(() => !!prompt.trim() && !running && !orderActive && online, [prompt, running, orderActive, online]);
+
+  useEffect(() => {
+    if (agentId === 'auto') return;
+    if (enabledAgents.includes(agentId)) return;
+    setAgentId('auto');
+  }, [agentId, enabledAgents]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -438,6 +495,13 @@ export default function CoreConsole({ workspace }) {
     const tick = async () => {
       try {
         const detail = await workspace.getOrderDetail(lastOrderId);
+        if (!detail) {
+          setOutput(prev => prev + '\n\n[core] Order no longer exists on daemon. Clearing stale session state.\n');
+          setRunning(false);
+          setOrderStatus('failed');
+          setLastOrderId(null);
+          return;
+        }
         parseOrder(detail);
       } catch {
         // Ignore polling errors; UI keeps last known state.
@@ -608,18 +672,68 @@ export default function CoreConsole({ workspace }) {
         </div>
 
         <div className="grid sm:grid-cols-2 gap-3">
-          <label className="text-xs text-text-sec">
-            Agent
-            <select
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              className="mt-1 w-full bg-bg-surface border border-border-subtle rounded-md px-2 py-2 text-sm"
-            >
-              {CORE_AGENTS.map((a) => (
-                <option key={a.id} value={a.id}>{a.label}</option>
-              ))}
-            </select>
-          </label>
+          <div className="border border-border-subtle/60 rounded-md bg-bg-surface/60 p-3 space-y-3">
+            <div>
+              <label className="text-xs text-text-sec block mb-1">Agent</label>
+              <select
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                className="w-full bg-bg-surface border border-border-subtle rounded-md px-2 py-2 text-sm"
+              >
+                {CORE_AGENTS.map((a) => (
+                  <option key={a.id} value={a.id}>{a.label}</option>
+                ))}
+              </select>
+            </div>
+            
+            {agentId === 'auto' && (
+              <div className="border-t border-border-subtle pt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-text-faint">Enable Agents</label>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => toggleAllAgents(true)}
+                      className="text-[10px] px-1.5 py-0.5 rounded text-accent hover:bg-accent/10"
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleAllAgents(false)}
+                      className="text-[10px] px-1.5 py-0.5 rounded text-text-faint hover:text-text-pri hover:bg-white/5"
+                    >
+                      None
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  {CORE_AGENTS.filter(a => a.id !== 'auto').map(a => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleAgent(a.id);
+                      }}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-white/5 transition-colors border border-transparent"
+                    >
+                      <span
+                        className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${
+                          enabledAgents.includes(a.id)
+                            ? 'bg-accent border-accent'
+                            : 'border-border-subtle bg-bg-base'
+                        }`}
+                      >
+                        {enabledAgents.includes(a.id) && <Check size={9} className="text-bg-base" />}
+                      </span>
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
           <label className="text-xs text-text-sec">
             Build Mode
@@ -780,14 +894,24 @@ export default function CoreConsole({ workspace }) {
         </label>
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleRun}
-            disabled={!canRun}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-accent text-white disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {running ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-            {running ? 'Running...' : 'Run Prompt'}
-          </button>
+          {running ? (
+            <button
+              onClick={handleStop}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white transition-colors"
+            >
+              <Square size={14} />
+              Stop
+            </button>
+          ) : (
+            <button
+              onClick={handleRun}
+              disabled={!canRun}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-accent text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Send size={14} />
+              Run Prompt
+            </button>
+          )}
 
           <div className="text-xs text-text-faint">
             {online ? 'Daemon online' : 'Daemon offline. Run npx soupz.'}

@@ -443,6 +443,33 @@ export async function submitOrderInput(orderId, answers) {
 }
 
 /**
+ * Cancel a running order
+ * @param {string} orderId - The order ID to cancel
+ * @returns {Promise<{ success: boolean, message?: string }>}
+ */
+export async function cancelOrder(orderId) {
+  const t = getStoredToken();
+  if (!t && !isLocalDaemon()) throw new Error('Not authenticated');
+  try {
+    const res = await fetch(`${getDaemonUrl()}/api/orders/${orderId}/cancel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(t ? { 'X-Soupz-Token': t } : {}),
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Failed to cancel order (${res.status}): ${body}`);
+    }
+    return await res.json();
+  } catch (err) {
+    throw err;
+  }
+}
+
+/**
  * Check which system CLIs are installed (git, docker, etc)
  * @returns {Promise<Array<{ name: string, installed: boolean, version?: string }>>}
  */
