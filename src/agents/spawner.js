@@ -32,7 +32,7 @@ export class AgentSpawner extends EventEmitter {
             const proc = spawn(agent.binary, args, {
                 cwd: cwd || process.cwd(),
                 env: { ...process.env },
-                stdio: ['pipe', 'pipe', 'pipe'],
+                stdio: ['ignore', 'pipe', 'pipe'],
             });
 
             this.processes.set(agentId, proc);

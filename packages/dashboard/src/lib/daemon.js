@@ -177,13 +177,14 @@ export async function checkDaemonHealth() {
 /**
  * Send an AI prompt. Streams chunks via WebSocket if connected locally,
  * falls back to Supabase relay for remote access.
- * @param {{prompt: string, agentId?: string, buildMode?: string, cwd?: string, orchestrationMode?: string, workerCount?: number, sameAgentOnly?: boolean, primaryCopies?: number, timeoutMs?: number}} request
+ * @param {{prompt: string, agentId?: string, allowedAgents?: string[], buildMode?: string, cwd?: string, orchestrationMode?: string, workerCount?: number, sameAgentOnly?: boolean, primaryCopies?: number, timeoutMs?: number}} request
  * @param {string} userId
  * @param {(chunk: string, done: boolean) => void} onChunk
  */
 export async function sendAgentPrompt(request, userId, onChunk) {
   const prompt = request?.prompt || '';
   const agentId = request?.agentId || 'auto';
+  const allowedAgents = Array.isArray(request?.allowedAgents) ? request.allowedAgents : undefined;
   const mode = request?.buildMode || 'balanced';
   const cwd = request?.cwd;
   const orchestrationMode = request?.orchestrationMode;
@@ -228,6 +229,7 @@ export async function sendAgentPrompt(request, userId, onChunk) {
               try { return JSON.parse(localStorage.getItem('soupz_mcp_servers') || '[]'); } catch { return []; }
             })();
             const payload = { prompt, agent: agentId, modelPolicy: mode || 'balanced' };
+            if (Array.isArray(allowedAgents)) payload.allowedAgents = allowedAgents;
             if (cwd) payload.cwd = cwd;
             if (orchestrationMode) payload.orchestrationMode = orchestrationMode;
             if (Number.isFinite(workerCount)) payload.workerCount = workerCount;

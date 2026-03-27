@@ -306,7 +306,12 @@ let orderCounter = 0;
 const orderRuntimes = new Map(); // orderId -> runtime metadata and child processes
 
 const WORKER_STALL_MS = Math.max(10000, Number.parseInt(process.env.SOUPZ_WORKER_STALL_MS || '45000', 10) || 45000);
-const DEEP_SYNTHESIS_TIMEOUT_MS = Math.max(15000, Number.parseInt(process.env.SOUPZ_DEEP_SYNTHESIS_TIMEOUT_MS || '120000', 10) || 120000);
+function resolveTimeoutMs(value, fallbackMs = 0) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return Math.max(0, fallbackMs);
+    return Math.max(0, parsed);
+}
+const DEEP_SYNTHESIS_TIMEOUT_MS = resolveTimeoutMs(process.env.SOUPZ_DEEP_SYNTHESIS_TIMEOUT_MS, 0);
 const ORDER_LANE_RING_MAX = Math.max(4000, Number.parseInt(process.env.SOUPZ_ORDER_LANE_RING_MAX || '20000', 10) || 20000);
 const OUTPUT_DELTA_EVENT_MIN_MS = Math.max(0, Number.parseInt(process.env.SOUPZ_OUTPUT_DELTA_EVENT_MIN_MS || '250', 10) || 250);
 const ORDER_STREAM_CHUNK_MAX = Math.max(512, Number.parseInt(process.env.SOUPZ_STREAM_CHUNK_MAX || '4096', 10) || 4096);
@@ -1071,19 +1076,40 @@ function isAgentInstalled(agentId) {
     try { execSync(`which ${bin}`, { timeout: 1000 }); return true; } catch { return false; }
 }
 
-function resolveRunAgent(requestedAgent) {
+function normalizeAllowedAgents(input) {
+    if (!Array.isArray(input)) return null;
+    const normalized = input
+        .map((value) => (WEB_AGENT_ALIASES.get(String(value || '').trim()) || String(value || '').trim()))
+        .filter((agentId) => Object.prototype.hasOwnProperty.call(AGENT_BINARY_MAP, agentId));
+    return Array.from(new Set(normalized));
+}
+
+function resolveRunAgent(requestedAgent, allowedAgents = null) {
+    const allowedSet = Array.isArray(allowedAgents) && allowedAgents.length > 0
+        ? new Set(allowedAgents)
+        : null;
+    const isAllowed = (agentId) => !allowedSet || allowedSet.has(agentId);
+
     // If requested agent is installed, use it
-    if (requestedAgent !== 'auto' && isAgentInstalled(requestedAgent)) {
+    if (requestedAgent !== 'auto' && isAllowed(requestedAgent) && isAgentInstalled(requestedAgent)) {
         return { agent: requestedAgent, fallback: false };
     }
     // Otherwise, walk the fallback chain
     for (const candidate of AGENT_FALLBACK_CHAIN) {
-        if (isAgentInstalled(candidate)) {
+        if (isAllowed(candidate) && isAgentInstalled(candidate)) {
             return { agent: candidate, fallback: requestedAgent !== 'auto', originalRequest: requestedAgent };
         }
     }
     // Last resort — try the configured web agent
     const envAgent = (process.env.SOUPZ_WEB_AGENT || 'gemini').trim();
+    if (isAllowed(envAgent)) {
+        return { agent: envAgent, fallback: true, originalRequest: requestedAgent };
+    }
+
+    if (allowedSet && allowedSet.size > 0) {
+        return { agent: Array.from(allowedSet)[0], fallback: true, originalRequest: requestedAgent, disallowedFallback: true };
+    }
+
     return { agent: envAgent, fallback: true, originalRequest: requestedAgent };
 }
 
@@ -1639,7 +1665,8 @@ async function initializeDeepWorkspaceArtifacts(order, workers, workerMeta, exec
 async function persistWorkerArtifact(order, artifactContext, workerId, agent, workerMetaInfo, result) {
     if (!artifactContext) return;
     const safeWorkerId = String(workerId || 'worker').replace(/[^a-zA-Z0-9-_]/g, '_');
-    const workerFile = join(artifactContext.runRoot, `${safeWorkerId}.md`);
+    const safeSpecialist = String(workerMetaInfo?.specialist || 'developer').replace(/[^a-zA-Z0-9-_]/g, '_');
+    const workerFile = join(artifactContext.runRoot, `${safeWorkerId}--${safeSpecialist}.md`);
     const body = [
         `# ${safeWorkerId}`,
         '',
@@ -1728,8 +1755,11 @@ function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
     return { ready: true, reason: 'ready' };
 }
 
-function getReadyAgentsInPriorityOrder(cwd = REPO_ROOT) {
-    const installed = getInstalledAgentsInPriorityOrder();
+function getReadyAgentsInPriorityOrder(cwd = REPO_ROOT, allowedAgents = null) {
+    const allowedSet = Array.isArray(allowedAgents) && allowedAgents.length > 0
+        ? new Set(allowedAgents)
+        : null;
+    const installed = getInstalledAgentsInPriorityOrder().filter((agent) => !allowedSet || allowedSet.has(agent));
     const ready = [];
     const skipped = [];
 
@@ -1745,8 +1775,8 @@ function getReadyAgentsInPriorityOrder(cwd = REPO_ROOT) {
     return { installed, ready, skipped };
 }
 
-async function resolveAutoRunAgent(prompt, cwd = REPO_ROOT) {
-    const { installed, ready, skipped } = getReadyAgentsInPriorityOrder(cwd);
+async function resolveAutoRunAgent(prompt, cwd = REPO_ROOT, allowedAgents = null) {
+    const { installed, ready, skipped } = getReadyAgentsInPriorityOrder(cwd, allowedAgents);
 
     if (installed.length === 0) {
         const fallback = resolveRunAgent('auto');
@@ -1769,8 +1799,8 @@ async function resolveAutoRunAgent(prompt, cwd = REPO_ROOT) {
     return { agent: ready[0], method: 'priority-fallback', available: installed, ready, skipped };
 }
 
-function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WORKERS, cwd = REPO_ROOT, deepPolicy = {}) {
-    const { ready, skipped } = getReadyAgentsInPriorityOrder(cwd);
+function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WORKERS, cwd = REPO_ROOT, deepPolicy = {}, allowedAgents = null) {
+    const { ready, skipped } = getReadyAgentsInPriorityOrder(cwd, allowedAgents);
     const count = Math.max(1, maxWorkers);
     const readySet = new Set(ready);
     const workerSlots = [];
@@ -2109,13 +2139,13 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         return;
     }
 
-    const workerTimeoutMs = Math.max(15000, Number.parseInt(deepPolicy.timeoutMs || `${DEEP_SYNTHESIS_TIMEOUT_MS}`, 10) || DEEP_SYNTHESIS_TIMEOUT_MS);
+    const workerTimeoutMs = resolveTimeoutMs(deepPolicy.timeoutMs, DEEP_SYNTHESIS_TIMEOUT_MS);
     const finishedWorkerIds = new Set();
     const workerRuns = workers.map(async (worker, idx) => {
         const { workerId, agent } = worker;
         const childKey = `worker:${workerId}`;
         const perWorkerTimeoutMs = agent === 'ollama'
-            ? Math.max(workerTimeoutMs, 180000)
+            ? (workerTimeoutMs > 0 ? Math.max(workerTimeoutMs, 180000) : 0)
             : workerTimeoutMs;
         const meta = workerMeta[workerId] || { workerLabel: workerId, specialist: 'developer', focus: 'deliver concrete implementation guidance' };
         if (specialistFocusPlan[meta.specialist]) {
@@ -2222,19 +2252,24 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         workerResults.push(result);
     };
 
-    await Promise.race([
-        Promise.all(workerRuns).then((all) => {
-            for (const result of all) syncResult(result);
-        }),
-        new Promise((resolve) => {
-            setTimeout(() => {
-                pushOrderEvent(order, 'parallel.timeout', { timeoutMs: workerTimeoutMs, partialWorkers: workerResults.length });
-                resolve();
-            }, workerTimeoutMs);
-        }),
-    ]);
+    if (workerTimeoutMs > 0) {
+        await Promise.race([
+            Promise.all(workerRuns).then((all) => {
+                for (const result of all) syncResult(result);
+            }),
+            new Promise((resolve) => {
+                setTimeout(() => {
+                    pushOrderEvent(order, 'parallel.timeout', { timeoutMs: workerTimeoutMs, partialWorkers: workerResults.length });
+                    resolve();
+                }, workerTimeoutMs);
+            }),
+        ]);
+    } else {
+        const all = await Promise.all(workerRuns);
+        for (const result of all) syncResult(result);
+    }
 
-    if (workerResults.length < workers.length) {
+    if (workerTimeoutMs > 0 && workerResults.length < workers.length) {
         cancelOrderChildren(order, runtime, 'parallel_timeout');
         const settled = await Promise.allSettled(workerRuns);
         for (const item of settled) {
@@ -2281,13 +2316,28 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     const synthesisAgent = (primaryWorker && primaryWorker.code === 0)
         ? runAgent
         : (successfulWorkers[0]?.agent || workers[0]?.agent || runAgent);
-    const synthesisTimeoutMs = Math.max(workerTimeoutMs, Math.min(300000, DEEP_SYNTHESIS_TIMEOUT_MS * 2));
+    const synthesisTimeoutMs = workerTimeoutMs > 0
+        ? Math.max(workerTimeoutMs, Math.min(300000, Math.max(DEEP_SYNTHESIS_TIMEOUT_MS, workerTimeoutMs) * 2))
+        : 0;
+
+    let sharedMemoryExcerpt = '';
+    if (artifactContext?.sharedPath) {
+        try {
+            sharedMemoryExcerpt = String(await readFile(artifactContext.sharedPath, 'utf8') || '').slice(0, 60000);
+        } catch {
+            sharedMemoryExcerpt = '';
+        }
+    }
+
     const synthesisPrompt = [
         'You are the lead synthesizer. Merge worker outputs into a single final answer.',
         executionPolicy,
         'Prioritize correctness, concrete file paths, and executable steps.',
         'Do not invoke tools, shell commands, file writes, skills, or external actions. Synthesize directly from provided worker outputs.',
         `Original task:\n${order.prompt}`,
+        sharedMemoryExcerpt
+            ? `Shared memory aggregate (from SHARED_MEMORY.md):\n${sharedMemoryExcerpt}`
+            : 'Shared memory aggregate: unavailable',
         'Worker outputs:',
         ...workerResults.map((r) => `\n--- ${r.workerId} via ${r.agent} (exit ${r.code}) ---\n${(r.stdout || r.stderr || '').slice(0, 40000)}`),
     ].join('\n');
@@ -2405,13 +2455,21 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     const modelPolicy = (req.body?.modelPolicy || 'balanced').toString().trim() || 'balanced';
     const orchestrationMode = (req.body?.orchestrationMode || '').toString().trim() || (modelPolicy === 'deep' ? 'parallel' : 'single');
     const mcpServers = Array.isArray(req.body?.mcpServers) ? req.body.mcpServers : [];
+        const rawAllowedAgents = req.body?.allowedAgents;
+        const allowedAgents = normalizeAllowedAgents(rawAllowedAgents);
     const payloadWorkerCount = Number.parseInt(req.body?.workerCount, 10);
     const payloadPrimaryCopies = Number.parseInt(req.body?.primaryCopies, 10);
-    const sameAgentOnly = req.body?.sameAgentOnly === true;
+    const sameAgentOnly = typeof req.body?.sameAgentOnly === 'boolean'
+        ? req.body.sameAgentOnly
+        : agent !== 'auto';
     const useAiPlanner = req.body?.useAiPlanner !== false;
     const plannerStyle = (req.body?.plannerStyle || 'balanced').toString().trim().toLowerCase();
     const plannerNotes = (req.body?.plannerNotes || '').toString().trim().slice(0, 4000);
     const previewWorkerCount = estimateDeepWorkerCount(prompt, Number.isFinite(payloadWorkerCount) ? payloadWorkerCount : null);
+
+        if (Array.isArray(rawAllowedAgents) && allowedAgents && allowedAgents.length === 0) {
+            return res.status(400).json({ error: 'No valid allowedAgents were provided' });
+        }
     const deepPolicy = {
         workerCount: Number.isFinite(payloadWorkerCount) ? Math.max(1, Math.min(MAX_DEEP_WORKERS, payloadWorkerCount)) : null,
         primaryCopies: Number.isFinite(payloadPrimaryCopies) ? Math.max(1, Math.min(MAX_DEEP_WORKERS, payloadPrimaryCopies)) : null,
@@ -2419,7 +2477,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         useAiPlanner,
         plannerStyle,
         plannerNotes,
-        timeoutMs: Number.parseInt(req.body?.timeoutMs, 10) || DEEP_SYNTHESIS_TIMEOUT_MS,
+        timeoutMs: resolveTimeoutMs(req.body?.timeoutMs, DEEP_SYNTHESIS_TIMEOUT_MS),
         allowSynthesisFallback: req.body?.allowSynthesisFallback !== false,
         workerCountResolved: previewWorkerCount,
         workerCountMax: MAX_DEEP_WORKERS,
@@ -2429,7 +2487,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     let routeMeta = { method: 'fallback-chain', available: [] };
 
     if (agent === 'auto') {
-        const auto = await resolveAutoRunAgent(prompt, orderCwd);
+        const auto = await resolveAutoRunAgent(prompt, orderCwd, allowedAgents);
         runAgent = auto.agent;
         routeMeta = {
             method: auto.method,
@@ -2438,14 +2496,14 @@ app.post('/api/orders', requireAuth, async (req, res) => {
             skipped: auto.skipped || [],
         };
     } else {
-        const resolved = resolveRunAgent(agent);
+        const resolved = resolveRunAgent(agent, allowedAgents);
         runAgent = resolved.agent;
         routeMeta = {
             method: resolved.fallback ? 'explicit-fallback' : 'explicit',
             fallback: resolved.fallback || false,
             originalRequest: resolved.originalRequest || null,
             available: getInstalledAgentsInPriorityOrder(),
-            ready: getReadyAgentsInPriorityOrder(orderCwd).ready,
+            ready: getReadyAgentsInPriorityOrder(orderCwd, allowedAgents).ready,
         };
     }
 
@@ -2479,6 +2537,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         createdFiles: [],
         pendingQuestions: [],
         pendingAnswers: {},
+        allowedAgents,
     };
 
     pushOrderEvent(order, 'order.created', { prompt, agent, modelPolicy, orchestrationMode, cwd: orderCwd });
@@ -2495,7 +2554,9 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         available: routeMeta.available || [],
         ready: routeMeta.ready || [],
         skipped: routeMeta.skipped || [],
+        allowedAgents,
     });
+        const { workers, skipped } = selectParallelWorkers(runAgent, workerCount, order.cwd, deepPolicy, order.allowedAgents || null);
     orders.set(id, order);
     void persistOrder(order);
     broadcastOrderUpdate(order);

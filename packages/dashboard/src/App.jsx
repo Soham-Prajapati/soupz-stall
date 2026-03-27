@@ -285,8 +285,8 @@ export default function App() {
         console.error('Failed to auto-fetch file tree:', err);
       }
     },
-    async sendPrompt({ prompt, agentId, buildMode, cwd, orchestrationMode, useAiPlanner, plannerStyle, plannerNotes, returnOrderImmediately }, onChunk) {
-      return sendAgentPrompt({ prompt, agentId, buildMode, cwd, orchestrationMode, useAiPlanner, plannerStyle, plannerNotes, returnOrderImmediately }, user?.id, onChunk);
+    async sendPrompt({ prompt, agentId, allowedAgents, sameAgentOnly, buildMode, cwd, orchestrationMode, useAiPlanner, plannerStyle, plannerNotes, returnOrderImmediately }, onChunk) {
+      return sendAgentPrompt({ prompt, agentId, allowedAgents, sameAgentOnly, buildMode, cwd, orchestrationMode, useAiPlanner, plannerStyle, plannerNotes, returnOrderImmediately }, user?.id, onChunk);
     },
     async readFile(path) {
       return readFile(path, user?.id);

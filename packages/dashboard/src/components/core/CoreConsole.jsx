@@ -154,7 +154,11 @@ export default function CoreConsole({ workspace }) {
     [lastOrderId, orderStatus],
   );
 
-  const canRun = useMemo(() => !!prompt.trim() && !running && !orderActive && online, [prompt, running, orderActive, online]);
+  const canRun = useMemo(() => {
+    if (!prompt.trim() || running || orderActive || !online) return false;
+    if (agentId === 'auto' && enabledAgents.length === 0) return false;
+    return true;
+  }, [prompt, running, orderActive, online, agentId, enabledAgents.length]);
 
   useEffect(() => {
     if (agentId === 'auto') return;
@@ -326,6 +330,8 @@ export default function CoreConsole({ workspace }) {
         {
           prompt: text,
           agentId,
+          allowedAgents: agentId === 'auto' ? enabledAgents : undefined,
+          sameAgentOnly: buildMode === 'deep' && agentId !== 'auto',
           buildMode,
           cwd,
           orchestrationMode: buildMode === 'deep' ? 'parallel' : 'single',
