@@ -82,39 +82,82 @@ async function startDaemon() {
         process.exit(0);
     }
 
-    const pairing = serverInfo.getCode();
-    const connectUrl = `${WEBAPP_URL}/connect?code=${pairing.code}`;
-    const tunnelUrl = process.env.SOUPZ_TUNNEL_URL || process.env.SOUPZ_TUNNEL_URLS || '';
+    const QRCode = (await import('qrcode')).default;
 
-    console.log(`  ${chalk.bold('Status:')}   ${chalk.green('● Online')}  ${chalk.dim(`localhost:${DAEMON_PORT}`)}`);
-    console.log(`  ${chalk.bold('Code:')}     ${chalk.hex('#F59E0B').bold(pairing.code)}  ${chalk.dim(`(expires in ${pairing.expiresIn}s)`)}`);
-    console.log(`  ${chalk.bold('Connect:')}  ${chalk.cyan(connectUrl)}\n`);
-    if (tunnelUrl) {
-        console.log(`  ${chalk.bold('Tunnel:')}   ${chalk.cyan(tunnelUrl)}`);
-        console.log(chalk.dim('  Phone can connect over internet using this tunnel target.\n'));
+    async function printPairingBlock(pairing) {
+        const connectUrl = `${WEBAPP_URL}/connect?code=${pairing.code}`;
+        const tunnelUrl = process.env.SOUPZ_TUNNEL_URL || process.env.SOUPZ_TUNNEL_URLS || '';
+
+        // Generate ASCII QR code for terminal
+        let qrAscii = '';
+        try {
+            qrAscii = await QRCode.toString(connectUrl, { type: 'terminal', small: true, errorCorrectionLevel: 'L' });
+        } catch { /* QR generation failed, skip */ }
+
+        console.log(`  ${chalk.bold('Status:')}   ${chalk.green('● Online')}  ${chalk.dim(`localhost:${DAEMON_PORT}`)}`);
+        console.log(`  ${chalk.bold('Code:')}     ${chalk.hex('#F59E0B').bold(pairing.code)}  ${chalk.dim(`(expires in ${pairing.expiresIn}s)`)}`);
+        console.log(`  ${chalk.bold('Connect:')}  ${chalk.cyan(connectUrl)}\n`);
+
+        if (qrAscii) {
+            console.log(chalk.dim('  Scan with your phone camera:\n'));
+            // Indent QR code for visual alignment
+            const indented = qrAscii.split('\n').map(line => `    ${line}`).join('\n');
+            console.log(indented);
+            console.log();
+        }
+
+        if (tunnelUrl) {
+            console.log(`  ${chalk.bold('Tunnel:')}   ${chalk.cyan(tunnelUrl)}`);
+            console.log(chalk.dim('  Phone can connect over internet using this tunnel target.\n'));
+        }
+
+        // Live countdown
+        const expiresAt = Date.now() + pairing.expiresIn * 1000;
+        const countdownInterval = setInterval(() => {
+            const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+            if (remaining <= 0) {
+                clearInterval(countdownInterval);
+                return;
+            }
+            const mins = Math.floor(remaining / 60);
+            const secs = remaining % 60;
+            const timeStr = `${mins}:${String(secs).padStart(2, '0')}`;
+            const bar = '█'.repeat(Math.ceil(remaining / 10)) + chalk.dim('░'.repeat(Math.max(0, 30 - Math.ceil(remaining / 10))));
+            process.stdout.write(`\r  ${chalk.dim('Code valid:')} ${bar} ${chalk.hex('#F59E0B')(timeStr)} `);
+        }, 1000);
+
+        return countdownInterval;
     }
-    console.log(chalk.dim('  Opening browser...'));
+
+    const pairing = serverInfo.getCode();
+    let activeCountdown = await printPairingBlock(pairing);
+
+    console.log(chalk.dim('\n  Opening browser...'));
     console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
 
     // Open browser to the connect page
+    const connectUrl = `${WEBAPP_URL}/connect?code=${pairing.code}`;
     const { exec } = await import('child_process');
     if (process.platform === 'darwin') exec(`open "${connectUrl}"`);
     else if (process.platform === 'linux') exec(`xdg-open "${connectUrl}"`);
     else if (process.platform === 'win32') exec(`start "${connectUrl}"`);
 
-    // Handle refresh — show updated code
-    serverInfo.onCodeRefresh?.((newPairing) => {
-        const newUrl = `${WEBAPP_URL}/connect?code=${newPairing.code}`;
-        console.log(chalk.dim(`\n  🔑 New code: `) + chalk.hex('#F59E0B').bold(newPairing.code) + chalk.dim(`  ${newUrl}`));
+    // Handle refresh — show updated code with new QR
+    serverInfo.onCodeRefresh?.(async (newPairing) => {
+        if (activeCountdown) clearInterval(activeCountdown);
+        console.log(chalk.dim('\n\n  --- Code refreshed ---\n'));
+        activeCountdown = await printPairingBlock(newPairing);
     });
 
     process.on('SIGINT', () => {
+        if (activeCountdown) clearInterval(activeCountdown);
         console.log(chalk.dim('\n  Stopping daemon...'));
         serverInfo.stop();
         process.exit(0);
     });
 
     process.on('SIGTERM', () => {
+        if (activeCountdown) clearInterval(activeCountdown);
         serverInfo.stop();
         process.exit(0);
     });

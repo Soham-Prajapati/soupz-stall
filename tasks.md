@@ -5,6 +5,20 @@
 - [ ] **Mobile Source Control Panel:** Implement the Git UI (diffs, commit generation, push) specifically for the mobile dashboard so the user can review and commit code from their phone during class.
 - [ ] **Smart Agent Routing (Cost/Tier Optimization):** Ensure the orchestrator actually respects the user's free tiers (GitHub Student Pro, Gemini Pro, Kiro, Ollama) and automatically fails over when limits are hit.
 
+## Deep Orchestration Hardening (March 2026)
+- [x] Prevent weak-model assignment on hard lanes (developer/architect/security/finance).
+- [x] Add stricter runtime readiness checks for subscription/auth-sensitive CLIs (Claude Code probe + Copilot auth check).
+- [x] Make synthesis consume `SHARED_MEMORY.md` context.
+- [x] Add specialist suffix to worker artifact filenames for clearer auditability.
+- [x] Enable nested deep-worker delegation: parent workers can spawn nested sub-agents and nested mini-team synthesis.
+- [x] Remove deep-worker timeout enforcement (workers/nested/synthesis no longer auto-killed by timeout).
+- [ ] Add structured shared-memory schema (claims, assumptions, sources, confidence) instead of raw text dumps.
+- [ ] Preserve lifecycle events while pruning only noisy deltas; make event cap configurable per deployment.
+- [ ] Surface explicit "not installed vs installed-not-authenticated vs subscription/quota" in UI agent readiness badges.
+- [ ] Add strict citation mode for research/finance lanes (reject uncited numeric claims).
+- [ ] Add "mixed-mode" toggle in Core Console to intentionally allow/disallow cross-agent fanout in deep mode.
+- [ ] Add Deep Run scorecard artifact (`ORDER_SCORECARD.md`) with per-lane quality, risk, and source coverage.
+
 ## Landing Page Improvements
 - [x] Clean up `LandingPage.jsx` (remove variants: Agentic, Clay, 3D) making it solely `LandingMorphism`.
 - [x] Add background elements (colorful orbs, gradients, curves) to `LandingMorphism` to enhance glassmorphism refraction.

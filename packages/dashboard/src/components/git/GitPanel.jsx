@@ -4,6 +4,7 @@ import {
   Sparkles, Loader2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { fetchBranches, checkoutBranch } from '../../lib/daemon';
 
 export default function GitPanel({ daemon }) {
   const [status, setStatus]     = useState(null);
@@ -14,7 +15,9 @@ export default function GitPanel({ daemon }) {
   const [pushing, setPushing]   = useState(false);
   const [expandDiff, setExpandDiff] = useState(true);
   const [branch, setBranch]     = useState('main');
+  const [branches, setBranches] = useState([]);
   const [generatingMsg, setGeneratingMsg] = useState(false);
+  const [branchDropdown, setBranchDropdown] = useState(false);
 
   useEffect(() => {
     refresh();
@@ -25,15 +28,32 @@ export default function GitPanel({ daemon }) {
   async function refresh() {
     setLoading(true);
     try {
-      const [s, d] = await Promise.all([
+      const [s, d, br] = await Promise.all([
         daemon?.gitStatus?.(),
         daemon?.gitDiff?.(),
+        fetchBranches(),
       ]);
       setStatus(s);
       setDiff(d || '');
-      setBranch(s?.branch || 'main');
+      setBranch(br?.current || s?.branch || 'main');
+      setBranches(br?.branches || []);
     } catch { /* no daemon */ }
     setLoading(false);
+  }
+
+  async function switchBranch(newBranch) {
+    if (newBranch === branch) {
+      setBranchDropdown(false);
+      return;
+    }
+    try {
+      await checkoutBranch(newBranch);
+      setBranch(newBranch);
+      setBranchDropdown(false);
+      refresh();
+    } catch (err) {
+      console.error('Failed to checkout branch:', err);
+    }
   }
 
   async function stageAll() {
@@ -103,11 +123,35 @@ export default function GitPanel({ daemon }) {
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border-subtle shrink-0">
         <GitBranch size={13} className="text-accent" />
-        <span className="text-text-pri font-medium text-xs">{branch}</span>
+        <div className="relative flex-1">
+          <button
+            onClick={() => setBranchDropdown(!branchDropdown)}
+            className="flex items-center gap-1 text-text-pri font-medium text-xs hover:text-accent transition-colors"
+          >
+            {branch}
+            <ChevronDown size={11} className={cn('transition-transform', branchDropdown && 'rotate-180')} />
+          </button>
+          {branchDropdown && (
+            <div className="absolute top-full left-0 mt-1 bg-bg-surface border border-border-subtle rounded shadow-lg z-10 max-h-60 overflow-y-auto">
+              {branches.map(b => (
+                <button
+                  key={b}
+                  onClick={() => switchBranch(b)}
+                  className={cn(
+                    'w-full text-left px-3 py-2.5 sm:py-2 text-xs hover:bg-bg-elevated transition-colors min-h-[44px] sm:min-h-0',
+                    b === branch ? 'text-accent font-medium bg-accent/5' : 'text-text-sec'
+                  )}
+                >
+                  {b}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           onClick={refresh}
           disabled={loading}
-          className="ml-auto p-2 -mr-2 text-text-faint hover:text-text-pri transition-colors"
+          className="p-2 -mr-2 text-text-faint hover:text-text-pri transition-colors"
           title="Refresh"
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
@@ -138,7 +182,7 @@ export default function GitPanel({ daemon }) {
           <div className="border-t border-border-subtle">
             <button
               onClick={() => setExpandDiff(v => !v)}
-              className="flex items-center gap-1.5 w-full px-3 py-2 hover:bg-bg-elevated text-text-faint hover:text-text-pri transition-colors"
+              className="flex items-center gap-1.5 w-full px-3 py-3 sm:py-2 hover:bg-bg-elevated text-text-faint hover:text-text-pri transition-colors min-h-[44px] sm:min-h-0"
             >
               {expandDiff ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
               <span className="text-xs font-medium">Diff</span>
@@ -222,7 +266,7 @@ function FileSection({ label, files, icon, onStageAll, emptyLabel }) {
     <div className="border-b border-border-subtle last:border-0">
       <div
         onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-1.5 px-3 py-2 cursor-pointer hover:bg-bg-elevated group"
+        className="flex items-center gap-1.5 px-3 py-3 sm:py-2 cursor-pointer hover:bg-bg-elevated group min-h-[44px] sm:min-h-0"
       >
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         <span className="text-xs font-medium text-text-sec flex-1">{label}</span>
@@ -243,7 +287,7 @@ function FileSection({ label, files, icon, onStageAll, emptyLabel }) {
           <p className="px-7 pb-2 text-text-faint text-xs">{emptyLabel}</p>
         ) : (
           files.map(f => (
-            <div key={f.path} className="flex items-center gap-2 px-4 sm:px-7 py-1 sm:py-0.5 hover:bg-bg-elevated group/file">
+            <div key={f.path} className="flex items-center gap-2 px-4 sm:px-7 py-2.5 sm:py-1 hover:bg-bg-elevated group/file min-h-[44px] sm:min-h-0">
               {icon}
               <span className="flex-1 truncate text-text-sec font-mono text-xs">{f.path}</span>
               <span className={cn(

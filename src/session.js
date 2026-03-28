@@ -1485,16 +1485,82 @@ Implementation Plan:`;
         });
 
         const results = await Promise.all(promises);
-        
+
         console.log(chalk.hex('#A855F7')(`\n  🧠 Synthesis Phase — synthesizing sub-agent reports…\n`));
-        let synthesisPrompt = `I delegated a complex task into sub-tasks. Here is the implementation plan and the results from each sub-agent:\n\n`;
-        synthesisPrompt += `Implementation Plan: ${plan}\n\n`;
-        results.forEach((r, i) => {
-            synthesisPrompt += `--- Sub-Task [${i + 1}]: ${r.task} ---\n${r.output.trim()}\n\n`;
+
+        // Separate successful and failed results
+        const successfulResults = results.filter(r => r.code === 0);
+        const failedResults = results.filter(r => r.code !== 0);
+
+        // If all workers failed, report the error and skip synthesis
+        if (successfulResults.length === 0) {
+            console.log(chalk.red(`  ✖ All sub-agents failed. Unable to synthesize results.`));
+            failedResults.forEach((r, i) => {
+                console.log(chalk.dim(`\n  Sub-agent ${i + 1} (${r.task}):`));
+                console.log(chalk.dim(r.output.slice(0, 500)));
+            });
+            return;
+        }
+
+        // Build structured synthesis prompt with only successful results
+        let synthesisPrompt = `You are synthesizing results from ${successfulResults.length} parallel AI agents.
+
+ORIGINAL TASK: ${prompt}
+
+IMPLEMENTATION PLAN:
+${plan}
+
+WORKER RESULTS:
+`;
+        successfulResults.forEach((r, i) => {
+            synthesisPrompt += `\n--- Agent ${i + 1} (${r.task}) ---\n${r.output.trim()}\n`;
         });
-        synthesisPrompt += `Based on these reports, provide a final, cohesive synthesis and completion of the original task: "${prompt}"`;
-        
-        await this.handleInput(synthesisPrompt, false); 
+
+        if (failedResults.length > 0) {
+            synthesisPrompt += `\n--- Failed Workers (excluded from synthesis) ---\n`;
+            failedResults.forEach(r => {
+                synthesisPrompt += `- ${r.task}: [failed]\n`;
+            });
+        }
+
+        synthesisPrompt += `\nMerge the best parts from each agent into a single coherent response. Resolve contradictions. Credit agents briefly where helpful.`;
+
+        // Spawn synthesis as direct child process using free model (gpt-5-mini)
+        const copilotAgent = available.find(a => a.id === 'copilot') || available[0];
+        if (!copilotAgent) {
+            console.log(chalk.red('  No agents available for synthesis.'));
+            return;
+        }
+
+        const args = (copilotAgent.build_args || []).map(a => a === '{prompt}' ? synthesisPrompt : a);
+        if (!args.includes('--model')) args.push('--model', 'gpt-5-mini');
+
+        console.log(chalk.dim(`  Synthesis process starting with ${copilotAgent.id}…\n`));
+
+        let synthesis = '';
+        await new Promise((resolve, reject) => {
+            const proc = spawn(copilotAgent.binary, args, { cwd: this.cwd || process.cwd() });
+            proc.stdout.on('data', d => {
+                const chunk = d.toString();
+                synthesis += chunk;
+                process.stdout.write(chunk);
+            });
+            proc.stderr.on('data', d => {
+                synthesis += d.toString();
+                process.stderr.write(d.toString());
+            });
+            proc.on('close', (code) => {
+                console.log('');
+                if (code === 0) {
+                    resolve(synthesis);
+                } else {
+                    reject(new Error(`Synthesis process exited with code ${code}`));
+                }
+            });
+            proc.on('error', reject);
+        }).catch(err => {
+            console.log(chalk.red(`  ✖ Synthesis failed: ${err.message}`));
+        }); 
     }
 
     async runAgentTeam(prompt) {

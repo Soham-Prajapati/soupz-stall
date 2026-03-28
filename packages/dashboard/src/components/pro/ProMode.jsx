@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
+import ErrorBoundary from '../shared/ErrorBoundary';
 
 // Define theme once to avoid "t.create is not a function" re-declaration crash
 loader.init().then(monaco => {
@@ -81,6 +82,9 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
   const [activeFileRight, setActiveFileRight] = useState(null);
   const [activePane, setActivePane] = useState('left'); // 'left' | 'right'
   const [fileContents, setFileContents] = useState({});
+  const [loadingFiles, setLoadingFiles] = useState(new Set());
+  const [fileAccessOrder, setFileAccessOrder] = useState([]);
+  const [treeLoading, setTreeLoading] = useState(false);
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
   const [running, setRunning] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
@@ -115,21 +119,46 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
 
   async function openFile(node) {
     if (!node || node.children) return;
-    
+
     if (splitMode && activePane === 'right') {
       setActiveFileRight(node);
     } else {
       setActiveFile(node);
     }
 
-    if (!openFiles.find(f => f.path === node.path)) {
-      setOpenFiles(prev => [...prev, node]);
-    }
+    // Update access order for LRU
+    setFileAccessOrder(prev => {
+      const filtered = prev.filter(p => p !== node.path);
+      return [...filtered, node.path];
+    });
+
+    // Cap open tabs at 20, close LRU when exceeding
+    setOpenFiles(prev => {
+      const existing = prev.find(f => f.path === node.path);
+      let next = existing ? prev : [...prev, node];
+
+      if (next.length > 20) {
+        const lruPath = fileAccessOrder[0];
+        next = next.filter(f => f.path !== lruPath);
+        setFileAccessOrder(order => order.filter(p => p !== lruPath));
+      }
+      return next;
+    });
+
+    // Load file content if not cached
     if (!fileContents[node.path]) {
+      setLoadingFiles(prev => new Set([...prev, node.path]));
       try {
         const content = await daemon?.readFile?.(node.path) || '';
         setFileContents(prev => ({ ...prev, [node.path]: content }));
       } catch { /* no daemon */ }
+      finally {
+        setLoadingFiles(prev => {
+          const next = new Set(prev);
+          next.delete(node.path);
+          return next;
+        });
+      }
     }
   }
 
@@ -237,17 +266,29 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             </div>
           )}
           {mobileTab === 'git' && (
-            <Suspense fallback={<PanelLoader />}>
-              <div className="h-full overflow-y-auto"><GitPanel daemon={daemon} /></div>
-            </Suspense>
+            <ErrorBoundary name="Git Panel">
+              <Suspense fallback={<PanelLoader />}>
+                <div className="h-full overflow-y-auto"><GitPanel daemon={daemon} /></div>
+              </Suspense>
+            </ErrorBoundary>
           )}
           {mobileTab === 'settings' && (
             <div className="h-full overflow-y-auto">
-              <Suspense fallback={<PanelLoader />}>
-                <StatsPanel />
-                <MCPPanel />
-                <ExtensionsMarketplace />
-              </Suspense>
+              <ErrorBoundary name="Stats Panel">
+                <Suspense fallback={<PanelLoader />}>
+                  <StatsPanel />
+                </Suspense>
+              </ErrorBoundary>
+              <ErrorBoundary name="MCP Panel">
+                <Suspense fallback={<PanelLoader />}>
+                  <MCPPanel />
+                </Suspense>
+              </ErrorBoundary>
+              <ErrorBoundary name="Extensions">
+                <Suspense fallback={<PanelLoader />}>
+                  <ExtensionsMarketplace />
+                </Suspense>
+              </ErrorBoundary>
             </div>
           )}
         </div>
@@ -288,7 +329,6 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           { id: 'search',     Icon: Search,    title: 'Search' },
           { id: 'git',        Icon: GitBranch, title: 'Source Control' },
           { id: 'agents',     Icon: Bot,       title: 'Agent Tasks' },
-          { id: 'extensions', Icon: Package,   title: 'Extensions' },
           { id: 'stats',      Icon: Trophy,    title: 'Stats & Leaderboard' },
           { id: 'settings',   Icon: Settings,  title: 'Settings' },
         ].map(({ id, Icon, title }) => (
@@ -325,59 +365,76 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           </div>
           <div className="flex-1 overflow-y-auto min-h-0">
             {activeActivity === 'files' && (
-              <FileTree
-                tree={fileTree}
-                changedPaths={changedPaths}
-                onSelect={openFile}
-                selectedPath={activeFile?.path}
-                onCreateFile={async (name) => {
-                  await daemon?.writeFile?.(name, '');
-                  await daemon?.refreshTree?.();
-                }}
-                onCreateFolder={async (name) => {
-                  await daemon?.runFile?.(`mkdir -p ${name}`);
-                  await daemon?.refreshTree?.();
-                }}
-                onRefresh={() => daemon?.refreshTree?.()}
-              />
+              treeLoading ? (
+                <div className="flex flex-col items-center justify-center py-8">
+                  <Loader2 size={16} className="text-text-faint animate-spin mb-2" />
+                  <p className="text-xs text-text-faint font-ui">Loading files...</p>
+                </div>
+              ) : (
+                <FileTree
+                  tree={fileTree}
+                  changedPaths={changedPaths}
+                  onSelect={openFile}
+                  selectedPath={activeFile?.path}
+                  onCreateFile={async (name) => {
+                    await daemon?.writeFile?.(name, '');
+                    await daemon?.refreshTree?.();
+                  }}
+                  onCreateFolder={async (name) => {
+                    await daemon?.runFile?.(`mkdir -p ${name}`);
+                    await daemon?.refreshTree?.();
+                  }}
+                  onRefresh={() => daemon?.refreshTree?.()}
+                />
+              )
             )}
             {activeActivity === 'search' && (
-              <Suspense fallback={<PanelLoader />}>
-                <SearchPanel
-                  daemon={daemon}
-                  fileTree={fileTree}
-                  onOpenFile={(node) => {
-                    openFile(node);
-                    if (node.lineNum && editorRef.current) {
-                      setTimeout(() => {
-                        editorRef.current.revealLineInCenter(node.lineNum);
-                        editorRef.current.setPosition({ lineNumber: node.lineNum, column: 1 });
-                        editorRef.current.focus();
-                      }, 100);
-                    }
-                  }}
-                />
-              </Suspense>
+              <ErrorBoundary name="Search Panel">
+                <Suspense fallback={<PanelLoader />}>
+                  <SearchPanel
+                    daemon={daemon}
+                    fileTree={fileTree}
+                    onOpenFile={(node) => {
+                      openFile(node);
+                      if (node.lineNum && editorRef.current) {
+                        setTimeout(() => {
+                          editorRef.current.revealLineInCenter(node.lineNum);
+                          editorRef.current.setPosition({ lineNumber: node.lineNum, column: 1 });
+                          editorRef.current.focus();
+                        }, 100);
+                      }
+                    }}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             )}
             {activeActivity === 'git' && (
-              <Suspense fallback={<PanelLoader />}>
-                <GitPanel daemon={daemon} />
-              </Suspense>
+              <ErrorBoundary name="Git Panel">
+                <Suspense fallback={<PanelLoader />}>
+                  <GitPanel daemon={daemon} />
+                </Suspense>
+              </ErrorBoundary>
             )}
             {activeActivity === 'agents' && (
-              <Suspense fallback={<PanelLoader />}>
-                <AgentDashboard daemon={daemon} />
-              </Suspense>
+              <ErrorBoundary name="Agent Dashboard">
+                <Suspense fallback={<PanelLoader />}>
+                  <AgentDashboard daemon={daemon} />
+                </Suspense>
+              </ErrorBoundary>
             )}
             {activeActivity === 'extensions' && (
-              <Suspense fallback={<PanelLoader />}>
-                <ExtensionsMarketplace />
-              </Suspense>
+              <ErrorBoundary name="Extensions">
+                <Suspense fallback={<PanelLoader />}>
+                  <ExtensionsMarketplace />
+                </Suspense>
+              </ErrorBoundary>
             )}
             {activeActivity === 'stats' && (
-              <Suspense fallback={<PanelLoader />}>
-                <StatsPanel workspace={daemon} />
-              </Suspense>
+              <ErrorBoundary name="Stats Panel">
+                <Suspense fallback={<PanelLoader />}>
+                  <StatsPanel workspace={daemon} />
+                </Suspense>
+              </ErrorBoundary>
             )}
             {activeActivity === 'settings' && (
               <div className="space-y-0">
@@ -410,9 +467,11 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                     </div>
                   </div>
                 </div>
-                <Suspense fallback={<PanelLoader />}>
-                  <MCPPanel />
-                </Suspense>
+                <ErrorBoundary name="MCP Panel">
+                  <Suspense fallback={<PanelLoader />}>
+                    <MCPPanel />
+                  </Suspense>
+                </ErrorBoundary>
               </div>
             )}
           </div>
@@ -463,6 +522,11 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                 </span>
               </button>
             ))}
+            {openFiles.length >= 20 && (
+              <div className="flex items-center px-2 py-1 text-[10px] font-ui text-text-faint bg-warning/15 rounded border border-warning/30 shrink-0 ml-1">
+                {openFiles.length}/20
+              </div>
+            )}
           </div>
 
           {/* Split Editor toggle */}
@@ -536,64 +600,18 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           {/* Left Pane */}
           <div className="flex-1 h-full min-w-0" onClick={() => setActivePane('left')}>
             {activeFile ? (
-              <Editor
-                path={activeFile.path}
-                value={String(fileContents[activeFile.path] || '')}
-                language={getLang(activeFile.name)}
-                theme="soupz-dark"
-                onChange={(value) => {
-                  setFileContents(prev => ({ ...prev, [activeFile.path]: value }));
-                }}
-                onMount={handleEditorMount}
-                options={{
-                  fontSize: 13,
-                  fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                  fontLigatures: true,
-                  lineHeight: 1.7,
-                  minimap: { enabled: true, scale: 1, showSlider: 'mouseover' },
-                  scrollBeyondLastLine: false,
-                  padding: { top: 12, bottom: 12 },
-                  renderLineHighlight: 'line',
-                  smoothScrolling: true,
-                  cursorBlinking: 'smooth',
-                  cursorSmoothCaretAnimation: 'on',
-                  roundedSelection: true,
-                  tabSize: 2,
-                  wordWrap: 'off',
-                }}
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full gap-3 text-text-faint bg-bg-surface/30">
-                <Files size={32} className="opacity-30" />
-                <p className="text-sm font-ui">Select a file to edit</p>
-              </div>
-            )}
-          </div>
-
-          {/* Right Pane (Split Mode) */}
-          {splitMode && (
-            <div className="flex-1 h-full min-w-0 border-l border-border-subtle" onClick={() => setActivePane('right')}>
-              {activeFileRight ? (
+              loadingFiles.has(activeFile.path) ? (
+                <FileLoadingSkeleton />
+              ) : (
                 <Editor
-                  path={activeFileRight.path + '_right'} // Unique path to prevent model clash if same file
-                  value={String(fileContents[activeFileRight.path] || '')}
-                  language={getLang(activeFileRight.name)}
+                  path={activeFile.path}
+                  value={String(fileContents[activeFile.path] || '')}
+                  language={getLang(activeFile.name)}
                   theme="soupz-dark"
                   onChange={(value) => {
-                    setFileContents(prev => ({ ...prev, [activeFileRight.path]: value }));
-                    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-                    saveTimeoutRef.current = setTimeout(() => {
-                      daemon?.writeFile?.(activeFileRight.path, value);
-                    }, 1000);
+                    setFileContents(prev => ({ ...prev, [activeFile.path]: value }));
                   }}
-                  onMount={(editor, monaco) => {
-                    // Cmd/Ctrl+S to save
-                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-                      if (activeFileRight) {
-                        daemon?.writeFile?.(activeFileRight.path, editor.getValue());
-                      }
-                    });
-                  }}
+                  onMount={handleEditorMount}
                   options={{
                     fontSize: 13,
                     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -611,6 +629,60 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                     wordWrap: 'off',
                   }}
                 />
+              )
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-text-faint bg-bg-surface/30">
+                <Files size={32} className="opacity-30" />
+                <p className="text-sm font-ui">Select a file to edit</p>
+              </div>
+            )}
+          </div>
+
+          {/* Right Pane (Split Mode) */}
+          {splitMode && (
+            <div className="flex-1 h-full min-w-0 border-l border-border-subtle" onClick={() => setActivePane('right')}>
+              {activeFileRight ? (
+                loadingFiles.has(activeFileRight.path) ? (
+                  <FileLoadingSkeleton />
+                ) : (
+                  <Editor
+                    path={activeFileRight.path + '_right'} // Unique path to prevent model clash if same file
+                    value={String(fileContents[activeFileRight.path] || '')}
+                    language={getLang(activeFileRight.name)}
+                    theme="soupz-dark"
+                    onChange={(value) => {
+                      setFileContents(prev => ({ ...prev, [activeFileRight.path]: value }));
+                      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+                      saveTimeoutRef.current = setTimeout(() => {
+                        daemon?.writeFile?.(activeFileRight.path, value);
+                      }, 1000);
+                    }}
+                    onMount={(editor, monaco) => {
+                      // Cmd/Ctrl+S to save
+                      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+                        if (activeFileRight) {
+                          daemon?.writeFile?.(activeFileRight.path, editor.getValue());
+                        }
+                      });
+                    }}
+                    options={{
+                      fontSize: 13,
+                      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                      fontLigatures: true,
+                      lineHeight: 1.7,
+                      minimap: { enabled: true, scale: 1, showSlider: 'mouseover' },
+                      scrollBeyondLastLine: false,
+                      padding: { top: 12, bottom: 12 },
+                      renderLineHighlight: 'line',
+                      smoothScrolling: true,
+                      cursorBlinking: 'smooth',
+                      cursorSmoothCaretAnimation: 'on',
+                      roundedSelection: true,
+                      tabSize: 2,
+                      wordWrap: 'off',
+                    }}
+                  />
+                )
               ) : (
                 <div className="flex flex-col items-center justify-center h-full gap-3 text-text-faint bg-bg-surface/30">
                   <Columns size={32} className="opacity-30" />
@@ -623,7 +695,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
 
         {/* Terminal panel — resizable */}
         {terminalOpen && (
-          <div 
+          <div
             className={cn(
               "flex flex-col shrink-0 min-h-0",
               terminalMaximized ? "absolute inset-0 z-50 bg-bg-base" : "relative"
@@ -636,12 +708,16 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                 onResize={(delta) => setTerminalHeight(prev => Math.max(100, Math.min(800, prev - delta)))}
               />
             )}
-            <TerminalPanel 
-              daemon={daemon} 
-              onClose={() => { setTerminalOpen(false); setTerminalMaximized(false); }} 
-              maximized={terminalMaximized}
-              onMaximize={() => setTerminalMaximized(!terminalMaximized)}
-            />
+            <ErrorBoundary name="Terminal">
+              <Suspense fallback={<PanelLoader />}>
+                <TerminalPanel
+                  daemon={daemon}
+                  onClose={() => { setTerminalOpen(false); setTerminalMaximized(false); }}
+                  maximized={terminalMaximized}
+                  onMaximize={() => setTerminalMaximized(!terminalMaximized)}
+                />
+              </Suspense>
+            </ErrorBoundary>
           </div>
         )}
       </div>
@@ -658,6 +734,16 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function FileLoadingSkeleton() {
+  return (
+    <div className="flex-1 min-h-0 bg-bg-surface p-4 flex flex-col gap-3">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="h-4 bg-bg-elevated rounded animate-pulse" style={{ width: `${80 - i * 10}%` }} />
+      ))}
     </div>
   );
 }

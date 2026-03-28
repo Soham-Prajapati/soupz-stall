@@ -3,11 +3,11 @@ import {
   GitBranch, AlertCircle, AlertTriangle, Bell, Bot,
   Wifi, WifiOff, MessageSquare, Flame, Zap, Check,
   BrainCircuit, Sparkles, Github, Cpu, X, ChevronUp,
-  Radio, Clock, Terminal, RotateCcw,
+  Radio, Clock, Terminal, RotateCcw, Circle,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { getAgentById, CLI_AGENTS } from '../../lib/agents';
-import { checkAgentAvailability } from '../../lib/daemon';
+import { checkAgentAvailability, fetchBranches, getWSState } from '../../lib/daemon';
 
 const STORAGE_KEY = 'soupz_chat_history';
 const USAGE_KEY   = 'soupz_agent_usage';
@@ -50,13 +50,16 @@ export default function StatusBar({
   mode = 'simple',
   editorState = null,
   daemon = null,
+  onOpenGitPanel = null,
 }) {
   const [agentPopupOpen, setAgentPopupOpen] = useState(false);
   const [notifPopupOpen, setNotifPopupOpen] = useState(false);
   const [availability, setAvailability] = useState({});
   const [gitBranch, setGitBranch] = useState('main');
+  const [wsState, setWsState] = useState('disconnected');
   const popupRef = useRef(null);
   const notifRef = useRef(null);
+  const wsCheckIntervalRef = useRef(null);
 
   const messages  = useMemo(() => readJSON(STORAGE_KEY, []), [agentPopupOpen]);
   const usage     = useMemo(() => readJSON(USAGE_KEY, {}), [agentPopupOpen]);
@@ -70,16 +73,27 @@ export default function StatusBar({
   const agentCount = Object.keys(usage).length;
   const streak     = readJSON(STREAK_KEY, { count: 0 }).count || 0;
 
-  // Check which CLI agents are installed on the connected machine
+  // Check which CLI agents are installed and fetch git branch
   useEffect(() => {
     if (workspaceOnline && daemon) {
       checkAgentAvailability().then(a => setAvailability(a || {}));
-      // Fetch git branch from daemon properly
-      daemon.gitStatus().then(d => {
-        if (d?.branch) setGitBranch(d.branch);
+      // Fetch current git branch
+      fetchBranches().then(data => {
+        if (data?.current) setGitBranch(data.current);
+        else if (data?.branch) setGitBranch(data.branch);
       }).catch(() => {});
     }
   }, [workspaceOnline, daemon]);
+
+  // Monitor WebSocket connection state
+  useEffect(() => {
+    const updateWSState = () => setWsState(getWSState());
+    updateWSState();
+    wsCheckIntervalRef.current = setInterval(updateWSState, 500);
+    return () => {
+      if (wsCheckIntervalRef.current) clearInterval(wsCheckIntervalRef.current);
+    };
+  }, []);
 
   // Close popups on outside click
   useEffect(() => {
@@ -110,23 +124,32 @@ export default function StatusBar({
     <div className={cn('h-[22px] flex items-center shrink-0 select-none z-20', barBg, textColor)}>
       {/* ── LEFT SIDE ────────────────────────────────────────────── */}
       <div className="flex items-center">
-        {/* Connection status */}
-        <StatusItem title={isRemote ? `Connected: ${machine || 'local'}` : 'Not connected to workspace'}>
-          {isRemote ? (
+        {/* Connection status with WebSocket indicator */}
+        <StatusItem title={
+          wsState === 'connected' ? `Connected: ${machine || 'local'}` :
+          wsState === 'connecting' ? 'Reconnecting...' :
+          'Not connected to workspace'
+        }>
+          {wsState === 'connected' ? (
             <>
-              <Radio size={11} />
+              <Circle size={8} className="fill-success text-success" />
               <span className="hidden sm:inline">{machine || 'Connected'}</span>
+            </>
+          ) : wsState === 'connecting' ? (
+            <>
+              <Circle size={8} className="fill-warning text-warning animate-pulse" />
+              <span className="hidden sm:inline">Reconnecting</span>
             </>
           ) : (
             <>
-              <WifiOff size={11} />
+              <Circle size={8} className="fill-destructive text-destructive" />
               <span className="hidden sm:inline">Offline</span>
             </>
           )}
         </StatusItem>
 
         {/* Git branch */}
-        <StatusItem title="Source Control">
+        <StatusItem title="Click to open Source Control" onClick={onOpenGitPanel}>
           <GitBranch size={11} />
           <span>{gitBranch}</span>
         </StatusItem>

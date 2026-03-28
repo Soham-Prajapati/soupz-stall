@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Plus, Trash2, Plug, ChevronDown, ChevronUp, Zap } from 'lucide-react';
+import { Plus, Trash2, Plug, ChevronDown, ChevronUp, Zap, Database, Check } from 'lucide-react';
 
 const MCP_KEY = 'soupz_mcp_servers';
+const WORKSPACE_CONFIG_KEY = 'soupz_workspace_config';
 
 // Preset MCP servers for quick-add (verified package names)
 const MCP_PRESETS = [
@@ -51,6 +52,14 @@ function saveMCP(servers) {
   localStorage.setItem(MCP_KEY, JSON.stringify(servers));
 }
 
+function readWorkspaceConfig() {
+  try { return JSON.parse(localStorage.getItem(WORKSPACE_CONFIG_KEY) || '{}'); } catch { return {}; }
+}
+
+function saveWorkspaceConfig(config) {
+  localStorage.setItem(WORKSPACE_CONFIG_KEY, JSON.stringify(config));
+}
+
 const EMPTY_FORM = { name: '', url: '', description: '' };
 
 export default function MCPPanel() {
@@ -59,6 +68,12 @@ export default function MCPPanel() {
   const [form,      setForm]      = useState(EMPTY_FORM);
   const [collapsed, setCollapsed] = useState(true);
   const [showPresets, setShowPresets] = useState(false);
+
+  // Database config state
+  const [workspaceConfig, setWorkspaceConfig] = useState(readWorkspaceConfig);
+  const [dbEditing, setDbEditing] = useState(false);
+  const [dbForm, setDbForm] = useState({ supabaseUrl: '', anonKey: '' });
+  const [dbCollapsed, setDbCollapsed] = useState(true);
 
   function addServer() {
     if (!form.name.trim() || !form.url.trim()) return;
@@ -96,8 +111,152 @@ export default function MCPPanel() {
     if (e.key === 'Escape') cancelAdding();
   }
 
+  function validateServerCommand(url) {
+    if (!url) return false;
+    // Valid if: http URL, localhost, npx/npm command, or known executables
+    return /^https?:\/\/|localhost|127\.0\.0\.1|^npx\s|^npm\s|^(node|python|ruby|go|cargo|java)/.test(url.trim());
+  }
+
+  function saveDatabase() {
+    if (!dbForm.supabaseUrl.trim() || !dbForm.anonKey.trim()) return;
+    const config = { supabaseUrl: dbForm.supabaseUrl.trim(), anonKey: dbForm.anonKey.trim() };
+    setWorkspaceConfig(config);
+    saveWorkspaceConfig(config);
+    setDbEditing(false);
+    setDbForm({ supabaseUrl: '', anonKey: '' });
+  }
+
+  function clearDatabase() {
+    setWorkspaceConfig({});
+    saveWorkspaceConfig({});
+  }
+
+  function startEditingDatabase() {
+    setDbForm({
+      supabaseUrl: workspaceConfig.supabaseUrl || '',
+      anonKey: workspaceConfig.anonKey || ''
+    });
+    setDbEditing(true);
+  }
+
+  function cancelEditingDatabase() {
+    setDbEditing(false);
+    setDbForm({ supabaseUrl: '', anonKey: '' });
+  }
+
+  function handleDbKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      saveDatabase();
+    }
+    if (e.key === 'Escape') cancelEditingDatabase();
+  }
+
   return (
     <div className="border-t border-border-subtle">
+      {/* Database Config Section */}
+      <button
+        onClick={() => setDbCollapsed(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-bg-elevated transition-colors border-b border-border-subtle"
+      >
+        <div className="flex items-center gap-2">
+          <Database size={13} className="text-accent" />
+          <span className="text-xs font-ui font-medium text-text-sec">Connect Database</span>
+          {Object.keys(workspaceConfig).length > 0 && (
+            <span className="flex items-center gap-1 text-[10px] bg-success/10 text-success px-1.5 py-0.5 rounded font-mono">
+              <Check size={10} />
+              Connected
+            </span>
+          )}
+        </div>
+        {dbCollapsed
+          ? <ChevronDown size={12} className="text-text-faint" />
+          : <ChevronUp   size={12} className="text-text-faint" />
+        }
+      </button>
+
+      {!dbCollapsed && (
+        <div className="px-4 py-4 space-y-3 border-b border-border-subtle">
+          <p className="text-[11px] text-text-faint font-ui leading-relaxed">
+            Connect your Supabase project to enable database access in agents.
+          </p>
+
+          {Object.keys(workspaceConfig).length > 0 && (
+            <div className="bg-success/5 border border-success/10 rounded-md px-2.5 py-1.5">
+              <p className="text-[11px] text-success/70 font-ui">
+                Database connected — configuration saved to workspace
+              </p>
+              <p className="text-[10px] text-text-faint mt-1 font-mono truncate">
+                {workspaceConfig.supabaseUrl}
+              </p>
+            </div>
+          )}
+
+          {dbEditing ? (
+            <div className="space-y-2">
+              <input
+                autoFocus
+                value={dbForm.supabaseUrl}
+                onChange={e => setDbForm(f => ({ ...f, supabaseUrl: e.target.value }))}
+                onKeyDown={handleDbKeyDown}
+                placeholder="Supabase URL (e.g. https://xxxxx.supabase.co)"
+                className="w-full bg-bg-base border border-border-subtle rounded-md px-2.5 py-1.5 text-xs font-ui text-text-pri placeholder:text-text-faint focus:outline-none focus:border-accent transition-colors"
+              />
+              <input
+                value={dbForm.anonKey}
+                onChange={e => setDbForm(f => ({ ...f, anonKey: e.target.value }))}
+                onKeyDown={handleDbKeyDown}
+                placeholder="Anon Key (public key from Supabase)"
+                className="w-full bg-bg-base border border-border-subtle rounded-md px-2.5 py-1.5 text-xs font-mono text-text-pri placeholder:text-text-faint focus:outline-none focus:border-accent transition-colors"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={saveDatabase}
+                  disabled={!dbForm.supabaseUrl.trim() || !dbForm.anonKey.trim()}
+                  className="flex-1 py-1.5 rounded-md bg-accent text-white text-xs font-ui font-medium hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  Save Database
+                </button>
+                <button
+                  onClick={cancelEditingDatabase}
+                  className="px-3 py-1.5 rounded-md border border-border-subtle text-text-faint text-xs font-ui hover:text-text-sec transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              {Object.keys(workspaceConfig).length > 0 ? (
+                <>
+                  <button
+                    onClick={startEditingDatabase}
+                    className="flex-1 py-1.5 rounded-md border border-border-subtle text-text-sec text-xs font-ui hover:border-accent hover:text-accent transition-all"
+                  >
+                    Edit Connection
+                  </button>
+                  <button
+                    onClick={clearDatabase}
+                    className="flex-1 py-1.5 rounded-md border border-danger/20 text-danger/70 text-xs font-ui hover:text-danger hover:border-danger/40 transition-all"
+                  >
+                    Disconnect
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={startEditingDatabase}
+                  className="w-full py-1.5 rounded-md border border-dashed border-border-mid text-text-faint text-xs font-ui hover:text-text-sec hover:border-border-strong transition-all"
+                >
+                  Add Supabase Credentials
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* T1 will implement POST /api/workspace/config */}
+        </div>
+      )}
+
       {/* Header / collapse toggle */}
       <button
         onClick={() => setCollapsed(v => !v)}
@@ -139,31 +298,37 @@ export default function MCPPanel() {
           )}
 
           {/* Server list */}
-          {servers.map(s => (
-            <div
-              key={s.id}
-              className="flex items-start gap-2 bg-bg-elevated border border-border-subtle rounded-lg px-3 py-2"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-ui font-medium text-text-pri">{s.name}</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse shrink-0" />
-                </div>
-                <p className="text-[10px] font-mono text-text-faint truncate">{s.url}</p>
-                {s.description && (
-                  <p className="text-[10px] text-text-faint mt-0.5">{s.description}</p>
-                )}
-              </div>
-              <button
-                onClick={() => removeServer(s.id)}
-                className="text-text-faint hover:text-danger transition-colors mt-0.5 shrink-0"
-                title="Remove server"
-                aria-label={`Remove ${s.name}`}
+          {servers.map(s => {
+            const isValid = validateServerCommand(s.url);
+            return (
+              <div
+                key={s.id}
+                className="flex items-start gap-2 bg-bg-elevated border border-border-subtle rounded-lg px-3 py-2"
               >
-                <Trash2 size={12} />
-              </button>
-            </div>
-          ))}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-ui font-medium text-text-pri">{s.name}</span>
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${isValid ? 'bg-success animate-pulse' : 'bg-text-faint opacity-40'}`}
+                      title={isValid ? 'Command is valid' : 'Command format not recognized'}
+                    />
+                  </div>
+                  <p className="text-[10px] font-mono text-text-faint truncate">{s.url}</p>
+                  {s.description && (
+                    <p className="text-[10px] text-text-faint mt-0.5">{s.description}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => removeServer(s.id)}
+                  className="text-text-faint hover:text-danger transition-colors mt-0.5 shrink-0"
+                  title="Remove server"
+                  aria-label={`Remove ${s.name}`}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            );
+          })}
 
           {/* Quick-add presets */}
           {showPresets && (

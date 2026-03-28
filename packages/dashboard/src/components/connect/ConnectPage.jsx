@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
-import { Terminal, CheckCircle, XCircle, ArrowRight, RefreshCw, QrCode, Keyboard } from 'lucide-react';
+import { useState, useEffect, useRef, forwardRef } from 'react';
+import { Terminal, CheckCircle, XCircle, ArrowRight, RefreshCw, QrCode, Keyboard, Shield, ArrowLeft } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { cn } from '../../lib/cn';
 import { supabase } from '../../lib/supabase';
+import { checkDaemonHealth } from '../../lib/daemon';
 
-// Connect to daemon - can be localhost or an IP from Supabase pairing table
 const LOCAL_DAEMON_PORT = 7533;
+const CODE_TTL_MS = 300_000; // 5 minutes
 
 function isProbablyMobileDevice() {
   if (typeof window === 'undefined') return false;
@@ -19,45 +20,27 @@ function normalizeBaseUrl(target, fallbackPort) {
   if (!target || typeof target !== 'string') return null;
   const trimmed = target.trim();
   if (!trimmed) return null;
-
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    return trimmed.replace(/\/$/, '');
-  }
-
-  // Accept both raw IP/host and host:port strings.
-  if (trimmed.includes(':')) {
-    return `http://${trimmed}`;
-  }
-
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed.replace(/\/$/, '');
+  if (trimmed.includes(':')) return `http://${trimmed}`;
   return `http://${trimmed}:${fallbackPort}`;
 }
 
 function resolveRemoteCandidates(pairingRow) {
   const port = pairingRow?.port || LOCAL_DAEMON_PORT;
   const rawTargets = Array.isArray(pairingRow?.lan_ips) ? pairingRow.lan_ips : [];
-  const normalized = rawTargets
-    .map((target) => normalizeBaseUrl(target, port))
-    .filter(Boolean);
+  const normalized = rawTargets.map((target) => normalizeBaseUrl(target, port)).filter(Boolean);
   return Array.from(new Set(normalized));
 }
 
 async function parseJsonSafe(response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
+  try { return await response.json(); } catch { return null; }
 }
 
 function normalizePairingPayload(payload) {
   if (!payload || typeof payload !== 'object') return null;
   const token = payload.token || payload.sessionToken || null;
   if (!token) return null;
-  return {
-    ...payload,
-    token,
-    success: payload.success !== false,
-  };
+  return { ...payload, token, success: payload.success !== false };
 }
 
 async function tryPairAgainstBase(baseUrl, code, timeoutMs = 2000) {
@@ -67,7 +50,6 @@ async function tryPairAgainstBase(baseUrl, code, timeoutMs = 2000) {
     base ? `${base}/pair/validate` : '/pair/validate',
   ];
   let lastData = null;
-
   for (const target of endpoints) {
     const res = await fetch(target, {
       method: 'POST',
@@ -78,68 +60,144 @@ async function tryPairAgainstBase(baseUrl, code, timeoutMs = 2000) {
     const data = await parseJsonSafe(res);
     lastData = data;
     const normalized = normalizePairingPayload(data);
-    if (res.ok && normalized?.token) {
-      return { ok: true, data: normalized, baseUrl: baseUrl || window.location.origin };
-    }
+    if (res.ok && normalized?.token) return { ok: true, data: normalized, baseUrl: baseUrl || window.location.origin };
   }
-
   return { ok: false, data: lastData };
 }
+
+// ── Apple-style countdown ring ───────────────────────────────────────────────
+
+function CountdownRing({ remainingMs, totalMs = CODE_TTL_MS, size = 120 }) {
+  const radius = (size - 8) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const progress = Math.max(0, Math.min(1, remainingMs / totalMs));
+  const offset = circumference * (1 - progress);
+  const isLow = remainingMs < 60_000;
+  const isExpired = remainingMs <= 0;
+
+  return (
+    <svg width={size} height={size} className="transform -rotate-90">
+      {/* Background ring */}
+      <circle
+        cx={size / 2} cy={size / 2} r={radius}
+        fill="none"
+        strokeWidth={3}
+        className="stroke-border-subtle"
+      />
+      {/* Progress ring */}
+      <circle
+        cx={size / 2} cy={size / 2} r={radius}
+        fill="none"
+        strokeWidth={3}
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        className={cn(
+          'transition-[stroke-dashoffset] duration-1000 ease-linear',
+          isExpired ? 'stroke-border-subtle' : isLow ? 'stroke-danger' : 'stroke-accent',
+        )}
+      />
+    </svg>
+  );
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
 
 export default function ConnectPage({ getParam, navigate }) {
   const urlCode = getParam?.('code') || '';
   const [digits, setDigits] = useState(urlCode.replace(/-/g, '').slice(0, 8).split('').concat(Array(8).fill('')).slice(0, 8));
-  const [status, setStatus]   = useState('idle'); // idle | loading | success | error
+  const [status, setStatus] = useState('idle');
   const [machine, setMachine] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
-  const [connectMode, setConnectMode] = useState(urlCode ? 'qr' : 'code'); // code | qr
+  const [connectMode, setConnectMode] = useState(urlCode ? 'share' : 'code'); // code | qr | share
   const [isMobileDevice, setIsMobileDevice] = useState(false);
+  const [alreadyConnected, setAlreadyConnected] = useState(null); // { hostname } | null
   const inputRefs = useRef([]);
+
+  // Countdown state
+  const [expiresAt, setExpiresAt] = useState(() => Date.now() + CODE_TTL_MS);
+  const [remainingMs, setRemainingMs] = useState(CODE_TTL_MS);
 
   const code = digits.join('');
   const isComplete = code.length === 8 && digits.every(d => d !== '');
 
+  // Detect mobile
+  useEffect(() => { setIsMobileDevice(isProbablyMobileDevice()); }, []);
+
+  // Check if already connected
   useEffect(() => {
-    setIsMobileDevice(isProbablyMobileDevice());
+    const token = localStorage.getItem('soupz_daemon_token');
+    const hostname = localStorage.getItem('soupz_hostname');
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const online = await checkDaemonHealth();
+        if (!cancelled && online) setAlreadyConnected({ hostname: hostname || 'Unknown' });
+      } catch { /* not connected */ }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
+  // URL code auto-fill and auto-connect on mobile
   useEffect(() => {
-    if (urlCode) {
-      const clean = urlCode.replace(/-/g, '').slice(0, 8);
-      setDigits(clean.padEnd(8, '').split(''));
-      if (clean.length === 8) {
-        // Auto-connect only on mobile-sized devices where the user likely arrived via QR scan.
-        // Keep desktop on the QR tab so the laptop screen remains scannable.
-        if (isProbablyMobileDevice()) handleConnect(clean);
-        else setConnectMode('qr');
-      }
+    if (!urlCode) return;
+    const clean = urlCode.replace(/-/g, '').slice(0, 8);
+    setDigits(clean.padEnd(8, '').split(''));
+    if (clean.length === 8) {
+      if (isProbablyMobileDevice()) handleConnect(clean);
+      else setConnectMode('share');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // If no URL code, try fetching the current active code from daemon
   useEffect(() => {
-    // If page opens without ?code, try reading the currently active daemon pairing snapshot
-    // from the same origin (works for tunneled local dev and local dashboard).
     if (urlCode) return;
+    if (connectMode === 'share') return;
+    fetchCurrentCode();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlCode]);
 
-    let cancelled = false;
-    (async () => {
+  // Countdown ticker
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, expiresAt - Date.now());
+      setRemainingMs(remaining);
+      if (remaining <= 0) {
+        // Auto-refresh code
+        fetchCurrentCode();
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expiresAt]);
+
+  async function fetchCurrentCode() {
+    // Try same-origin first, then stored daemon URL
+    const urls = [
+      '',
+      localStorage.getItem('soupz_daemon_url'),
+      `http://localhost:${LOCAL_DAEMON_PORT}`,
+    ].filter(Boolean);
+
+    for (const base of urls) {
       try {
-        const res = await fetch('/pair/current', { signal: AbortSignal.timeout(1200) });
+        const endpoint = base ? `${base}/pair/current` : '/pair/current';
+        const res = await fetch(endpoint, { signal: AbortSignal.timeout(1500) });
         const data = await parseJsonSafe(res);
         const currentCode = (data?.code || '').toString().replace(/\D/g, '').slice(0, 8);
-        if (cancelled || currentCode.length !== 8) return;
-        setDigits(currentCode.split(''));
-        setConnectMode('qr');
-      } catch {
-        // Ignore: this endpoint may not exist on deployed frontend origins.
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [urlCode]);
+        if (currentCode.length === 8) {
+          setDigits(currentCode.split(''));
+          const ttl = (data?.expiresIn || 300) * 1000;
+          setExpiresAt(Date.now() + ttl);
+          setRemainingMs(ttl);
+          if (!isProbablyMobileDevice()) setConnectMode('share');
+          return;
+        }
+      } catch { /* try next */ }
+    }
+  }
 
   async function handleConnect(overrideCode) {
     const c = overrideCode || code;
@@ -147,70 +205,41 @@ export default function ConnectPage({ getParam, navigate }) {
     setStatus('loading');
     setErrorMsg('');
 
-    // 1. Try same-origin proxy first (works for local/tunneled web dashboards)
     try {
       const proxied = await tryPairAgainstBase(null, c, 2200);
-      if (proxied.ok) {
-        finishConnect(proxied.data, proxied.baseUrl);
-        return;
-      }
-    } catch { /* not available on this origin */ }
+      if (proxied.ok) { finishConnect(proxied.data, proxied.baseUrl); return; }
+    } catch {}
 
-    // 2. Try remembered daemon URL from previous successful session
     try {
       const remembered = localStorage.getItem('soupz_daemon_url');
       if (remembered) {
-        const rememberedResult = await tryPairAgainstBase(remembered, c, 2200);
-        if (rememberedResult.ok) {
-          finishConnect(rememberedResult.data, rememberedResult.baseUrl);
-          return;
-        }
+        const result = await tryPairAgainstBase(remembered, c, 2200);
+        if (result.ok) { finishConnect(result.data, result.baseUrl); return; }
       }
-    } catch { /* continue */ }
+    } catch {}
 
-    // 3. Try localhost daemon (fast path on same machine)
     try {
       const localUrl = `http://localhost:${LOCAL_DAEMON_PORT}`;
-      const localResult = await tryPairAgainstBase(localUrl, c, 1500);
-      if (localResult.ok) {
-        finishConnect(localResult.data, localUrl);
-        return;
-      }
-    } catch { /* not local */ }
+      const result = await tryPairAgainstBase(localUrl, c, 1500);
+      if (result.ok) { finishConnect(result.data, localUrl); return; }
+    } catch {}
 
-    // 4. Try Supabase pairing table (remote pairing via internet)
     try {
-      if (!supabase) {
-        throw new Error('Could not pair via proxy/local endpoints, and remote pairing is unavailable because Supabase is not configured for this build.');
-      }
-
-      const { data, error } = await supabase
-        .from('soupz_pairing')
-        .select('*')
-        .eq('code', c)
-        .single();
-
+      if (!supabase) throw new Error('Remote pairing unavailable (Supabase not configured).');
+      const { data, error } = await supabase.from('soupz_pairing').select('*').eq('code', c).single();
       if (error || !data) throw new Error('Invalid pairing code');
       if (new Date(data.expires_at) < new Date()) throw new Error('Code expired');
 
-      // Try direct connection first via discovered LAN/tunnel targets.
-      // lan_ips may contain raw LAN IPs and optional tunnel base URLs.
       const candidates = resolveRemoteCandidates(data);
       for (const baseUrl of candidates) {
         try {
-          const remoteResult = await tryPairAgainstBase(baseUrl, c, 2500);
-          if (remoteResult.ok) {
-            finishConnect(remoteResult.data, baseUrl);
-            return;
-          }
-        } catch { /* try next IP */ }
+          const result = await tryPairAgainstBase(baseUrl, c, 2500);
+          if (result.ok) { finishConnect(result.data, baseUrl); return; }
+        } catch {}
       }
-
-      // If we can't reach any local IP, we will use the relay path
-      // (The token from Supabase allows us to identify the session)
       finishConnect(data, null);
     } catch (err) {
-      setErrorMsg(err.message || 'Could not connect — make sure npx soupz is running');
+      setErrorMsg(err.message || 'Could not connect. Make sure npx soupz is running.');
       setStatus('error');
     }
   }
@@ -218,11 +247,13 @@ export default function ConnectPage({ getParam, navigate }) {
   function finishConnect(data, url) {
     setMachine(data);
     setStatus('success');
-    if (data.token) localStorage.setItem('soupz_daemon_token', data.token);
+    if (data.token) {
+      localStorage.setItem('soupz_daemon_token', data.token);
+      sessionStorage.setItem('soupz_daemon_token', data.token);
+    }
     if (data.hostname) localStorage.setItem('soupz_hostname', data.hostname);
     if (url) localStorage.setItem('soupz_daemon_url', url);
-    else localStorage.removeItem('soupz_daemon_url'); // fallback to relay
-
+    else localStorage.removeItem('soupz_daemon_url');
     setTimeout(() => navigate('/dashboard'), 1200);
   }
 
@@ -235,9 +266,7 @@ export default function ConnectPage({ getParam, navigate }) {
   }
 
   function onKeyDown(idx, e) {
-    if (e.key === 'Backspace' && !digits[idx] && idx > 0) {
-      inputRefs.current[idx - 1]?.focus();
-    }
+    if (e.key === 'Backspace' && !digits[idx] && idx > 0) inputRefs.current[idx - 1]?.focus();
     if (e.key === 'Enter' && isComplete) handleConnect();
   }
 
@@ -257,6 +286,8 @@ export default function ConnectPage({ getParam, navigate }) {
     inputRefs.current[0]?.focus();
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-bg-base flex flex-col items-center justify-center p-6">
       {/* Logo */}
@@ -268,21 +299,33 @@ export default function ConnectPage({ getParam, navigate }) {
       </div>
 
       {/* Card */}
-      <div className="w-full max-w-sm bg-bg-surface border border-border-subtle rounded-xl p-8 shadow-soft">
+      <div className="w-full max-w-sm bg-bg-surface border border-border-subtle rounded-xl p-5 sm:p-8 shadow-soft">
         {status === 'success' ? (
           <SuccessState machine={machine} />
+        ) : alreadyConnected && connectMode !== 'code' ? (
+          <AlreadyConnectedState
+            hostname={alreadyConnected.hostname}
+            onDashboard={() => navigate('/dashboard')}
+            onNewConnection={() => { setAlreadyConnected(null); setConnectMode('code'); }}
+          />
+        ) : connectMode === 'share' ? (
+          // Desktop "Share this code" view (auto-opened from npx soupz)
+          <ShareCodeView
+            code={code}
+            isComplete={isComplete}
+            remainingMs={remainingMs}
+            onEnterManually={() => setConnectMode('code')}
+          />
         ) : (
           <>
             <h1 className="text-text-pri font-ui text-xl font-semibold mb-1.5">Connect your machine</h1>
             <p className="text-text-sec text-sm mb-4 leading-relaxed">
               Run{' '}
-              <code className="font-mono text-accent text-xs bg-bg-elevated px-1.5 py-0.5 rounded">
-                npx soupz
-              </code>
+              <code className="font-mono text-accent text-xs bg-bg-elevated px-1.5 py-0.5 rounded">npx soupz</code>
               {' '}in your terminal, then connect below.
             </p>
 
-            {/* Mode tabs: Code / QR */}
+            {/* Mode tabs */}
             <div className="flex items-center gap-1 bg-bg-base rounded-md p-0.5 border border-border-subtle mb-5">
               <button
                 onClick={() => setConnectMode('code')}
@@ -311,103 +354,92 @@ export default function ConnectPage({ getParam, navigate }) {
             </div>
 
             {connectMode === 'qr' ? (
-              <QRConnectMode code={code} onManual={() => setConnectMode('code')} isMobileDevice={isMobileDevice} />
+              <QRConnectMode code={code} remainingMs={remainingMs} onManual={() => setConnectMode('code')} isMobileDevice={isMobileDevice} />
             ) : (
             <>
-            {/* Code input: 4+4 groups */}
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-6 justify-center max-w-full">
-              <div className="flex gap-1 sm:gap-1.5">
-                {[0,1,2,3].map(i => (
-                  <DigitInput
-                    key={i}
-                    ref={el => inputRefs.current[i] = el}
-                    value={digits[i]}
-                    onChange={v => onDigitChange(i, v)}
-                    onKeyDown={e => onKeyDown(i, e)}
-                    onPaste={onPaste}
-                    hasError={status === 'error'}
-                  />
-                ))}
+              {/* Code input: 4+4 groups */}
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-6 justify-center max-w-full">
+                <div className="flex gap-1 sm:gap-1.5">
+                  {[0,1,2,3].map(i => (
+                    <DigitInput
+                      key={i}
+                      ref={el => inputRefs.current[i] = el}
+                      value={digits[i]}
+                      onChange={v => onDigitChange(i, v)}
+                      onKeyDown={e => onKeyDown(i, e)}
+                      onPaste={onPaste}
+                      hasError={status === 'error'}
+                    />
+                  ))}
+                </div>
+                <span className="text-text-faint text-lg font-bold mx-0.5">-</span>
+                <div className="flex gap-1 sm:gap-1.5">
+                  {[4,5,6,7].map(i => (
+                    <DigitInput
+                      key={i}
+                      ref={el => inputRefs.current[i] = el}
+                      value={digits[i]}
+                      onChange={v => onDigitChange(i, v)}
+                      onKeyDown={e => onKeyDown(i, e)}
+                      onPaste={onPaste}
+                      hasError={status === 'error'}
+                    />
+                  ))}
+                </div>
               </div>
-              <span className="text-text-faint text-lg font-bold mx-0.5">–</span>
-              <div className="flex gap-1 sm:gap-1.5">
-                {[4,5,6,7].map(i => (
-                  <DigitInput
-                    key={i}
-                    ref={el => inputRefs.current[i] = el}
-                    value={digits[i]}
-                    onChange={v => onDigitChange(i, v)}
-                    onKeyDown={e => onKeyDown(i, e)}
-                    onPaste={onPaste}
-                    hasError={status === 'error'}
-                  />
-                ))}
-              </div>
-            </div>
 
-            {/* Error */}
-            {status === 'error' && (
-              <div className="flex items-center gap-2 text-danger text-sm mb-4 p-3 bg-danger/5 border border-danger/20 rounded-lg">
-                <XCircle size={14} className="shrink-0" />
-                <span>{errorMsg}</span>
-              </div>
-            )}
-
-            {/* Connect button */}
-            <button
-              onClick={() => handleConnect()}
-              disabled={!isComplete || status === 'loading'}
-              className={cn(
-                'w-full flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium font-ui transition-all',
-                isComplete && status !== 'loading'
-                  ? 'bg-accent hover:bg-accent-hover text-white cursor-pointer'
-                  : 'bg-bg-elevated text-text-faint cursor-not-allowed',
+              {status === 'error' && (
+                <div className="flex items-center gap-2 text-danger text-sm mb-4 p-3 bg-danger/5 border border-danger/20 rounded-lg">
+                  <XCircle size={14} className="shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
               )}
-            >
-              {status === 'loading' ? (
-                <RefreshCw size={14} className="animate-spin" />
-              ) : (
-                <>Connect <ArrowRight size={14} /></>
-              )}
-            </button>
 
-            {/* Retry */}
-            {status === 'error' && (
-              <button onClick={reset} className="mt-3 w-full text-center text-text-sec hover:text-text-pri text-xs transition-colors py-1">
-                Try a different code
+              <button
+                onClick={() => handleConnect()}
+                disabled={!isComplete || status === 'loading'}
+                className={cn(
+                  'w-full flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium font-ui transition-all',
+                  isComplete && status !== 'loading'
+                    ? 'bg-accent hover:bg-accent-hover text-white cursor-pointer'
+                    : 'bg-bg-elevated text-text-faint cursor-not-allowed',
+                )}
+              >
+                {status === 'loading' ? <RefreshCw size={14} className="animate-spin" /> : <>Connect <ArrowRight size={14} /></>}
               </button>
-            )}
 
-            {/* Instructions */}
-            <div className="mt-7 pt-5 border-t border-border-subtle">
-              <p className="text-text-faint text-xs font-ui mb-3 uppercase tracking-wider">How to get a code</p>
-              <ol className="space-y-2">
-                {[
-                  'Open Terminal on your Mac/Linux/Windows machine',
-                  'Run: npx soupz',
-                  'For phone login: scan the QR shown on your laptop screen',
-                ].map((step, i) => (
-                  <li key={i} className="flex items-start gap-2.5 text-text-sec text-sm">
-                    <span className="shrink-0 w-5 h-5 rounded-full bg-bg-elevated border border-border-subtle text-text-faint text-xs flex items-center justify-center font-mono">
-                      {i + 1}
-                    </span>
-                    {step}
-                  </li>
-                ))}
-              </ol>
-              <div className="mt-4 rounded-lg border border-border-subtle bg-bg-base p-3">
-                <p className="text-text-sec text-xs leading-relaxed">
-                  Different network (not same Wi-Fi)? Start a tunnel to your daemon and set
-                  {' '}
-                  <code className="font-mono text-[11px] bg-bg-elevated px-1 py-0.5 rounded">SOUPZ_TUNNEL_URL</code>
-                  {' '}
-                  before running
-                  {' '}
-                  <code className="font-mono text-[11px] bg-bg-elevated px-1 py-0.5 rounded">npx soupz</code>
-                  .
+              {status === 'error' && (
+                <button onClick={reset} className="mt-3 w-full text-center text-text-sec hover:text-text-pri text-xs transition-colors py-1">
+                  Try a different code
+                </button>
+              )}
+
+              {/* Security note */}
+              <div className="mt-5 flex items-start gap-2 px-3 py-2.5 rounded-lg border border-border-subtle bg-bg-base">
+                <Shield size={12} className="text-text-faint shrink-0 mt-0.5" />
+                <p className="text-[11px] text-text-faint leading-relaxed">
+                  Each code is single-use and expires in 5 minutes. Your code stays private to your machine.
                 </p>
               </div>
-            </div>
+
+              {/* Instructions */}
+              <div className="mt-5 pt-5 border-t border-border-subtle">
+                <p className="text-text-faint text-xs font-ui mb-3 uppercase tracking-wider">How to get a code</p>
+                <ol className="space-y-2">
+                  {[
+                    'Open Terminal on your machine',
+                    'Run: npx soupz',
+                    'Scan the terminal QR or enter the 8-digit code above',
+                  ].map((step, i) => (
+                    <li key={i} className="flex items-start gap-2.5 text-text-sec text-sm">
+                      <span className="shrink-0 w-5 h-5 rounded-full bg-bg-elevated border border-border-subtle text-text-faint text-xs flex items-center justify-center font-mono">
+                        {i + 1}
+                      </span>
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+              </div>
             </>
             )}
           </>
@@ -416,6 +448,8 @@ export default function ConnectPage({ getParam, navigate }) {
     </div>
   );
 }
+
+// ── Sub-components ───────────────────────────────────────────────────────────
 
 function SuccessState({ machine }) {
   return (
@@ -429,16 +463,88 @@ function SuccessState({ machine }) {
           Linked to <span className="text-text-pri font-mono text-xs bg-bg-elevated px-1.5 py-0.5 rounded">{machine.hostname}</span>
         </p>
       )}
-      <p className="text-text-faint text-xs">Redirecting you to the dashboard…</p>
+      <p className="text-text-faint text-xs">Redirecting to dashboard...</p>
     </div>
   );
 }
 
-function QRConnectMode({ code, onManual, isMobileDevice }) {
-  // Generate the connect URL that the QR code will encode
-  const connectUrl = code.length === 8
-    ? `${window.location.origin}/connect?code=${code}`
-    : null;
+function AlreadyConnectedState({ hostname, onDashboard, onNewConnection }) {
+  return (
+    <div className="text-center py-2">
+      <div className="w-12 h-12 rounded-full bg-accent/10 border border-accent/20 flex items-center justify-center mx-auto mb-4">
+        <Terminal size={22} className="text-accent" />
+      </div>
+      <h2 className="text-text-pri font-ui font-semibold text-lg mb-1">Already connected</h2>
+      <p className="text-text-sec text-sm mb-6">
+        Linked to <span className="text-text-pri font-mono text-xs bg-bg-elevated px-1.5 py-0.5 rounded">{hostname}</span>
+      </p>
+      <button
+        onClick={onDashboard}
+        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium font-ui bg-accent hover:bg-accent-hover text-white transition-all mb-3"
+      >
+        Go to Dashboard <ArrowRight size={14} />
+      </button>
+      <button
+        onClick={onNewConnection}
+        className="text-text-sec hover:text-text-pri text-xs transition-colors"
+      >
+        Connect a different machine
+      </button>
+    </div>
+  );
+}
+
+function ShareCodeView({ code, isComplete, remainingMs, onEnterManually }) {
+  const connectUrl = isComplete ? `${window.location.origin}/connect?code=${code}` : null;
+
+  return (
+    <div className="flex flex-col items-center gap-5 py-2">
+      <h2 className="text-text-pri font-ui font-semibold text-lg">Share this code</h2>
+      <p className="text-text-sec text-xs text-center leading-relaxed -mt-3">
+        Scan the QR or enter the code on your phone
+      </p>
+
+      {/* Countdown ring with code inside */}
+      <div className="relative flex items-center justify-center">
+        <CountdownRing remainingMs={remainingMs} size={140} />
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          {isComplete ? (
+            <span className="font-mono text-xl font-bold text-text-pri tracking-widest">
+              {code.slice(0, 4)}-{code.slice(4)}
+            </span>
+          ) : (
+            <span className="text-text-faint text-sm">Waiting...</span>
+          )}
+        </div>
+      </div>
+
+      {/* QR code */}
+      {connectUrl && (
+        <div className="bg-white p-3 rounded-xl">
+          <QRCodeSVG value={connectUrl} size={160} level="M" bgColor="#ffffff" fgColor="#0F0F13" />
+        </div>
+      )}
+
+      {/* Security note */}
+      <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg border border-border-subtle bg-bg-base w-full">
+        <Shield size={12} className="text-text-faint shrink-0 mt-0.5" />
+        <p className="text-[11px] text-text-faint leading-relaxed">
+          Single-use code. Expires when the ring empties, then auto-refreshes.
+        </p>
+      </div>
+
+      <button
+        onClick={onEnterManually}
+        className="text-text-sec hover:text-text-pri text-xs transition-colors flex items-center gap-1.5"
+      >
+        <ArrowLeft size={11} /> Enter code manually instead
+      </button>
+    </div>
+  );
+}
+
+function QRConnectMode({ code, remainingMs, onManual, isMobileDevice }) {
+  const connectUrl = code.length === 8 ? `${window.location.origin}/connect?code=${code}` : null;
 
   if (isMobileDevice) {
     return (
@@ -449,10 +555,7 @@ function QRConnectMode({ code, onManual, isMobileDevice }) {
           Open this connect page on your laptop, keep the QR visible there,
           then scan it with your phone camera.
         </p>
-        <button
-          onClick={onManual}
-          className="mt-3 text-accent hover:text-accent-hover text-xs font-ui transition-colors"
-        >
+        <button onClick={onManual} className="mt-3 text-accent hover:text-accent-hover text-xs font-ui transition-colors">
           Enter code manually instead
         </button>
       </div>
@@ -463,18 +566,17 @@ function QRConnectMode({ code, onManual, isMobileDevice }) {
     <div className="flex flex-col items-center gap-4 py-2">
       {connectUrl ? (
         <>
-          <div className="bg-white p-3 rounded-xl">
-            <QRCodeSVG
-              value={connectUrl}
-              size={180}
-              level="M"
-              bgColor="#ffffff"
-              fgColor="#0F0F13"
-            />
+          {/* Countdown ring around QR */}
+          <div className="relative flex items-center justify-center">
+            <CountdownRing remainingMs={remainingMs} size={Math.min(210, typeof window !== 'undefined' ? window.innerWidth - 140 : 210)} />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="bg-white p-2 sm:p-2.5 rounded-xl">
+                <QRCodeSVG value={connectUrl} size={Math.min(160, typeof window !== 'undefined' ? window.innerWidth - 200 : 160)} level="M" bgColor="#ffffff" fgColor="#0F0F13" />
+              </div>
+            </div>
           </div>
           <p className="text-text-sec text-xs font-ui text-center leading-relaxed">
-            Scan this QR code with your phone camera<br />
-            to open the same pairing code instantly
+            Scan this QR code with your phone camera
           </p>
           <div className="flex items-center gap-2 text-text-faint text-[11px] font-mono bg-bg-elevated px-3 py-1.5 rounded-md border border-border-subtle">
             Code: {code.slice(0, 4)}-{code.slice(4)}
@@ -488,10 +590,7 @@ function QRConnectMode({ code, onManual, isMobileDevice }) {
             Run <code className="font-mono text-accent bg-bg-elevated px-1 rounded">npx soupz</code> first,
             then enter the code manually to generate a QR.
           </p>
-          <button
-            onClick={onManual}
-            className="mt-3 text-accent hover:text-accent-hover text-xs font-ui transition-colors"
-          >
+          <button onClick={onManual} className="mt-3 text-accent hover:text-accent-hover text-xs font-ui transition-colors">
             Enter code manually
           </button>
         </div>
@@ -499,8 +598,6 @@ function QRConnectMode({ code, onManual, isMobileDevice }) {
     </div>
   );
 }
-
-import { forwardRef } from 'react';
 
 const DigitInput = forwardRef(function DigitInput({ value, onChange, onKeyDown, onPaste, hasError }, ref) {
   return (

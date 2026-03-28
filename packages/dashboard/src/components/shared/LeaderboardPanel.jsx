@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Crown, Shield, Sword, Hammer, Sparkles,
   Flame, MessageSquare, Target, Lock, Check,
-  ChevronRight, Award, Loader2,
+  ChevronRight, Award, Loader2, Zap,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
@@ -79,6 +80,12 @@ function formatXP(xp) {
   return String(xp);
 }
 
+function getThisWeekMessages(messages) {
+  const now = Date.now();
+  const weekAgo = now - (7 * 24 * 60 * 60 * 1000);
+  return messages.filter(m => m.role === 'user' && m.id > weekAgo).length;
+}
+
 // Reuse achievement count logic from StatsPanel
 const ACHIEVEMENT_IDS = [
   { req: (m) => m >= 1 },
@@ -99,6 +106,10 @@ export default function LeaderboardPanel() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [notification, setNotification] = useState(null);
+  const [prevLevel, setPrevLevel] = useState(null);
+  const [prevAchieveCount, setPrevAchieveCount] = useState(null);
+  const [xpGainNotif, setXpGainNotif] = useState(null);
 
   const messages       = readJSON(STORAGE_KEY, []);
   const usage          = readJSON(USAGE_KEY, {});
@@ -113,6 +124,7 @@ export default function LeaderboardPanel() {
   const level          = getLevel(xp);
   const rank           = getRank(level);
   const { progress, needed, pct } = getLevelProgress(xp);
+  const thisWeekMsgs   = getThisWeekMessages(messages);
 
   useEffect(() => {
     async function fetchData() {
@@ -129,7 +141,7 @@ export default function LeaderboardPanel() {
           .select('*')
           .order('xp', { ascending: false })
           .limit(20);
-        
+
         if (error) throw error;
         setProfiles(data || []);
       } catch (err) {
@@ -140,6 +152,81 @@ export default function LeaderboardPanel() {
     }
     fetchData();
   }, []);
+
+  // Sync XP to Supabase every 60 seconds
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !currentUser) return;
+
+    async function syncXP() {
+      try {
+        const { error } = await supabase
+          .from('soupz_profiles')
+          .upsert({
+            id: currentUser.id,
+            xp: xp,
+            level: level,
+            streak: streak,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'id' });
+        if (error) console.error('XP sync error:', error);
+      } catch (err) {
+        console.error('Failed to sync XP:', err);
+      }
+    }
+
+    const interval = setInterval(syncXP, 60000);
+    return () => clearInterval(interval);
+  }, [xp, level, streak, currentUser]);
+
+  // Sync XP on window blur (user switching to another tab)
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !currentUser) return;
+
+    async function syncXPOnBlur() {
+      try {
+        await supabase
+          .from('soupz_profiles')
+          .upsert({
+            id: currentUser.id,
+            xp: xp,
+            level: level,
+            streak: streak,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'id' });
+      } catch (err) {
+        console.error('Failed to sync XP on blur:', err);
+      }
+    }
+
+    window.addEventListener('blur', syncXPOnBlur);
+    return () => window.removeEventListener('blur', syncXPOnBlur);
+  }, [xp, level, streak, currentUser]);
+
+  // Detect achievement unlocks and level-ups
+  useEffect(() => {
+    if (prevAchieveCount !== null && achieveCount > prevAchieveCount) {
+      const newAchieve = ACHIEVEMENT_IDS[achieveCount - 1];
+      setNotification({
+        type: 'achievement',
+        count: achieveCount,
+        message: 'Achievement Unlocked!'
+      });
+      setTimeout(() => setNotification(null), 3000);
+    }
+    setPrevAchieveCount(achieveCount);
+  }, [achieveCount]);
+
+  useEffect(() => {
+    if (prevLevel !== null && level > prevLevel) {
+      setNotification({
+        type: 'levelup',
+        level: level,
+        rank: rank
+      });
+      setTimeout(() => setNotification(null), 3500);
+    }
+    setPrevLevel(level);
+  }, [level, rank]);
 
   // Community data logic
   const leaderboard = useMemo(() => {
@@ -180,19 +267,27 @@ export default function LeaderboardPanel() {
   return (
     <div className="space-y-4 pb-6">
       {/* Your Stats card */}
-      <div className="bg-bg-elevated border border-border-subtle rounded-lg p-3">
+      <motion.div className="bg-bg-elevated border border-border-subtle rounded-lg p-3">
         <div className="flex items-center gap-3 mb-3">
-          <div
+          <motion.div
             className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
             style={{ background: `${rank.color}18` }}
+            animate={{ scale: [1, 1.05, 1] }}
+            transition={{ duration: 0.6, repeat: notification?.type === 'levelup' ? 2 : 0 }}
           >
             <RankIcon size={18} style={{ color: rank.color }} />
-          </div>
+          </motion.div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-ui font-semibold text-text-pri">
+              <motion.span
+                className="text-sm font-ui font-semibold text-text-pri"
+                key={level}
+                animate={{ opacity: 1, scale: 1 }}
+                initial={{ opacity: 0, scale: 0.8 }}
+                transition={{ duration: 0.3 }}
+              >
                 Level {level}
-              </span>
+              </motion.span>
               <span
                 className="text-[10px] font-ui font-medium px-1.5 py-0.5 rounded"
                 style={{ background: `${rank.color}18`, color: rank.color }}
@@ -200,9 +295,15 @@ export default function LeaderboardPanel() {
                 {rank.label}
               </span>
             </div>
-            <p className="text-[11px] text-text-faint font-ui">
+            <motion.p
+              className="text-[11px] text-text-faint font-ui"
+              key={xp}
+              animate={{ opacity: 1 }}
+              initial={{ opacity: 0.5 }}
+              transition={{ duration: 0.4 }}
+            >
               {formatXP(xp)} XP total
-            </p>
+            </motion.p>
           </div>
         </div>
 
@@ -213,12 +314,13 @@ export default function LeaderboardPanel() {
             <span className="text-[10px] text-text-faint font-ui">Level {level + 1}</span>
           </div>
           <div className="h-1.5 bg-bg-base rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-500"
+            <motion.div
+              className="h-full rounded-full"
               style={{
-                width: `${Math.max(pct * 100, 2)}%`,
                 background: rank.color,
               }}
+              animate={{ width: `${Math.max(pct * 100, 2)}%` }}
+              transition={{ duration: 0.8, ease: 'easeOut' }}
             />
           </div>
           <p className="text-[10px] text-text-faint font-ui mt-1 text-right">
@@ -243,7 +345,7 @@ export default function LeaderboardPanel() {
             </div>
           ))}
         </div>
-      </div>
+      </motion.div>
 
       {/* Filter Tabs */}
       <div className="flex bg-bg-base p-0.5 rounded-lg border border-border-subtle shrink-0">
@@ -329,6 +431,48 @@ export default function LeaderboardPanel() {
         </div>
       </div>
 
+      {/* Achievement Notification Toast */}
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3 }}
+            className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50"
+          >
+            {notification.type === 'achievement' && (
+              <div className="bg-gradient-to-r from-accent to-accent/80 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2">
+                <motion.div
+                  animate={{ scale: [1, 1.2, 1] }}
+                  transition={{ duration: 0.5, repeat: 1 }}
+                >
+                  <Award size={18} />
+                </motion.div>
+                <div>
+                  <p className="font-semibold text-sm">{notification.message}</p>
+                  <p className="text-xs opacity-90">{notification.count}/{ACHIEVEMENT_IDS.length} achievements</p>
+                </div>
+              </div>
+            )}
+            {notification.type === 'levelup' && (
+              <div className="bg-gradient-to-r from-warning to-warning/80 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2">
+                <motion.div
+                  animate={{ scale: [1, 1.3, 1], rotate: [0, 360, 360] }}
+                  transition={{ duration: 0.6, repeat: 1 }}
+                >
+                  <Zap size={18} />
+                </motion.div>
+                <div>
+                  <p className="font-semibold text-sm">Level Up!</p>
+                  <p className="text-xs opacity-90">Reached {notification.rank.label} Level {notification.level}</p>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Weekly Challenges */}
       <div className="bg-accent/5 border border-accent/20 rounded-xl p-3">
         <div className="flex items-center gap-2 mb-2">
@@ -337,19 +481,29 @@ export default function LeaderboardPanel() {
         </div>
         <div className="space-y-2">
           {[
-            { label: 'Prompt Master', desc: 'Send 50 messages this week', progress: Math.min(totalMsgs, 50), target: 50, reward: '250 XP' },
-            { label: 'Multi-Lingual', desc: 'Use 5 different agents', progress: agentCount, target: 5, reward: '500 XP' },
+            { label: 'Weekly Warrior', desc: 'Send 10 prompts this week', progress: thisWeekMsgs, target: 10, reward: '100 XP' },
+            { label: 'Multi-Agent', desc: 'Use 5 different agents', progress: agentCount, target: 5, reward: '500 XP' },
           ].map(c => (
-            <div key={c.label} className="bg-bg-surface/50 border border-border-subtle rounded-lg p-2.5">
+            <motion.div
+              key={c.label}
+              className="bg-bg-surface/50 border border-border-subtle rounded-lg p-2.5"
+              animate={{ borderColor: c.progress >= c.target ? 'var(--success)' : 'var(--border-subtle)' }}
+              transition={{ duration: 0.3 }}
+            >
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-[11px] font-ui font-semibold text-text-pri">{c.label}</p>
                 <span className="text-[9px] font-mono font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded border border-accent/20">+{c.reward}</span>
               </div>
-              <div className="h-1 bg-bg-base rounded-full overflow-hidden mb-1">
-                <div className="h-full bg-accent transition-all duration-500" style={{ width: `${(c.progress/c.target)*100}%` }} />
-              </div>
-              <p className="text-[9px] text-text-faint">{c.desc}</p>
-            </div>
+              <motion.div className="h-1 bg-bg-base rounded-full overflow-hidden mb-1">
+                <motion.div
+                  className="h-full bg-accent rounded-full"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min((c.progress/c.target)*100, 100)}%` }}
+                  transition={{ duration: 0.8, ease: 'easeOut' }}
+                />
+              </motion.div>
+              <p className="text-[9px] text-text-faint">{c.desc} ({c.progress}/{c.target})</p>
+            </motion.div>
           ))}
         </div>
       </div>

@@ -16,6 +16,10 @@ try {
 import { execSync, spawn } from 'child_process';
 import crypto from 'crypto';
 
+// QR code for terminal display (optional)
+let QRCode = null;
+try { QRCode = (await import('qrcode')).default; } catch { /* qrcode not installed */ }
+
 const DEFAULT_PORT = 7070;
 let activePort = DEFAULT_PORT; // Track the actual bound port
 const app = express();
@@ -55,6 +59,10 @@ let fileWatcherAbortController = null;
 let fileWatcherTask = null;
 let commandListenerChannel = null;
 let runtimeServicesStarted = false;
+
+// WebSocket stability: connection tracking per IP and heartbeat
+const wsConnectionsPerIp = new Map(); // ip -> count
+let heartbeatInterval = null;
 
 // Currently displayed pairing code (auto-refreshes)
 let currentPairingCode = null;
@@ -305,6 +313,68 @@ const orders = new Map();
 let orderCounter = 0;
 const orderRuntimes = new Map(); // orderId -> runtime metadata and child processes
 
+// LRU file cache for production scale (handles 100+ open files)
+const fileCache = new Map(); // path -> { content, size, cachedAt }
+const FILE_CACHE_MAX_SIZE = 5 * 1024 * 1024; // 5MB total
+const FILE_CACHE_MAX_ENTRIES = 50;
+let fileCacheTotalSize = 0;
+
+function getCachedFile(filePath) {
+    const entry = fileCache.get(filePath);
+    if (!entry) return null;
+    // Move to end (most recently used)
+    fileCache.delete(filePath);
+    fileCache.set(filePath, entry);
+    return entry.content;
+}
+
+function setCachedFile(filePath, content) {
+    const size = Buffer.byteLength(content, 'utf8');
+    // Evict oldest entries until we have room
+    while ((fileCacheTotalSize + size > FILE_CACHE_MAX_SIZE || fileCache.size >= FILE_CACHE_MAX_ENTRIES) && fileCache.size > 0) {
+        const [oldestKey, oldestEntry] = fileCache.entries().next().value;
+        fileCacheTotalSize -= oldestEntry.size;
+        fileCache.delete(oldestKey);
+    }
+    fileCache.set(filePath, { content, size, cachedAt: Date.now() });
+    fileCacheTotalSize += size;
+}
+
+function invalidateCachedFile(filePath) {
+    const entry = fileCache.get(filePath);
+    if (entry) {
+        fileCacheTotalSize -= entry.size;
+        fileCache.delete(filePath);
+    }
+}
+
+// Order concurrency limits for production scale
+const MAX_CONCURRENT_ORDERS = 5;
+const pendingOrderQueue = [];
+
+function getActiveOrderCount() {
+    return Array.from(orders.values()).filter(o => o.status === 'running' || o.status === 'pending').length;
+}
+
+function processOrderQueue() {
+    if (pendingOrderQueue.length > 0 && getActiveOrderCount() < MAX_CONCURRENT_ORDERS) {
+        const nextId = pendingOrderQueue.shift();
+        const nextOrder = orders.get(nextId);
+        if (nextOrder && nextOrder.status === 'queued') {
+            nextOrder.status = 'pending';
+            broadcastOrderUpdate(nextOrder);
+            // Start the queued order
+            const orchestrationMode = nextOrder.orchestrationMode || 'single';
+            const mcpServers = nextOrder.mcpServers || [];
+            if (orchestrationMode === 'parallel') {
+                void startDeepOrchestratedOrder(nextOrder, nextOrder.runAgent, mcpServers);
+            } else {
+                startSingleAgentOrder(nextOrder, nextOrder.runAgent, mcpServers);
+            }
+        }
+    }
+}
+
 const WORKER_STALL_MS = Math.max(10000, Number.parseInt(process.env.SOUPZ_WORKER_STALL_MS || '45000', 10) || 45000);
 function resolveTimeoutMs(value, fallbackMs = 0) {
     const parsed = Number.parseInt(value, 10);
@@ -312,6 +382,15 @@ function resolveTimeoutMs(value, fallbackMs = 0) {
     return Math.max(0, parsed);
 }
 const DEEP_SYNTHESIS_TIMEOUT_MS = resolveTimeoutMs(process.env.SOUPZ_DEEP_SYNTHESIS_TIMEOUT_MS, 0);
+const DEEP_NESTED_ENABLED_DEFAULT = process.env.SOUPZ_DEEP_NESTED_DEFAULT !== 'false';
+const DEEP_NESTED_MAX_PARENTS = Math.max(1, Number.parseInt(process.env.SOUPZ_DEEP_NESTED_MAX_PARENTS || '3', 10) || 3);
+const DEEP_NESTED_SUBAGENTS_PER_PARENT = Math.max(1, Number.parseInt(process.env.SOUPZ_DEEP_NESTED_SUBAGENTS_PER_PARENT || '2', 10) || 2);
+const DEEP_NESTED_TIMEOUT_MS = Math.max(5000, Number.parseInt(process.env.SOUPZ_DEEP_NESTED_TIMEOUT_MS || '45000', 10) || 45000);
+const DEEP_NESTED_SYNTH_TIMEOUT_MS = Math.max(10000, Number.parseInt(process.env.SOUPZ_DEEP_NESTED_SYNTH_TIMEOUT_MS || '60000', 10) || 60000);
+const ORDER_EVENT_RING_MAX = Math.max(500, Number.parseInt(process.env.SOUPZ_ORDER_EVENT_RING_MAX || '2000', 10) || 2000);
+const AGENT_RUNTIME_PROBE_ENABLED = process.env.SOUPZ_AGENT_RUNTIME_PROBE !== 'false';
+const AGENT_RUNTIME_PROBE_TTL_MS = Math.max(30000, Number.parseInt(process.env.SOUPZ_AGENT_RUNTIME_PROBE_TTL_MS || '180000', 10) || 180000);
+const agentRuntimeProbeCache = new Map();
 const ORDER_LANE_RING_MAX = Math.max(4000, Number.parseInt(process.env.SOUPZ_ORDER_LANE_RING_MAX || '20000', 10) || 20000);
 const OUTPUT_DELTA_EVENT_MIN_MS = Math.max(0, Number.parseInt(process.env.SOUPZ_OUTPUT_DELTA_EVENT_MIN_MS || '250', 10) || 250);
 const ORDER_STREAM_CHUNK_MAX = Math.max(512, Number.parseInt(process.env.SOUPZ_STREAM_CHUNK_MAX || '4096', 10) || 4096);
@@ -539,8 +618,33 @@ function pushOrderEvent(order, type, data = {}) {
     };
     order.events.push(event);
 
-    const maxEvents = 500;
+    const maxEvents = ORDER_EVENT_RING_MAX;
     if (order.events.length <= maxEvents) return;
+
+    const lifecycleTypes = new Set([
+        'order.created',
+        'route.selected',
+        'parallel.plan',
+        'artifacts.initialized',
+        'artifacts.init_failed',
+        'worker.started',
+        'worker.stalled',
+        'worker.finished',
+        'nested.plan',
+        'nested.worker.started',
+        'nested.worker.finished',
+        'nested.synthesis.started',
+        'nested.synthesis.finished',
+        'nested.failed',
+        'parallel.collected',
+        'parallel.timeout',
+        'synthesis.started',
+        'synthesis.finished',
+        'synthesis.fallback.used',
+        'order.completed',
+        'order.failed',
+        'order.cancelled',
+    ]);
 
     // Keep critical lifecycle events for UI visibility/debugging by dropping noisy deltas first.
     while (order.events.length > maxEvents) {
@@ -549,6 +653,14 @@ function pushOrderEvent(order, type, data = {}) {
             order.events.splice(dropIdx, 1);
             continue;
         }
+
+        const nonLifecycleIdx = order.events.findIndex((e) => !lifecycleTypes.has(String(e.type || '')));
+        if (nonLifecycleIdx >= 0) {
+            order.events.splice(nonLifecycleIdx, 1);
+            continue;
+        }
+
+        // Last resort if everything remaining is lifecycle events.
         order.events.shift();
     }
 }
@@ -685,6 +797,7 @@ function getSystemHealth() {
             ...(cpuTemp && cpuTemp > 85 ? ['🔥 CPU temperature is high'] : []),
             ...(disk && disk.usagePercent > 90 ? [`⚠️ Disk almost full: ${disk.freeFormatted} remaining`] : []),
         ],
+        activeConnections: wss ? wss.clients.size : 0,
     };
 }
 
@@ -702,7 +815,14 @@ app.post('/pair', (req, res) => {
 
     if (!silentMode) {
         console.log(`\n  🔑 Pairing code generated: ${snapshot?.code || 'N/A'}`);
-        console.log(`     Expires in ${snapshot?.expiresIn ?? 0}s\n`);
+        console.log(`     Expires in ${snapshot?.expiresIn ?? 0}s`);
+        // Print QR code in terminal if available
+        if (QRCode && snapshot?.code) {
+            const connectUrl = `${webappBaseUrl}/connect?code=${snapshot.code}`;
+            QRCode.toString(connectUrl, { type: 'terminal', small: true, errorCorrectionLevel: 'L' })
+                .then(qr => { if (!silentMode) console.log(`\n${qr}`); })
+                .catch(() => {});
+        }
     }
 
     if (!snapshot) return res.status(500).json({ error: 'Failed to generate pairing code' });
@@ -1062,6 +1182,37 @@ const AGENT_BINARY_MAP = {
 const AUTO_ENABLE_KIRO = process.env.SOUPZ_ENABLE_KIRO_AUTO === 'true';
 const DEFAULT_DEEP_WORKERS = Math.max(1, Number.parseInt(process.env.SOUPZ_DEEP_WORKER_COUNT || '4', 10) || 4);
 const DEFAULT_SPECIALIST_SEQUENCE = ['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security'];
+const AGENT_SPECIALIST_ALLOWLIST = {
+    'ollama': new Set(['researcher', 'analyst']),
+    'copilot': new Set(['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security']),
+    'gemini': new Set(['researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator']),
+    'claude-code': new Set(['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security']),
+    'kiro': new Set(['developer', 'qa', 'devops', 'analyst']),
+};
+const DEFAULT_SPECIALIST_BY_AGENT = {
+    'ollama': 'researcher',
+    'copilot': 'developer',
+    'gemini': 'analyst',
+    'claude-code': 'architect',
+    'kiro': 'devops',
+};
+
+const NESTED_SUBAGENT_BLUEPRINTS = {
+    architect: ['security', 'developer', 'qa'],
+    developer: ['qa', 'security', 'devops'],
+    researcher: ['analyst', 'strategist', 'finance'],
+    strategist: ['researcher', 'pm', 'analyst'],
+    pm: ['architect', 'developer', 'qa'],
+    designer: ['researcher', 'qa', 'developer'],
+    qa: ['developer', 'security', 'devops'],
+    devops: ['security', 'developer', 'qa'],
+    analyst: ['researcher', 'finance', 'strategist'],
+    evaluator: ['researcher', 'qa', 'architect'],
+    finance: ['analyst', 'researcher', 'strategist'],
+    security: ['developer', 'qa', 'architect'],
+};
+
+const NESTED_SPECIALIST_PRIORITY = ['architect', 'developer', 'security', 'researcher', 'qa', 'devops', 'strategist', 'pm', 'analyst', 'finance', 'designer', 'evaluator'];
 
 // Ordered fallback chain — try free agents first
 const AGENT_FALLBACK_CHAIN = ['gemini', 'copilot', 'ollama', 'claude-code'];
@@ -1114,8 +1265,98 @@ function resolveRunAgent(requestedAgent, allowedAgents = null) {
 }
 
 function getInstalledAgentsInPriorityOrder() {
-    const ordered = ['gemini', 'copilot', 'ollama', 'claude-code', 'kiro'];
+    // Keep stronger coding-capable agents ahead of local tiny models for mixed-worker deep runs.
+    const ordered = ['gemini', 'copilot', 'claude-code', 'ollama', 'kiro'];
     return ordered.filter((id) => isAgentInstalled(id));
+}
+
+function canAgentHandleSpecialist(agentId, specialist) {
+    const allow = AGENT_SPECIALIST_ALLOWLIST[agentId];
+    if (!allow) return true;
+    return allow.has(specialist);
+}
+
+function fallbackSpecialistForAgent(agentId) {
+    return DEFAULT_SPECIALIST_BY_AGENT[agentId] || 'developer';
+}
+
+function assignSpecialistsToWorkers(workers = [], candidateSpecialists = [], prompt = '') {
+    const pool = Array.isArray(candidateSpecialists) ? [...candidateSpecialists] : [];
+    const assigned = {};
+
+    for (const worker of workers) {
+        const agentId = worker.agent;
+        const matchIdx = pool.findIndex((specialist) => canAgentHandleSpecialist(agentId, specialist));
+        let specialist = matchIdx >= 0 ? pool.splice(matchIdx, 1)[0] : null;
+
+        if (!specialist) {
+            const inferred = inferExecutionRole(agentId, prompt);
+            if (canAgentHandleSpecialist(agentId, inferred)) {
+                specialist = inferred;
+            }
+        }
+
+        if (!specialist || !canAgentHandleSpecialist(agentId, specialist)) {
+            specialist = fallbackSpecialistForAgent(agentId);
+        }
+
+        assigned[worker.workerId] = specialist;
+    }
+
+    return assigned;
+}
+
+function getProbeCacheKey(agentId, cwd = REPO_ROOT) {
+    return `${agentId}::${resolve(cwd || REPO_ROOT)}`;
+}
+
+function getCachedAgentProbe(agentId, cwd = REPO_ROOT) {
+    const key = getProbeCacheKey(agentId, cwd);
+    const cached = agentRuntimeProbeCache.get(key);
+    if (!cached) return null;
+    if ((Date.now() - cached.at) > AGENT_RUNTIME_PROBE_TTL_MS) {
+        agentRuntimeProbeCache.delete(key);
+        return null;
+    }
+    return cached.value;
+}
+
+function setCachedAgentProbe(agentId, cwd, value) {
+    const key = getProbeCacheKey(agentId, cwd);
+    agentRuntimeProbeCache.set(key, { at: Date.now(), value });
+}
+
+function probeAgentAsk(agentId, cwd = REPO_ROOT) {
+    if (!AGENT_RUNTIME_PROBE_ENABLED) return { ok: true, reason: 'probe_disabled' };
+
+    const cached = getCachedAgentProbe(agentId, cwd);
+    if (cached) return cached;
+
+    const probePrompt = 'Reply with exactly: ok';
+    try {
+        const output = execSync(`${process.execPath} "${CLI_ENTRY}" ask ${agentId} "${probePrompt}"`, {
+            cwd,
+            timeout: 12000,
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        const out = String(output || '').toLowerCase();
+        const result = out.includes('ok')
+            ? { ok: true, reason: 'probe_ok' }
+            : { ok: false, reason: 'probe_unexpected_output' };
+        setCachedAgentProbe(agentId, cwd, result);
+        return result;
+    } catch (err) {
+        const msg = String(err?.stderr || err?.message || '').toLowerCase();
+        let reason = 'probe_failed';
+        if (msg.includes('not logged') || msg.includes('login')) reason = 'probe_not_logged_in';
+        else if (msg.includes('subscription') || msg.includes('plan') || msg.includes('quota')) reason = 'probe_subscription_or_quota';
+        else if (msg.includes('permission') || msg.includes('forbidden')) reason = 'probe_not_authorized';
+
+        const result = { ok: false, reason };
+        setCachedAgentProbe(agentId, cwd, result);
+        return result;
+    }
 }
 
 function isPathInside(parent, candidate) {
@@ -1240,6 +1481,79 @@ function specialistFocusSummary(specialist) {
         security: 'identify trust boundaries, misuse risks, and mitigation controls',
     };
     return map[specialist] || 'deliver concrete implementation guidance';
+}
+
+function nestedFocusSummary(specialist) {
+    const map = {
+        architect: 'validate architecture boundaries and failure modes against implementation reality',
+        researcher: 'validate external assumptions and provide source-backed facts with URLs',
+        strategist: 'stress-test positioning and rebuttal logic for likely objections',
+        pm: 'validate MVP scope, sequencing, and concrete execution dependencies',
+        developer: 'turn requirements into concrete implementation details and file-level steps',
+        designer: 'audit usability, accessibility, and interaction consistency',
+        qa: 'derive tests, edge cases, regressions, and release confidence checks',
+        devops: 'validate deployability, observability, and operational safeguards',
+        analyst: 'quantify tradeoffs and check internal consistency of claims',
+        evaluator: 'score quality, identify weak spots, and prioritize fixes',
+        finance: 'validate cost assumptions, ranges, and budget risk',
+        security: 'identify trust boundaries, abuse paths, and mitigation actions',
+    };
+    return map[specialist] || 'validate and improve this worker lane with concrete, actionable findings';
+}
+
+function buildNestedPolicy(deepPolicy = {}, workerCount = DEFAULT_DEEP_WORKERS) {
+    const enabled = typeof deepPolicy.enableNestedDelegation === 'boolean'
+        ? deepPolicy.enableNestedDelegation
+        : DEEP_NESTED_ENABLED_DEFAULT;
+
+    const maxParentsRaw = Number.parseInt(deepPolicy.nestedMaxParents, 10);
+    const maxParents = Number.isFinite(maxParentsRaw)
+        ? Math.max(1, Math.min(workerCount, maxParentsRaw))
+        : Math.max(1, Math.min(workerCount, DEEP_NESTED_MAX_PARENTS));
+
+    const perWorkerRaw = Number.parseInt(deepPolicy.nestedSubAgentsPerWorker, 10);
+    const subAgentsPerWorker = Number.isFinite(perWorkerRaw)
+        ? Math.max(1, Math.min(4, perWorkerRaw))
+        : Math.max(1, Math.min(4, DEEP_NESTED_SUBAGENTS_PER_PARENT));
+
+    const nestedTimeoutMs = resolveTimeoutMs(deepPolicy.nestedTimeoutMs, DEEP_NESTED_TIMEOUT_MS);
+    const nestedSynthesisTimeoutMs = resolveTimeoutMs(deepPolicy.nestedSynthesisTimeoutMs, DEEP_NESTED_SYNTH_TIMEOUT_MS);
+
+    return {
+        enabled,
+        maxParents,
+        subAgentsPerWorker,
+        enableTeamSynthesis: deepPolicy.enableNestedTeamSynthesis !== false,
+        nestedTimeoutMs,
+        nestedSynthesisTimeoutMs,
+        depth: 1,
+    };
+}
+
+function pickNestedEligibleWorkers(workers = [], workerMeta = {}, nestedPolicy = {}) {
+    if (!nestedPolicy?.enabled || workers.length === 0) return new Set();
+
+    const ranked = [...workers].sort((a, b) => {
+        const aSpecialist = workerMeta[a.workerId]?.specialist || 'developer';
+        const bSpecialist = workerMeta[b.workerId]?.specialist || 'developer';
+        const aRank = NESTED_SPECIALIST_PRIORITY.indexOf(aSpecialist);
+        const bRank = NESTED_SPECIALIST_PRIORITY.indexOf(bSpecialist);
+        const ai = aRank >= 0 ? aRank : 999;
+        const bi = bRank >= 0 ? bRank : 999;
+        return ai - bi;
+    });
+
+    return new Set(ranked.slice(0, nestedPolicy.maxParents).map((w) => w.workerId));
+}
+
+function buildNestedSubAgentPlan(parentSpecialist = 'developer', nestedPolicy = {}) {
+    const blueprint = NESTED_SUBAGENT_BLUEPRINTS[parentSpecialist] || NESTED_SUBAGENT_BLUEPRINTS.developer;
+    const take = Math.max(1, Math.min(blueprint.length, nestedPolicy.subAgentsPerWorker || 1));
+    return blueprint.slice(0, take).map((specialist, idx) => ({
+        id: `${specialist}-${idx + 1}`,
+        specialist,
+        focus: nestedFocusSummary(specialist),
+    }));
 }
 
 function analyzePromptIntent(prompt = '') {
@@ -1650,6 +1964,7 @@ async function initializeDeepWorkspaceArtifacts(order, workers, workerMeta, exec
         '',
         '## Notes',
         '- Worker outputs are persisted as markdown files in this folder.',
+        '- Nested sub-agent outputs are persisted as parent__nested-*.md files when enabled.',
         '- SHARED_MEMORY.md aggregates distilled learnings from all workers + synthesis.',
     ].join('\n');
 
@@ -1690,6 +2005,65 @@ async function persistWorkerArtifact(order, artifactContext, workerId, agent, wo
         `Agent: ${agent} | Specialist: ${workerMetaInfo?.specialist || 'developer'} | Exit: ${result?.code ?? 1}`,
         '',
         String(result?.stdout || result?.stderr || '').slice(0, 3000),
+        '',
+    ].join('\n');
+    await writeFile(artifactContext.sharedPath, sharedSnippet, { encoding: 'utf8', flag: 'a' });
+}
+
+async function persistNestedWorkerArtifact(order, artifactContext, parentWorkerId, nestedMeta, result) {
+    if (!artifactContext) return;
+    const safeParent = String(parentWorkerId || 'worker').replace(/[^a-zA-Z0-9-_]/g, '_');
+    const safeNested = String(nestedMeta?.nestedId || nestedMeta?.specialist || 'nested').replace(/[^a-zA-Z0-9-_]/g, '_');
+    const safeSpecialist = String(nestedMeta?.specialist || 'developer').replace(/[^a-zA-Z0-9-_]/g, '_');
+    const nestedFile = join(artifactContext.runRoot, `${safeParent}__nested-${safeNested}--${safeSpecialist}.md`);
+    const body = [
+        `# Nested ${safeNested}`,
+        '',
+        `- Parent worker: ${parentWorkerId}`,
+        `- Agent: ${nestedMeta?.agent || 'unknown'}`,
+        `- Specialist: ${nestedMeta?.specialist || 'developer'}`,
+        `- Focus: ${nestedMeta?.focus || 'nested validation'}`,
+        `- Exit code: ${result?.code ?? 1}`,
+        `- Timed out: ${result?.timedOut ? 'yes' : 'no'}`,
+        '',
+        '## Output',
+        '```text',
+        String(result?.stdout || result?.stderr || '').slice(0, 40000),
+        '```',
+    ].join('\n');
+
+    await writeFile(nestedFile, body, 'utf8');
+    registerCreatedFile(order, toWorkspaceRelativePath(artifactContext.cwd, nestedFile));
+
+    const sharedSnippet = [
+        `### Nested ${safeNested} (${safeParent})`,
+        `Agent: ${nestedMeta?.agent || 'unknown'} | Specialist: ${nestedMeta?.specialist || 'developer'} | Exit: ${result?.code ?? 1}`,
+        '',
+        String(result?.stdout || result?.stderr || '').slice(0, 2000),
+        '',
+    ].join('\n');
+    await writeFile(artifactContext.sharedPath, sharedSnippet, { encoding: 'utf8', flag: 'a' });
+}
+
+async function persistNestedSynthesisArtifact(order, artifactContext, parentWorkerId, synthesis) {
+    if (!artifactContext) return;
+    const safeParent = String(parentWorkerId || 'worker').replace(/[^a-zA-Z0-9-_]/g, '_');
+    const synthPath = join(artifactContext.runRoot, `${safeParent}__nested-team-synthesis.md`);
+    const body = [
+        `# Nested Team Synthesis (${safeParent})`,
+        '',
+        `- Agent: ${synthesis?.agent || 'unknown'}`,
+        `- Exit code: ${synthesis?.code ?? 1}`,
+        '',
+        String(synthesis?.stdout || synthesis?.stderr || '').trim() || '_No nested synthesis output produced._',
+    ].join('\n');
+
+    await writeFile(synthPath, body, 'utf8');
+    registerCreatedFile(order, toWorkspaceRelativePath(artifactContext.cwd, synthPath));
+
+    const sharedSnippet = [
+        `## Nested Team Synthesis (${safeParent})`,
+        String(synthesis?.stdout || synthesis?.stderr || '').slice(0, 3000),
         '',
     ].join('\n');
     await writeFile(artifactContext.sharedPath, sharedSnippet, { encoding: 'utf8', flag: 'a' });
@@ -1745,6 +2119,19 @@ function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
             }
         } catch {
             return { ready: false, reason: 'auth_status_unavailable' };
+        }
+
+        const probe = probeAgentAsk(agentId, cwd);
+        if (!probe.ok) {
+            return { ready: false, reason: probe.reason };
+        }
+    }
+
+    if (agentId === 'copilot') {
+        try {
+            execSync('gh auth status', { timeout: 2000, stdio: 'pipe' });
+        } catch {
+            return { ready: false, reason: 'gh_not_logged_in' };
         }
     }
 
@@ -1878,6 +2265,7 @@ function startSingleAgentOrder(order, runAgent, mcpServers) {
         }
         void persistOrder(order);
         broadcastOrderUpdate(order);
+        processOrderQueue();
         cleanupOrderRuntime(order.id);
     };
 
@@ -1945,32 +2333,15 @@ async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStder
         let stdout = '';
         let stderr = '';
         let settled = false;
-        let timeoutHandle = null;
 
         const finish = (payload) => {
             if (settled) return;
             settled = true;
-            if (timeoutHandle) clearTimeout(timeoutHandle);
             if (runtime && childKey) {
                 setChildFinished(runtime, childKey, payload.code);
             }
             resolve(payload);
         };
-
-        if (timeoutMs > 0) {
-            timeoutHandle = setTimeout(() => {
-                if (settled) return;
-                const timeoutText = `[timeout] worker exceeded ${timeoutMs}ms`;
-                stderr = `${stderr}\n${timeoutText}`.trim();
-                onStderr?.(`${timeoutText}\n`, child.pid);
-                try {
-                    child.kill('SIGTERM');
-                } catch {
-                    // Ignore kill errors.
-                }
-                finish({ code: 124, stdout, stderr, pid: child.pid, timedOut: true });
-            }, timeoutMs);
-        }
 
         child.stdout.on('data', (chunk) => {
             const text = chunk.toString();
@@ -1996,9 +2367,227 @@ async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStder
     });
 }
 
+async function runNestedDelegationForWorker({
+    order,
+    runtime,
+    worker,
+    workerIndex,
+    workers,
+    workerMetaInfo,
+    parentResult,
+    executionPolicy,
+    sharedMemoryForWorker,
+    nestedPolicy,
+    nestedReadyAgents,
+    mcpServers,
+    artifactContext,
+}) {
+    if (!nestedPolicy?.enabled || !parentResult || parentResult.code !== 0) return null;
+    if (runtime?.cancelRequested) return null;
+
+    const parentWorkerId = worker.workerId;
+    const parentAgent = worker.agent;
+    const nestedPlan = buildNestedSubAgentPlan(workerMetaInfo?.specialist || 'developer', nestedPolicy);
+    if (nestedPlan.length === 0) return null;
+
+    const resolveNestedAgent = (targetSpecialist) => {
+        const ready = Array.isArray(nestedReadyAgents) ? nestedReadyAgents : [];
+        if (ready.length === 0) return parentAgent;
+        if (ready.includes(parentAgent) && canAgentHandleSpecialist(parentAgent, targetSpecialist)) {
+            return parentAgent;
+        }
+
+        const capable = ready.filter((agentId) => canAgentHandleSpecialist(agentId, targetSpecialist));
+        return capable[0] || ready[0] || parentAgent;
+    };
+
+    pushOrderEvent(order, 'nested.plan', {
+        parentWorkerId,
+        nestedCount: nestedPlan.length,
+        nestedSpecialists: nestedPlan.map((item) => item.specialist),
+    });
+
+    const nestedResults = [];
+    for (const [nestedIdx, nested] of nestedPlan.entries()) {
+        if (runtime?.cancelRequested) break;
+
+        const nestedAgent = resolveNestedAgent(nested.specialist);
+        const nestedId = `${parentWorkerId}:${nested.id}`;
+        const childKey = `nested:${nestedId}`;
+
+        const nestedPrompt = [
+            `You are nested sub-agent ${nestedIdx + 1}/${nestedPlan.length} for parent worker ${workerIndex + 1}/${workers.length}.`,
+            `Parent worker id: ${parentWorkerId}. Parent specialist: ${workerMetaInfo?.specialist || 'developer'}.`,
+            `Your assigned specialist persona: ${nested.specialist}.`,
+            `Focus: ${nested.focus}.`,
+            executionPolicy,
+            sharedMemoryForWorker
+                ? `Shared context snapshot:\n${sharedMemoryForWorker}`
+                : 'Shared context snapshot: none.',
+            'You must improve or validate the parent output. Be concrete and implementation-oriented.',
+            'If you cite numbers or external claims, include URLs and explicitly label assumptions.',
+            `Parent worker output:\n${String(parentResult.stdout || parentResult.stderr || '').slice(0, 22000)}`,
+            `Original task:\n${order.prompt}`,
+        ].join('\n\n');
+
+        pushOrderEvent(order, 'nested.worker.started', {
+            parentWorkerId,
+            nestedId,
+            specialist: nested.specialist,
+            agent: nestedAgent,
+            index: nestedIdx + 1,
+        });
+
+        const nestedResult = await runChildAgent({
+            agent: nestedAgent,
+            prompt: nestedPrompt,
+            cwd: order.cwd,
+            mcpServers,
+            runtime,
+            childKey,
+            childMeta: { kind: 'nested', workerId: parentWorkerId, agent: nestedAgent },
+            timeoutMs: nestedPolicy.nestedTimeoutMs,
+            onStdout: (text, pid) => {
+                const tagged = `[nested:${nestedId}|agent:${nestedAgent}] ${text}`;
+                order.stdout += tagged;
+                if (order.stdout.length > 220000) order.stdout = order.stdout.slice(-220000);
+                appendLaneBuffer(order, `nested:${parentWorkerId}`, text);
+                pushOrderOutputDelta(order, runtime, `${childKey}:stdout`, 'nested.output.delta', {
+                    parentWorkerId,
+                    nestedId,
+                    agent: nestedAgent,
+                    stream: 'stdout',
+                    chars: text.length,
+                    pid,
+                });
+            },
+            onStderr: (text, pid) => {
+                const tagged = `[nested:${nestedId}|agent:${nestedAgent}:stderr] ${text}`;
+                order.stderr += tagged;
+                if (order.stderr.length > 130000) order.stderr = order.stderr.slice(-130000);
+                appendLaneBuffer(order, `nested:${parentWorkerId}`, `[stderr] ${text}`);
+                pushOrderOutputDelta(order, runtime, `${childKey}:stderr`, 'nested.output.delta', {
+                    parentWorkerId,
+                    nestedId,
+                    agent: nestedAgent,
+                    stream: 'stderr',
+                    chars: text.length,
+                    pid,
+                });
+            },
+        });
+        flushOrderOutputDeltas(order, runtime, `${childKey}:`);
+
+        pushOrderEvent(order, 'nested.worker.finished', {
+            parentWorkerId,
+            nestedId,
+            specialist: nested.specialist,
+            agent: nestedAgent,
+            exitCode: nestedResult?.code ?? 1,
+            reason: nestedResult?.timedOut ? 'timeout' : 'exit',
+        });
+
+        const nestedMeta = {
+            nestedId,
+            specialist: nested.specialist,
+            focus: nested.focus,
+            agent: nestedAgent,
+        };
+
+        try {
+            await persistNestedWorkerArtifact(order, artifactContext, parentWorkerId, nestedMeta, nestedResult);
+        } catch (err) {
+            pushOrderEvent(order, 'artifacts.nested_write_failed', {
+                parentWorkerId,
+                nestedId,
+                message: err?.message || 'nested_artifact_write_failed',
+            });
+        }
+
+        nestedResults.push({
+            ...nestedMeta,
+            code: nestedResult?.code ?? 1,
+            stdout: nestedResult?.stdout || '',
+            stderr: nestedResult?.stderr || '',
+        });
+    }
+
+    if (nestedResults.length === 0) return null;
+
+    let nestedSynthesis = null;
+    if (nestedPolicy.enableTeamSynthesis && !runtime?.cancelRequested) {
+        const synthesisAgent = nestedResults.find((r) => r.code === 0)?.agent || parentAgent;
+        const synthesisPrompt = [
+            'You are a nested team coordinator. Synthesize child sub-agent outputs into one actionable supplement for the parent worker.',
+            `Parent worker: ${parentWorkerId} (${workerMetaInfo?.specialist || 'developer'})`,
+            'Do not invoke tools. Return concrete implementation deltas and risk checks only.',
+            `Original task:\n${order.prompt}`,
+            'Nested outputs:',
+            ...nestedResults.map((r) => `\n--- ${r.nestedId} via ${r.agent} (exit ${r.code}) ---\n${(r.stdout || r.stderr || '').slice(0, 12000)}`),
+        ].join('\n');
+
+        pushOrderEvent(order, 'nested.synthesis.started', { parentWorkerId, agent: synthesisAgent });
+        const nestedSynthResult = await runChildAgent({
+            agent: synthesisAgent,
+            prompt: synthesisPrompt,
+            cwd: order.cwd,
+            mcpServers,
+            runtime,
+            childKey: `nested-synthesis:${parentWorkerId}`,
+            childMeta: { kind: 'nested-synthesis', workerId: parentWorkerId, agent: synthesisAgent },
+            timeoutMs: nestedPolicy.nestedSynthesisTimeoutMs,
+        });
+
+        nestedSynthesis = {
+            agent: synthesisAgent,
+            code: nestedSynthResult?.code ?? 1,
+            stdout: nestedSynthResult?.stdout || '',
+            stderr: nestedSynthResult?.stderr || '',
+        };
+
+        pushOrderEvent(order, 'nested.synthesis.finished', {
+            parentWorkerId,
+            agent: synthesisAgent,
+            exitCode: nestedSynthesis.code,
+        });
+
+        try {
+            await persistNestedSynthesisArtifact(order, artifactContext, parentWorkerId, nestedSynthesis);
+        } catch (err) {
+            pushOrderEvent(order, 'artifacts.nested_synthesis_write_failed', {
+                parentWorkerId,
+                message: err?.message || 'nested_synthesis_write_failed',
+            });
+        }
+    }
+
+    const nestedBody = nestedSynthesis && nestedSynthesis.code === 0
+        ? (nestedSynthesis.stdout || nestedSynthesis.stderr || '')
+        : nestedResults
+            .filter((r) => r.code === 0)
+            .map((r) => `## ${r.nestedId} (${r.agent})\n${(r.stdout || r.stderr || '').slice(0, 9000)}`)
+            .join('\n\n');
+
+    const mergedOutput = [
+        String(parentResult.stdout || parentResult.stderr || '').trim(),
+        '',
+        `### Nested Delegation Summary (${parentWorkerId})`,
+        nestedBody || '_No successful nested output._',
+    ].join('\n');
+
+    return {
+        nestedCount: nestedResults.length,
+        nestedSucceeded: nestedResults.filter((r) => r.code === 0).length,
+        nestedResults,
+        nestedSynthesis,
+        mergedOutput,
+    };
+}
+
 async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     const runtime = createOrderRuntime(order);
     const deepPolicy = order.deepPolicy || {};
+    const nestedPolicy = buildNestedPolicy(deepPolicy, Number.isFinite(deepPolicy.workerCount) ? deepPolicy.workerCount : DEFAULT_DEEP_WORKERS);
     const plannerStyle = String(deepPolicy.plannerStyle || 'balanced');
     const plannerNotes = String(deepPolicy.plannerNotes || '');
     const useAiPlanner = deepPolicy.useAiPlanner !== false;
@@ -2071,12 +2660,15 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         promptIntent,
         pendingQuestionCount: plannerQuestions.length,
         userClarifications,
+        nestedPolicy,
     };
-    const { workers, skipped } = selectParallelWorkers(runAgent, workerCount, order.cwd, deepPolicy);
+    const { workers, skipped } = selectParallelWorkers(runAgent, workerCount, order.cwd, deepPolicy, order.allowedAgents || null);
+    const nestedReadyAgents = getReadyAgentsInPriorityOrder(order.cwd, order.allowedAgents || null).ready;
     const workerAgents = Object.fromEntries(workers.map((w) => [w.workerId, w.agent]));
-    const specialistPlan = planner?.ok
+    const specialistCandidates = planner?.ok
         ? planner.specialists.map((item) => item.name).slice(0, workers.length)
         : inferSpecialistsFromPrompt(order.prompt, workers.length);
+    const specialistPlanByWorker = assignSpecialistsToWorkers(workers, specialistCandidates, order.prompt);
     const specialistFocusPlan = planner?.ok
         ? planner.specialists.reduce((acc, item) => {
             acc[item.name] = item.focus || specialistFocusSummary(item.name);
@@ -2085,7 +2677,7 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         : {};
     const labelCounts = {};
     const workerMeta = Object.fromEntries(workers.map((w, idx) => {
-        const specialist = specialistPlan[idx] || 'developer';
+        const specialist = specialistPlanByWorker[w.workerId] || fallbackSpecialistForAgent(w.agent);
         const focus = specialistFocusSummary(specialist);
         const base = `${toTitleToken(w.agent)} · ${toTitleToken(specialist)}`;
         labelCounts[base] = (labelCounts[base] || 0) + 1;
@@ -2096,6 +2688,7 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         w.workerId,
         workerMeta[w.workerId]?.specialist || inferExecutionRole(w.agent, order.prompt),
     ]));
+    const nestedEligibleWorkers = pickNestedEligibleWorkers(workers, workerMeta, nestedPolicy);
     order.status = 'running';
     order.startedAt = nowIso();
     pushOrderEvent(order, 'parallel.plan', {
@@ -2106,6 +2699,7 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         workerCount: workers.length,
         mode: 'deep',
         deepPolicy: order.deepPolicy,
+        nestedEligibleWorkers: Array.from(nestedEligibleWorkers),
                 planner: planner?.ok
                         ? {
                                 agent: planner.plannerAgent,
@@ -2136,29 +2730,49 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         pushOrderEvent(order, 'order.failed', { mode: 'deep', reason: 'no_ready_workers' });
         void persistOrder(order);
         broadcastOrderUpdate(order);
+        processOrderQueue();
         return;
     }
 
-    const workerTimeoutMs = resolveTimeoutMs(deepPolicy.timeoutMs, DEEP_SYNTHESIS_TIMEOUT_MS);
+    // Hard-disable deep worker timeouts to avoid interrupting long-running tasks.
+    const workerTimeoutMs = 0;
     const finishedWorkerIds = new Set();
     const workerRuns = workers.map(async (worker, idx) => {
         const { workerId, agent } = worker;
         const childKey = `worker:${workerId}`;
-        const perWorkerTimeoutMs = agent === 'ollama'
-            ? (workerTimeoutMs > 0 ? Math.max(workerTimeoutMs, 180000) : 0)
-            : workerTimeoutMs;
+        const perWorkerTimeoutMs = 0;
         const meta = workerMeta[workerId] || { workerLabel: workerId, specialist: 'developer', focus: 'deliver concrete implementation guidance' };
         if (specialistFocusPlan[meta.specialist]) {
             meta.focus = specialistFocusPlan[meta.specialist];
         }
+
+        if (idx > 0) {
+            await new Promise((resolve) => setTimeout(resolve, Math.min(1000, idx * 150)));
+        }
+
+        let sharedMemoryForWorker = '';
+        if (artifactContext?.sharedPath) {
+            try {
+                sharedMemoryForWorker = String(await readFile(artifactContext.sharedPath, 'utf8') || '').slice(-12000);
+            } catch {
+                sharedMemoryForWorker = '';
+            }
+        }
+
+        const allowExternalResearch = ['researcher', 'analyst', 'finance', 'strategist', 'evaluator'].includes(meta.specialist);
         const workerPrompt = [
             `You are worker ${idx + 1}/${workers.length} (${meta.workerLabel}; id=${workerId}; agent=${agent}).`,
             `Assigned specialist persona: ${meta.specialist}.`,
             `Assigned focus: ${meta.focus}.`,
             executionPolicy,
+            sharedMemoryForWorker
+                ? `Shared context from SHARED_MEMORY.md (latest snapshot):\n${sharedMemoryForWorker}`
+                : 'Shared context from SHARED_MEMORY.md: none yet.',
             'Focus on a distinct implementation strategy and return concrete, actionable output.',
             'If coding is needed, provide exact file paths and code blocks.',
-            'Return the answer directly. Do not invoke tools, shell commands, file writes, skills, or external actions.',
+            allowExternalResearch
+                ? 'For research/analysis/finance tasks, use web/search tooling if available and cite sources with URLs. Do not fabricate numbers; label assumptions clearly.'
+                : 'Return the answer directly. Do not invoke tools, shell commands, file writes, skills, or external actions.',
             'No preamble. No meta commentary. Output only the requested technical content.',
             `Original task:\n${order.prompt}`,
         ].join('\n\n');
@@ -2220,7 +2834,41 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             stopWorkerWatchdog(runtime, childKey);
         }
 
-        const exitCode = result?.code ?? 1;
+        let nestedOutcome = null;
+        const shouldRunNested = nestedPolicy.enabled
+            && nestedEligibleWorkers.has(workerId)
+            && !runtime.cancelRequested;
+
+        if (shouldRunNested) {
+            try {
+                nestedOutcome = await runNestedDelegationForWorker({
+                    order,
+                    runtime,
+                    worker,
+                    workerIndex: idx,
+                    workers,
+                    workerMetaInfo: meta,
+                    parentResult: result,
+                    executionPolicy,
+                    sharedMemoryForWorker,
+                    nestedPolicy,
+                    nestedReadyAgents,
+                    mcpServers,
+                    artifactContext,
+                });
+            } catch (err) {
+                pushOrderEvent(order, 'nested.failed', {
+                    parentWorkerId: workerId,
+                    message: err?.message || 'nested_delegation_failed',
+                });
+            }
+        }
+
+        const resultForWorker = nestedOutcome?.mergedOutput
+            ? { ...result, stdout: nestedOutcome.mergedOutput }
+            : result;
+
+        const exitCode = resultForWorker?.code ?? 1;
         pushOrderEvent(order, 'worker.finished', {
             workerId,
             workerLabel: meta.workerLabel,
@@ -2229,10 +2877,12 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             agent,
             role: workerRoles[workerId],
             exitCode,
-            reason: runtime.cancelRequested ? 'cancelled' : (result?.timedOut ? 'timeout' : (result?.errored ? 'error' : 'exit')),
+            reason: runtime.cancelRequested ? 'cancelled' : (resultForWorker?.timedOut ? 'timeout' : (resultForWorker?.errored ? 'error' : 'exit')),
+            nestedCount: nestedOutcome?.nestedCount || 0,
+            nestedSucceeded: nestedOutcome?.nestedSucceeded || 0,
         });
         try {
-            await persistWorkerArtifact(order, artifactContext, workerId, agent, meta, result);
+            await persistWorkerArtifact(order, artifactContext, workerId, agent, meta, resultForWorker);
         } catch (err) {
             pushOrderEvent(order, 'artifacts.worker_write_failed', {
                 workerId,
@@ -2240,7 +2890,7 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             });
         }
         finishedWorkerIds.add(workerId);
-        return { workerId, agent, ...result };
+        return { workerId, agent, ...resultForWorker };
     });
 
     const workerResults = [];
@@ -2252,30 +2902,8 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         workerResults.push(result);
     };
 
-    if (workerTimeoutMs > 0) {
-        await Promise.race([
-            Promise.all(workerRuns).then((all) => {
-                for (const result of all) syncResult(result);
-            }),
-            new Promise((resolve) => {
-                setTimeout(() => {
-                    pushOrderEvent(order, 'parallel.timeout', { timeoutMs: workerTimeoutMs, partialWorkers: workerResults.length });
-                    resolve();
-                }, workerTimeoutMs);
-            }),
-        ]);
-    } else {
-        const all = await Promise.all(workerRuns);
-        for (const result of all) syncResult(result);
-    }
-
-    if (workerTimeoutMs > 0 && workerResults.length < workers.length) {
-        cancelOrderChildren(order, runtime, 'parallel_timeout');
-        const settled = await Promise.allSettled(workerRuns);
-        for (const item of settled) {
-            if (item.status === 'fulfilled') syncResult(item.value);
-        }
-    }
+    const all = await Promise.all(workerRuns);
+    for (const result of all) syncResult(result);
 
     for (const worker of workers) {
         if (finishedWorkerIds.has(worker.workerId)) continue;
@@ -2316,9 +2944,7 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     const synthesisAgent = (primaryWorker && primaryWorker.code === 0)
         ? runAgent
         : (successfulWorkers[0]?.agent || workers[0]?.agent || runAgent);
-    const synthesisTimeoutMs = workerTimeoutMs > 0
-        ? Math.max(workerTimeoutMs, Math.min(300000, Math.max(DEEP_SYNTHESIS_TIMEOUT_MS, workerTimeoutMs) * 2))
-        : 0;
+    const synthesisTimeoutMs = 0;
 
     let sharedMemoryExcerpt = '';
     if (artifactContext?.sharedPath) {
@@ -2444,6 +3070,7 @@ async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
 
     void persistOrder(order);
     broadcastOrderUpdate(order);
+    processOrderQueue();
     cleanupOrderRuntime(order.id);
 }
 
@@ -2466,6 +3093,8 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     const plannerStyle = (req.body?.plannerStyle || 'balanced').toString().trim().toLowerCase();
     const plannerNotes = (req.body?.plannerNotes || '').toString().trim().slice(0, 4000);
     const previewWorkerCount = estimateDeepWorkerCount(prompt, Number.isFinite(payloadWorkerCount) ? payloadWorkerCount : null);
+    const nestedMaxParents = Number.parseInt(req.body?.nestedMaxParents, 10);
+    const nestedSubAgentsPerWorker = Number.parseInt(req.body?.nestedSubAgentsPerWorker, 10);
 
         if (Array.isArray(rawAllowedAgents) && allowedAgents && allowedAgents.length === 0) {
             return res.status(400).json({ error: 'No valid allowedAgents were provided' });
@@ -2477,10 +3106,22 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         useAiPlanner,
         plannerStyle,
         plannerNotes,
-        timeoutMs: resolveTimeoutMs(req.body?.timeoutMs, DEEP_SYNTHESIS_TIMEOUT_MS),
+        timeoutMs: 0,
         allowSynthesisFallback: req.body?.allowSynthesisFallback !== false,
         workerCountResolved: previewWorkerCount,
         workerCountMax: MAX_DEEP_WORKERS,
+        enableNestedDelegation: typeof req.body?.enableNestedDelegation === 'boolean'
+            ? req.body.enableNestedDelegation
+            : DEEP_NESTED_ENABLED_DEFAULT,
+        nestedMaxParents: Number.isFinite(nestedMaxParents)
+            ? Math.max(1, Math.min(MAX_DEEP_WORKERS, nestedMaxParents))
+            : DEEP_NESTED_MAX_PARENTS,
+        nestedSubAgentsPerWorker: Number.isFinite(nestedSubAgentsPerWorker)
+            ? Math.max(1, Math.min(4, nestedSubAgentsPerWorker))
+            : DEEP_NESTED_SUBAGENTS_PER_PARENT,
+        nestedTimeoutMs: 0,
+        nestedSynthesisTimeoutMs: 0,
+        enableNestedTeamSynthesis: req.body?.enableNestedTeamSynthesis !== false,
     };
     const orderCwd = (req.body?.cwd || '').toString().trim() || REPO_ROOT;
     let runAgent = null;
@@ -2556,11 +3197,19 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         skipped: routeMeta.skipped || [],
         allowedAgents,
     });
-        const { workers, skipped } = selectParallelWorkers(runAgent, workerCount, order.cwd, deepPolicy, order.allowedAgents || null);
     orders.set(id, order);
     void persistOrder(order);
     broadcastOrderUpdate(order);
 
+    // Check concurrency limit
+    if (getActiveOrderCount() >= MAX_CONCURRENT_ORDERS) {
+        order.status = 'queued';
+        pendingOrderQueue.push(order.id);
+        broadcastOrderUpdate(order);
+        return res.status(202).json({ id: order.id, status: 'queued', position: pendingOrderQueue.length, ...toOrderSummary(order) });
+    }
+
+    // Start the order immediately if under limit
     if (orchestrationMode === 'parallel') {
         void startDeepOrchestratedOrder(order, runAgent, mcpServers);
     } else {
@@ -2890,6 +3539,9 @@ async function startFileWatcher() {
             console.log(`  👁  Watcher active on: ${REPO_ROOT}`);
             for await (const event of watcher) {
                 if (event.filename && !event.filename.includes('node_modules') && !event.filename.includes('.git')) {
+                    // Invalidate cache for changed file
+                    const changedPath = resolve(REPO_ROOT, event.filename);
+                    invalidateCachedFile(changedPath);
                     broadcast({ type: 'FILE_CHANGED', path: event.filename });
                 }
             }
@@ -3083,9 +3735,19 @@ app.get('/api/fs/file', requireAuth, async (req, res) => {
     // Security: ensure path is within root
     if (!filePath.startsWith(rootPath)) return res.status(403).json({ error: 'Access denied' });
     try {
+        // Check cache first
+        const cached = getCachedFile(filePath);
+        if (cached) {
+            return res.set('Cache-Control', 'max-age=5').json({ content: cached, path: req.query.path });
+        }
+
         const stats = await stat(filePath);
         if (stats.size > MAX_FILE_SIZE) return res.status(413).json({ error: 'File too large for editor' });
         const content = await readFile(filePath, 'utf8');
+
+        // Cache the file
+        setCachedFile(filePath, content);
+
         res.json({ content, path: req.query.path });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -3100,6 +3762,8 @@ app.post('/api/fs/file', express.json(), requireAuth, async (req, res) => {
     if (!filePath.startsWith(rootPath)) return res.status(403).json({ error: 'Access denied' });
     try {
         await writeFile(filePath, content, 'utf8');
+        // Invalidate cache for this file
+        invalidateCachedFile(filePath);
         res.json({ ok: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -3270,9 +3934,26 @@ app.post('/logout', requireAuth, (req, res) => {
 wss.on('connection', (ws, req) => {
     let wsAuthenticated = false;
     let wsToken = null;
-    
+
     const clientIP = req.socket?.remoteAddress;
     const isLocal = clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === '::ffff:127.0.0.1';
+
+    // WebSocket stability: limit connections per IP
+    const ipCount = (wsConnectionsPerIp.get(clientIP) || 0) + 1;
+    if (ipCount > 20) {
+        ws.close(1013, 'Too many connections');
+        return;
+    }
+    wsConnectionsPerIp.set(clientIP, ipCount);
+    ws.on('close', () => {
+        const c = wsConnectionsPerIp.get(clientIP) || 1;
+        if (c <= 1) wsConnectionsPerIp.delete(clientIP);
+        else wsConnectionsPerIp.set(clientIP, c - 1);
+    });
+
+    // Heartbeat setup
+    ws._soupzAlive = true;
+    ws.on('pong', () => { ws._soupzAlive = true; });
 
     // Client MUST authenticate within 10 seconds or get disconnected
     const authTimeout = setTimeout(() => {
@@ -3515,8 +4196,10 @@ function startCoreIntervals() {
 function stopCoreIntervals() {
     if (healthBroadcastInterval) clearInterval(healthBroadcastInterval);
     if (sessionCleanupInterval) clearInterval(sessionCleanupInterval);
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
     healthBroadcastInterval = null;
     sessionCleanupInterval = null;
+    heartbeatInterval = null;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3561,10 +4244,22 @@ export function startRemoteServer(port = DEFAULT_PORT, opts = {}) {
     activePort = port;
     webappBaseUrl = opts.webapp || process.env.SOUPZ_APP_URL || webappBaseUrl;
     return new Promise((resolve, reject) => {
-        server.listen(port, () => {
+        server.listen(port, async () => {
             const localIPs = getLocalIPs();
-            startCodeAutoRefresh();
+            await startCodeAutoRefresh();
             startRuntimeServices();
+
+            // Start WebSocket heartbeat to detect dead connections
+            heartbeatInterval = setInterval(() => {
+                wss.clients.forEach(ws => {
+                    if (ws._soupzAlive === false) {
+                        ws.terminate();
+                        return;
+                    }
+                    ws._soupzAlive = false;
+                    ws.ping();
+                });
+            }, 30000);
 
             if (!opts.silent) {
                 console.log(`\n  \x1b[32m● Soupz running\x1b[0m  http://localhost:${port}\n`);

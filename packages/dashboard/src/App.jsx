@@ -9,10 +9,12 @@ import AuthScreen from './components/auth/AuthScreen';
 import SimpleMode from './components/simple/SimpleMode';
 import StatusBar from './components/shared/StatusBar';
 import CoreConsole from './components/core/CoreConsole';
+import ErrorBoundary from './components/shared/ErrorBoundary';
 
 // Lazy-load routes and heavy components not needed on first paint
 const ConnectPage = lazy(() => import('./components/connect/ConnectPage'));
 const ProMode = lazy(() => import('./components/pro/ProMode'));
+const BuilderMode = lazy(() => import('./components/builder/BuilderMode'));
 const LandingPage = lazy(() => import('./components/landing/LandingPage'));
 const ProfilePage = lazy(() => import('./components/profile/ProfilePage'));
 const AdminPage = lazy(() => import('./components/admin/AdminPage'));
@@ -126,9 +128,10 @@ export default function App() {
 
   useEffect(() => {
     function handleKey(e) {
-      // Cmd+1: Chat mode, Cmd+2: IDE mode
+      // Cmd+1: Chat mode, Cmd+2: IDE mode, Cmd+3: Builder mode
       if ((e.metaKey || e.ctrlKey) && e.key === '1') { e.preventDefault(); setMode('simple'); }
       if ((e.metaKey || e.ctrlKey) && e.key === '2') { e.preventDefault(); setMode('pro'); }
+      if ((e.metaKey || e.ctrlKey) && e.key === '3') { e.preventDefault(); setMode('builder'); }
       // Cmd+Shift+P: Command Palette
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'p') { e.preventDefault(); setCmdPaletteOpen(v => !v); }
       // Cmd+K: also opens palette (common shortcut)
@@ -156,7 +159,7 @@ export default function App() {
   }
 
   function handleCommand(actionId) {
-    if (actionId === 'toggle-mode') setMode(m => m === 'simple' ? 'pro' : 'simple');
+    if (actionId === 'toggle-mode') setMode(m => m === 'simple' ? 'builder' : m === 'builder' ? 'pro' : 'simple');
     else if (actionId.startsWith('theme-')) {
       const t = actionId.replace('theme-', '');
       setTheme(t); localStorage.setItem(THEME_KEY, t); applyTheme(t);
@@ -343,7 +346,11 @@ export default function App() {
 
   // /connect route
   if (path === '/connect') {
-    return <Suspense fallback={routeLoader}><ConnectPage getParam={getParam} navigate={navigate} /></Suspense>;
+    return (
+      <ErrorBoundary name="Connect Page">
+        <Suspense fallback={routeLoader}><ConnectPage getParam={getParam} navigate={navigate} /></Suspense>
+      </ErrorBoundary>
+    );
   }
 
   // /core route (minimal orchestrator demo)
@@ -353,32 +360,40 @@ export default function App() {
 
   // Default home site
   if (path === '/') {
-    return <Suspense fallback={routeLoader}><LandingPage navigate={navigate} theme={theme} setTheme={setTheme} themes={THEMES} /></Suspense>;
+    return (
+      <ErrorBoundary name="Landing Page">
+        <Suspense fallback={routeLoader}><LandingPage navigate={navigate} theme={theme} setTheme={setTheme} themes={THEMES} /></Suspense>
+      </ErrorBoundary>
+    );
   }
 
   // /profile route
   if (path === '/profile') {
     return (
-      <Suspense fallback={routeLoader}>
-        <ProfilePage
-          user={user}
-          navigate={navigate}
-          onSignOut={async () => {
-            await supabase.auth.signOut();
-            setUser(null);
-            navigate('/');
-          }}
-        />
-      </Suspense>
+      <ErrorBoundary name="Profile Page">
+        <Suspense fallback={routeLoader}>
+          <ProfilePage
+            user={user}
+            navigate={navigate}
+            onSignOut={async () => {
+              await supabase.auth.signOut();
+              setUser(null);
+              navigate('/');
+            }}
+          />
+        </Suspense>
+      </ErrorBoundary>
     );
   }
 
   // /admin route
   if (path === '/admin') {
     return (
-      <Suspense fallback={routeLoader}>
-        <AdminPage user={user} navigate={navigate} />
-      </Suspense>
+      <ErrorBoundary name="Admin Page">
+        <Suspense fallback={routeLoader}>
+          <AdminPage user={user} navigate={navigate} />
+        </Suspense>
+      </ErrorBoundary>
     );
   }
 
@@ -411,7 +426,8 @@ export default function App() {
 
         {/* Mode toggle */}
         <div className="flex items-center gap-0.5 bg-bg-base rounded-md p-0.5 border border-border-subtle">
-          <ModeBtn active={mode === 'simple'} onClick={() => setMode('simple')} icon={<Layers size={12} />} label="Build" />
+          <ModeBtn active={mode === 'simple'} onClick={() => setMode('simple')} icon={<Layers size={12} />} label="Chat" />
+          <ModeBtn active={mode === 'builder'} onClick={() => setMode('builder')} icon={<Sparkles size={12} />} label="Build" />
           <ModeBtn active={mode === 'pro'}    onClick={() => setMode('pro')}    icon={<Code2 size={12} />}  label="Code" />
         </div>
 
@@ -525,44 +541,58 @@ export default function App() {
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {mode === 'simple' ? (
             <SimpleMode daemon={workspace} />
+          ) : mode === 'builder' ? (
+            <ErrorBoundary name="Builder Mode">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
+                <BuilderMode daemon={workspace} />
+              </Suspense>
+            </ErrorBoundary>
           ) : (
-            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
-              <ProMode daemon={workspace} fileTree={fileTree} changedPaths={changedFiles} onEditorStateChange={setEditorState} />
-            </Suspense>
+            <ErrorBoundary name="Pro Mode">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
+                <ProMode daemon={workspace} fileTree={fileTree} changedPaths={changedFiles} onEditorStateChange={setEditorState} />
+              </Suspense>
+            </ErrorBoundary>
           )}
         </div>
       </main>
 
       {/* Command Palette */}
       {cmdPaletteOpen && (
-        <Suspense fallback={null}>
-          <CommandPalette
-            open={cmdPaletteOpen}
-            onClose={() => setCmdPaletteOpen(false)}
-            onAction={handleCommand}
-          />
-        </Suspense>
+        <ErrorBoundary name="Command Palette">
+          <Suspense fallback={null}>
+            <CommandPalette
+              open={cmdPaletteOpen}
+              onClose={() => setCmdPaletteOpen(false)}
+              onAction={handleCommand}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* Folder Picker (Cmd+O) */}
       {folderPickerOpen && (
-        <Suspense fallback={null}>
-          <FolderPicker
-            open={folderPickerOpen}
-            onClose={() => setFolderPickerOpen(false)}
-            onSelect={handleOpenFolder}
-          />
-        </Suspense>
+        <ErrorBoundary name="Folder Picker">
+          <Suspense fallback={null}>
+            <FolderPicker
+              open={folderPickerOpen}
+              onClose={() => setFolderPickerOpen(false)}
+              onSelect={handleOpenFolder}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* Setup Wizard */}
       {setupOpen && (
-        <Suspense fallback={null}>
-          <SetupWizard
-            isOpen={setupOpen}
-            onClose={() => setSetupOpen(false)}
-          />
-        </Suspense>
+        <ErrorBoundary name="Setup Wizard">
+          <Suspense fallback={null}>
+            <SetupWizard
+              isOpen={setupOpen}
+              onClose={() => setSetupOpen(false)}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* VS Code-style Status Bar */}

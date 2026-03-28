@@ -3,6 +3,41 @@
 import { CLI_AGENTS, SPECIALISTS } from './agents.js';
 import { getLearnedWeight } from './learning.js';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Tier Cooldown Tracking — for rate limiting aware routing
+// ─────────────────────────────────────────────────────────────────────────────
+
+const tierTracking = new Map(); // agentId -> { requestsToday, lastRateLimit, cooldownUntil }
+
+/**
+ * Report that an agent has been rate-limited.
+ * Sets a 5-minute cooldown for that agent.
+ * @param {string} agentId
+ */
+export function reportRateLimit(agentId) {
+  const entry = tierTracking.get(agentId) || { requestsToday: 0, lastRateLimit: 0, cooldownUntil: 0 };
+  entry.lastRateLimit = Date.now();
+  entry.cooldownUntil = Date.now() + 5 * 60 * 1000; // 5 min cooldown
+  tierTracking.set(agentId, entry);
+}
+
+/**
+ * Check if an agent is currently cooling down from rate limiting.
+ * @param {string} agentId
+ * @returns {boolean}
+ */
+export function isAgentCoolingDown(agentId) {
+  const entry = tierTracking.get(agentId);
+  if (!entry) return false;
+  const now = Date.now();
+  const isCooling = now < entry.cooldownUntil;
+  // Clean up expired cooldown entries
+  if (!isCooling && entry.cooldownUntil > 0) {
+    entry.cooldownUntil = 0;
+  }
+  return isCooling;
+}
+
 // ---------------------------------------------------------------------------
 // Routing keywords per CLI agent
 // ---------------------------------------------------------------------------
@@ -291,10 +326,11 @@ export function selectAgentLocally(prompt, availableAgents) {
   const availSet = resolveAvailableSet(availableAgents);
 
   // Score all CLI agents — multiply keyword score by learned weight boost
-  // Filter out agents that should be deprioritized
+  // Filter out agents that should be deprioritized or are cooling down from rate limits
   const agentScores = CLI_AGENTS
     .filter(a => availSet.size === 0 || availSet.has(a.id))
     .filter(a => !shouldDeprioritize(a.id, category, prompt))
+    .filter(a => !isAgentCoolingDown(a.id))
     .map(a => ({
       id: a.id,
       score: scoreAgentForPrompt(prompt, a.id) * (1 + getLearnedWeight(a.id, category)),

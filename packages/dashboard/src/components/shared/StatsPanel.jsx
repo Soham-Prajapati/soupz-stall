@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   Trophy, Zap, TrendingUp, MessageSquare, Bot, Flame,
@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS } from '../../lib/agents';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import LeaderboardPanel from './LeaderboardPanel';
 
 const STORAGE_KEY = 'soupz_chat_history';
@@ -76,6 +77,15 @@ export default function StatsPanel({ workspace }) {
   const [collapsed, setCollapsed] = useState(false);
   const [lbCollapsed, setLbCollapsed] = useState(false);
   const [highlightedAgent, setHighlightedAgent] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // Fetch current user on mount
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setCurrentUser(session?.user || null);
+    });
+  }, []);
 
   // Listen for agent click events
   useState(() => {
@@ -98,6 +108,64 @@ export default function StatsPanel({ workspace }) {
   const totalMsgs  = messages.filter(m => m.role === 'user').length;
   const agentCount = Object.keys(usage).length;
   const dailyData  = useMemo(() => getDailyActivity(messages), []);
+
+  // Calculate XP same way as LeaderboardPanel
+  const ACHIEVEMENT_IDS = [
+    { req: (m) => m >= 1 },
+    { req: (m) => m >= 10 },
+    { req: (m) => m >= 50 },
+    { req: (m) => m >= 100 },
+    { req: (_, a) => a >= 3 },
+    { req: (_, __, s) => s >= 3 },
+    { req: (_, __, s) => s >= 7 },
+  ];
+  const achieveCount = ACHIEVEMENT_IDS.filter(a => a.req(totalMsgs, agentCount, streak)).length;
+  const xp = (totalMsgs * 10) + (streak * 50) + (achieveCount * 100);
+
+  // Sync stats to Supabase every 60 seconds
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !currentUser) return;
+
+    async function syncStats() {
+      try {
+        const { error } = await supabase
+          .from('soupz_profiles')
+          .upsert({
+            id: currentUser.id,
+            xp: xp,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'id' });
+        if (error) console.error('Stats sync error:', error);
+      } catch (err) {
+        console.error('Failed to sync stats:', err);
+      }
+    }
+
+    const interval = setInterval(syncStats, 60000);
+    return () => clearInterval(interval);
+  }, [xp, currentUser]);
+
+  // Sync stats on window blur
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !currentUser) return;
+
+    async function syncStatsOnBlur() {
+      try {
+        await supabase
+          .from('soupz_profiles')
+          .upsert({
+            id: currentUser.id,
+            xp: xp,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'id' });
+      } catch (err) {
+        console.error('Failed to sync stats on blur:', err);
+      }
+    }
+
+    window.addEventListener('blur', syncStatsOnBlur);
+    return () => window.removeEventListener('blur', syncStatsOnBlur);
+  }, [xp, currentUser]);
 
   const topAgents = useMemo(() => {
     return Object.entries(usage)

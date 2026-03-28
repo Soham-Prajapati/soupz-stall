@@ -238,9 +238,29 @@ export function createTeamPlan(teamId, task, availableAgents = {}) {
  */
 export async function executeSubAgent(sendPrompt, task, onChunk) {
   let result = '';
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`Sub-agent ${task.subAgentId} timed out`)), task.timeout)
-  );
+  let timedOut = false;
+  let warningEmitted = false;
+
+  const timeoutPromise = new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      timedOut = true;
+      // Return partial output with timeout indicator instead of rejecting
+      resolve({
+        isPartial: true,
+        timedOut: true,
+        output: result,
+        message: `Sub-agent ${task.subAgentId} timed out after ${task.timeout}ms with partial output`
+      });
+    }, task.timeout);
+
+    // Emit warning at 80% of timeout
+    const warningTimer = setTimeout(() => {
+      if (!warningEmitted) {
+        warningEmitted = true;
+        onChunk?.(`[⚠️ Timeout warning: ${task.subAgentId} approaching limit at ${(task.timeout * 0.8 / 1000).toFixed(0)}s]`, false);
+      }
+    }, task.timeout * 0.8);
+  });
 
   const execPromise = new Promise((resolve, reject) => {
     sendPrompt(
@@ -248,12 +268,30 @@ export async function executeSubAgent(sendPrompt, task, onChunk) {
       (chunk, done) => {
         result += chunk;
         onChunk?.(chunk, done);
-        if (done) resolve(result);
+        if (done) {
+          resolve({
+            isPartial: false,
+            timedOut: false,
+            output: result
+          });
+        }
       }
     ).catch(reject);
   });
 
-  return Promise.race([execPromise, timeoutPromise]);
+  try {
+    const outcome = await Promise.race([execPromise, timeoutPromise]);
+    if (outcome.timedOut) {
+      throw new Error(outcome.message);
+    }
+    return outcome.output || result;
+  } catch (err) {
+    // If error occurred, return what we have collected so far
+    if (result.trim()) {
+      return result + `\n\n[Execution interrupted: ${err.message}]`;
+    }
+    throw err;
+  }
 }
 
 /**
@@ -306,11 +344,54 @@ export async function executeTeam(sendPrompt, plan, onProgress) {
     }
   }
 
-  // Coordinator synthesis
+  // Coordinator synthesis — merge all successful sub-agent outputs
   onProgress?.('coordinator-start', plan.coordinator.agentId, '');
-  const resultsText = Object.entries(results)
-    .map(([id, r]) => `## ${id}\n${r}`)
-    .join('\n\n---\n\n');
+
+  // Separate successful results from failed/timed-out ones
+  const successfulResults = [];
+  const failedAgents = [];
+  const timedOutAgents = [];
+
+  Object.entries(results).forEach(([id, result]) => {
+    if (typeof result === 'string') {
+      if (result.includes('timed out')) {
+        // Extract partial output if present
+        const hasPartial = result.includes('[Execution interrupted:');
+        timedOutAgents.push({ id, timedOut: true, hasPartial, partial: result });
+        if (hasPartial) {
+          successfulResults.push({ id, result });
+        }
+      } else if (result.startsWith('Error:')) {
+        failedAgents.push({ id, error: result });
+      } else {
+        successfulResults.push({ id, result });
+      }
+    } else {
+      successfulResults.push({ id, result });
+    }
+  });
+
+  // Build structured results text with clear labels
+  const resultsText = [
+    ...successfulResults.map(({ id, result }) => `### Worker: ${id}\n${result}`),
+    ...(timedOutAgents.length > 0 ? [
+      '\n---\n### Timed Out Workers (with partial output)',
+      ...timedOutAgents
+        .filter(a => a.hasPartial)
+        .map(({ id, partial }) => `- ${id}: [TIMEOUT - partial output above]`)
+    ] : []),
+    ...(timedOutAgents.length > 0 ? [
+      '### Timed Out Workers (no output)',
+      ...timedOutAgents
+        .filter(a => !a.hasPartial)
+        .map(({ id }) => `- ${id}: [TIMEOUT - no output]`)
+    ] : []),
+    ...(failedAgents.length > 0 ? [
+      '\n---\n### Failed Workers',
+      ...failedAgents.map(({ id, error }) => `- ${id}: ${error}`)
+    ] : [])
+  ].join('\n\n');
+
   const coordinatorPrompt = plan.coordinator.promptTemplate.replace('{{results}}', resultsText);
 
   let synthesis = '';
@@ -319,12 +400,12 @@ export async function executeTeam(sendPrompt, plan, onProgress) {
       subAgentId: 'coordinator',
       agentId: plan.coordinator.agentId,
       prompt: coordinatorPrompt,
-      timeout: 120000,
+      timeout: 180000,
     }, (chunk) => {
       onProgress?.('coordinator-chunk', plan.coordinator.agentId, chunk);
     });
   } catch (err) {
-    synthesis = `Coordinator error: ${err.message}\n\nRaw results:\n${resultsText}`;
+    synthesis = `Coordinator error: ${err.message}\n\nFallback: Merging all successful results.\n\n${resultsText}`;
   }
   onProgress?.('coordinator-done', plan.coordinator.agentId, synthesis);
 

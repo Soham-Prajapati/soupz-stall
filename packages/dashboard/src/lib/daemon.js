@@ -24,7 +24,8 @@ let wsUrl      = null;
 const wsChunkHandlers = new Map(); // orderId → (chunk, done) => void
 
 function getStoredToken() {
-  return localStorage.getItem('soupz_daemon_token');
+  return localStorage.getItem('soupz_daemon_token')
+    || sessionStorage.getItem('soupz_daemon_token');
 }
 
 export function connectDaemonWS(token) {
@@ -42,6 +43,8 @@ export function connectDaemonWS(token) {
   wsInstance = ws;
 
   ws.onopen = () => {
+    wsReconnectAttempts = 0;
+    wsDisconnectedIntentionally = false;
     ws.send(JSON.stringify({ type: 'auth', token: t || undefined, clientType: 'browser' }));
   };
 
@@ -62,16 +65,48 @@ export function connectDaemonWS(token) {
   };
 
   ws.onerror = () => { wsInstance = null; wsToken = null; wsUrl = null; };
-  ws.onclose = () => { wsInstance = null; wsToken = null; wsUrl = null; };
+  ws.onclose = () => {
+    wsInstance = null; wsToken = null; wsUrl = null;
+    scheduleWsReconnect();
+  };
 
   return ws;
 }
 
+// ─── WebSocket auto-reconnect ────────────────────────────────────────────────
+let wsReconnectTimer = null;
+let wsReconnectAttempts = 0;
+const WS_RECONNECT_BASE_MS = 3000;
+const WS_RECONNECT_MAX_MS = 30000;
+
+function scheduleWsReconnect() {
+  if (wsReconnectTimer || wsDisconnectedIntentionally) return;
+  const delay = Math.min(WS_RECONNECT_BASE_MS * Math.pow(1.5, wsReconnectAttempts), WS_RECONNECT_MAX_MS);
+  wsReconnectTimer = setTimeout(() => {
+    wsReconnectTimer = null;
+    wsReconnectAttempts++;
+    connectDaemonWS();
+  }, delay);
+}
+
+let wsDisconnectedIntentionally = false;
+
 export function disconnectDaemonWS() {
+  wsDisconnectedIntentionally = true;
+  if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
   wsInstance?.close();
   wsInstance = null;
   wsToken = null;
   wsUrl = null;
+}
+
+export function getWSState() {
+  if (!wsInstance) return 'disconnected';
+  const state = wsInstance.readyState;
+  if (state === 0) return 'connecting';
+  if (state === 1) return 'connected';
+  if (state === 2) return 'closing';
+  return 'disconnected';
 }
 
 // ─── Dev server detection ────────────────────────────────────────────────────
@@ -177,13 +212,16 @@ export async function checkDaemonHealth() {
 /**
  * Send an AI prompt. Streams chunks via WebSocket if connected locally,
  * falls back to Supabase relay for remote access.
- * @param {{prompt: string, agentId?: string, allowedAgents?: string[], buildMode?: string, cwd?: string, orchestrationMode?: string, workerCount?: number, sameAgentOnly?: boolean, primaryCopies?: number, timeoutMs?: number}} request
+ * @param {{prompt: string, agentId?: string, specialist?: string, temperature?: number, maxTokens?: number, allowedAgents?: string[], buildMode?: string, cwd?: string, orchestrationMode?: string, workerCount?: number, sameAgentOnly?: boolean, primaryCopies?: number, timeoutMs?: number, images?: Array}} request
  * @param {string} userId
  * @param {(chunk: string, done: boolean) => void} onChunk
  */
 export async function sendAgentPrompt(request, userId, onChunk) {
   const prompt = request?.prompt || '';
   const agentId = request?.agentId || 'auto';
+  const specialist = request?.specialist || undefined;
+  const temperature = typeof request?.temperature === 'number' ? request.temperature : undefined;
+  const maxTokens = typeof request?.maxTokens === 'number' ? request.maxTokens : undefined;
   const allowedAgents = Array.isArray(request?.allowedAgents) ? request.allowedAgents : undefined;
   const mode = request?.buildMode || 'balanced';
   const cwd = request?.cwd;
@@ -191,10 +229,21 @@ export async function sendAgentPrompt(request, userId, onChunk) {
   const workerCount = request?.workerCount;
   const sameAgentOnly = request?.sameAgentOnly;
   const primaryCopies = request?.primaryCopies;
-  const timeoutMs = request?.timeoutMs;
+
+  // Set default timeouts based on build mode if not provided
+  let timeoutMs = request?.timeoutMs;
+  if (!Number.isFinite(timeoutMs)) {
+    const timeoutDefaults = {
+      'quick': 90 * 1000,    // 90 seconds for quick mode
+      'planned': 180 * 1000, // 180 seconds for planned mode
+      'deep': 300 * 1000,    // 300 seconds for deep mode
+    };
+    timeoutMs = timeoutDefaults[mode] || 180 * 1000; // default to planned (180s)
+  }
   const useAiPlanner = typeof request?.useAiPlanner === 'boolean' ? request.useAiPlanner : undefined;
   const plannerStyle = request?.plannerStyle;
   const plannerNotes = request?.plannerNotes;
+  const images = Array.isArray(request?.images) ? request.images : undefined;
   const returnOrderImmediately = request?.returnOrderImmediately === true;
   const token = getStoredToken();
   const daemonUrl = getDaemonUrl();
@@ -230,6 +279,9 @@ export async function sendAgentPrompt(request, userId, onChunk) {
             })();
             const payload = { prompt, agent: agentId, modelPolicy: mode || 'balanced' };
             if (Array.isArray(allowedAgents)) payload.allowedAgents = allowedAgents;
+            if (specialist) payload.specialist = specialist;
+            if (typeof temperature === 'number') payload.temperature = temperature;
+            if (typeof maxTokens === 'number') payload.maxTokens = maxTokens;
             if (cwd) payload.cwd = cwd;
             if (orchestrationMode) payload.orchestrationMode = orchestrationMode;
             if (Number.isFinite(workerCount)) payload.workerCount = workerCount;
@@ -240,6 +292,7 @@ export async function sendAgentPrompt(request, userId, onChunk) {
             if (typeof plannerStyle === 'string' && plannerStyle.trim()) payload.plannerStyle = plannerStyle.trim();
             if (typeof plannerNotes === 'string' && plannerNotes.trim()) payload.plannerNotes = plannerNotes.trim().slice(0, 4000);
             if (mcpServers.length > 0) payload.mcpServers = mcpServers;
+            if (Array.isArray(images) && images.length > 0) payload.images = images;
             return payload;
           })()),
         });
@@ -642,6 +695,16 @@ export async function gitCommit(message, userId) {
 export async function gitPush(userId) {
   if (token() || isLocalDaemon()) return localPost('/api/git/push', {});
   return sendCommand('GIT_PUSH', {}, userId);
+}
+
+export async function fetchBranches(userId) {
+  if (token() || isLocalDaemon()) return localGet('/api/git/branch');
+  return sendCommand('GIT_BRANCHES', {}, userId);
+}
+
+export async function checkoutBranch(branch, userId) {
+  if (token() || isLocalDaemon()) return localPost('/api/git/checkout', { branch });
+  return sendCommand('GIT_CHECKOUT', { branch }, userId);
 }
 
 export async function runFile(path, userId) {
