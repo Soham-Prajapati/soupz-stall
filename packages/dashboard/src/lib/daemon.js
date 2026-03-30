@@ -560,11 +560,17 @@ export async function manageSystemCLI(name, action = 'install') {
         'Content-Type': 'application/json',
         'X-Soupz-Token': t,
       },
-      body: JSON.stringify({ name, action }),
+      body: JSON.stringify({ cli: name, action }),
+      signal: AbortSignal.timeout(15000),
     });
-    return await res.json();
+    const data = await res.json().catch(() => ({ success: false }));
+    if (!res.ok || data?.success === false) {
+      const message = data?.error || data?.output || `Failed to ${action} ${name}`;
+      return { success: false, error: message };
+    }
+    return { success: true, output: data?.output || '' };
   } catch (err) {
-    return { success: false, output: err.message };
+    return { success: false, error: err.message };
   }
 }
 
@@ -645,10 +651,11 @@ export async function getFileTree(rootPath, userId) {
   return sendCommand('FILE_TREE', { path: rootPath }, userId);
 }
 
-export async function readFile(filePath, userId) {
+export async function readFile(filePath, userId, rootPath) {
+  const rootQuery = rootPath ? `&root=${encodeURIComponent(rootPath)}` : '';
   if (token() || isLocalDaemon()) {
     try {
-      const res = await localGet(`/api/fs/file?path=${encodeURIComponent(filePath)}`);
+      const res = await localGet(`/api/fs/file?path=${encodeURIComponent(filePath)}${rootQuery}`);
       return res?.content || '';
     } catch (e) {
       if (!userId) throw e;
@@ -661,53 +668,59 @@ export async function readFile(filePath, userId) {
       const res = await localGet(`/api/git/mirror/file?path=${encodeURIComponent(filePath)}`);
       return res?.content || '';
     } catch {
-      return sendCommand('FILE_READ', { path: filePath }, userId);
+      return sendCommand('FILE_READ', { path: filePath, root: rootPath }, userId);
     }
   }
-  return sendCommand('FILE_READ', { path: filePath }, userId);
+  return sendCommand('FILE_READ', { path: filePath, root: rootPath }, userId);
 }
 
-export async function writeFile(filePath, content, userId) {
-  if (token() || isLocalDaemon()) return localPost('/api/fs/file', { path: filePath, content });
-  return sendCommand('FILE_WRITE', { path: filePath, content }, userId);
+export async function writeFile(filePath, content, userId, rootPath) {
+  if (token() || isLocalDaemon()) return localPost('/api/fs/file', { path: filePath, content, root: rootPath });
+  return sendCommand('FILE_WRITE', { path: filePath, content, root: rootPath }, userId);
 }
 
-export async function getGitStatus(repoPath, userId) {
-  if (token() || isLocalDaemon()) return localGet('/api/changes');
-  return sendCommand('GIT_STATUS', { path: repoPath }, userId);
+export async function getGitStatus(repoPath, userId, rootPath) {
+  const rootQuery = rootPath ? `?root=${encodeURIComponent(rootPath)}` : '';
+  if (token() || isLocalDaemon()) return localGet(`/api/changes${rootQuery}`);
+  return sendCommand('GIT_STATUS', { path: repoPath, root: rootPath }, userId);
 }
 
-export async function getGitDiff(filePath, userId) {
-  if (token() || isLocalDaemon()) return localGet(`/api/changes/diff?file=${encodeURIComponent(filePath || '')}`);
-  return sendCommand('GIT_DIFF', { path: filePath }, userId);
+export async function getGitDiff(filePath, userId, rootPath) {
+  const params = new URLSearchParams();
+  if (filePath) params.set('file', filePath);
+  if (rootPath) params.set('root', rootPath);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  if (token() || isLocalDaemon()) return localGet(`/api/changes/diff${suffix}`);
+  return sendCommand('GIT_DIFF', { path: filePath, root: rootPath }, userId);
 }
 
-export async function gitStage(filePath, userId) {
-  if (token() || isLocalDaemon()) return localPost('/api/git/stage', { path: filePath });
-  return sendCommand('GIT_STAGE', { path: filePath }, userId);
+export async function gitStage(filePath, userId, rootPath) {
+  if (token() || isLocalDaemon()) return localPost('/api/git/stage', { path: filePath, root: rootPath });
+  return sendCommand('GIT_STAGE', { path: filePath, root: rootPath }, userId);
 }
 
-export async function gitCommit(message, userId) {
-  if (token() || isLocalDaemon()) return localPost('/api/git/commit', { message });
-  return sendCommand('GIT_COMMIT', { message }, userId);
+export async function gitCommit(message, userId, rootPath) {
+  if (token() || isLocalDaemon()) return localPost('/api/git/commit', { message, root: rootPath });
+  return sendCommand('GIT_COMMIT', { message, root: rootPath }, userId);
 }
 
-export async function gitPush(userId) {
-  if (token() || isLocalDaemon()) return localPost('/api/git/push', {});
-  return sendCommand('GIT_PUSH', {}, userId);
+export async function gitPush(userId, rootPath) {
+  if (token() || isLocalDaemon()) return localPost('/api/git/push', { root: rootPath });
+  return sendCommand('GIT_PUSH', { root: rootPath }, userId);
 }
 
-export async function fetchBranches(userId) {
-  if (token() || isLocalDaemon()) return localGet('/api/git/branch');
-  return sendCommand('GIT_BRANCHES', {}, userId);
+export async function fetchBranches(rootPath, userId) {
+  const suffix = rootPath ? `?cwd=${encodeURIComponent(rootPath)}` : '';
+  if (token() || isLocalDaemon()) return localGet(`/api/git/branch${suffix}`);
+  return sendCommand('GIT_BRANCHES', { root: rootPath }, userId);
 }
 
-export async function checkoutBranch(branch, userId) {
-  if (token() || isLocalDaemon()) return localPost('/api/git/checkout', { branch });
-  return sendCommand('GIT_CHECKOUT', { branch }, userId);
+export async function checkoutBranch(branch, userId, rootPath) {
+  if (token() || isLocalDaemon()) return localPost('/api/git/checkout', { branch, root: rootPath, cwd: rootPath });
+  return sendCommand('GIT_CHECKOUT', { branch, root: rootPath }, userId);
 }
 
-export async function runFile(path, userId) {
-  if (token() || isLocalDaemon()) return localPost('/api/exec', { path });
-  return sendCommand('RUN_FILE', { path }, userId);
+export async function runFile(path, userId, rootPath) {
+  if (token() || isLocalDaemon()) return localPost('/api/exec', { path, root: rootPath });
+  return sendCommand('RUN_FILE', { path, root: rootPath }, userId);
 }

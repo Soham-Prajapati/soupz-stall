@@ -25,7 +25,7 @@ This starts both:
 - **Daemon** on port 7533 (handles agent spawning, file operations, git, terminal)
 - **Vite dev server** on port 7534 (web app)
 
-The daemon generates an 8-digit pairing code. Enter this code at `soupz.vercel.app/connect` to pair your browser.
+The daemon generates a 9-character pairing code. Enter this code at `soupz.vercel.app/connect` to pair your browser.
 
 Notes:
 - `npm run dev:web` now has resilient startup behavior. If bootstrap token creation fails, it continues in local no-token mode instead of exiting.
@@ -166,7 +166,7 @@ PATH_GEMINI_CLI=/path/to/gemini-cli
 
 3. Sign in with Google or GitHub
 
-4. Note the 8-digit pairing code displayed in the terminal
+4. Note the 9-character pairing code displayed in the terminal
 
 5. From another device or browser, visit `soupz.vercel.app/connect` and enter the code
 

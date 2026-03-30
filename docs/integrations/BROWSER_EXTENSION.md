@@ -43,7 +43,7 @@ When your AI agent needs to check how a website looks, inspect DOM elements, cli
 1. Start `soupz-stall` on your laptop (Cloud Kitchen auto-starts)
 2. Click the 🫕 icon → Side Panel opens
 3. Type `/cloud-kitchen` in your terminal to see the OTP
-4. Enter the 8-digit code in the Side Panel
+4. Enter the 9-character alphanumeric code in the Side Panel
 5. Click "Connect to Kitchen"
 
 The extension stays connected until you close the Side Panel or click "Close Bridge".
@@ -121,7 +121,7 @@ Shows a styled "kitchen receipt" with:
 
 ## Security
 
-- **OTP Pairing** — same system as mobile app (8-digit code, 5-min expiry)
+- **OTP Pairing** — same system as mobile app (9-character alphanumeric code, 5-min expiry)
 - **Session Tokens** — 64-char hex, validated on every message
 - **Auto-Reconnect** — restores from `chrome.storage.local` on extension reload
 - **No External Requests** — all communication is local (localhost/LAN)

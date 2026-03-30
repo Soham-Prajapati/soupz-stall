@@ -3,7 +3,7 @@ import {
   User, Mail, Calendar, MessageSquare, Flame, Bot, Trophy,
   Zap, TrendingUp, Star, Check, Lock, ArrowLeft, Trash2, LogOut,
   Save, AlertTriangle, Search, UserPlus, Loader2, Github,
-  Twitter, Globe, MapPin, Link as LinkIcon, Users, Activity
+  Twitter, Globe, MapPin, Link as LinkIcon, Users, Activity, Terminal
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS } from '../../lib/agents.js';

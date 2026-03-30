@@ -1,35 +1,45 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
 import ErrorBoundary from '../shared/ErrorBoundary';
+import { useThemeVars } from '../../hooks/useThemeVars';
 
-// Define theme once to avoid "t.create is not a function" re-declaration crash
-loader.init().then(monaco => {
-  monaco.editor.defineTheme('soupz-dark', {
+let lastThemeSignature = null;
+async function syncMonacoTheme(themeVars = {}) {
+  const monaco = await loader.init();
+  const signature = JSON.stringify(themeVars);
+  if (signature === lastThemeSignature) {
+    monaco.editor.setTheme('soupz-dynamic');
+    return;
+  }
+  lastThemeSignature = signature;
+  const fallback = (key, fallbackHex) => themeVars[key] || fallbackHex;
+  monaco.editor.defineTheme('soupz-dynamic', {
     base: 'vs-dark',
     inherit: true,
     rules: [
-      { token: 'comment', foreground: '4A4A5A', fontStyle: 'italic' },
-      { token: 'keyword', foreground: '6366F1' },
-      { token: 'string', foreground: '22C55E' },
-      { token: 'number', foreground: 'F59E0B' },
-      { token: 'type', foreground: '06B6D4' },
+      { token: 'comment', foreground: '8A8FA4', fontStyle: 'italic' },
+      { token: 'keyword', foreground: fallback('--accent', '#6366F1') },
+      { token: 'string', foreground: fallback('--success', '#22C55E') },
+      { token: 'number', foreground: fallback('--warning', '#F59E0B') },
+      { token: 'type', foreground: '#0EA5E9' },
     ],
     colors: {
-      'editor.background': '#0C0C0F',
-      'editor.foreground': '#F0F0F5',
-      'editorLineNumber.foreground': '#3A3A47',
-      'editorLineNumber.activeForeground': '#8B8B9A',
-      'editor.selectionBackground': '#6366F125',
-      'editor.lineHighlightBackground': '#111114',
-      'editorCursor.foreground': '#6366F1',
-      'editorIndentGuide.background': '#1E1E24',
-      'editor.inactiveSelectionBackground': '#6366F110',
-      'editorGutter.background': '#0C0C0F',
-      'scrollbarSlider.background': '#27272a',
-      'scrollbarSlider.hoverBackground': '#3f3f46',
+      'editor.background': fallback('--bg-base', '#0C0C0F'),
+      'editor.foreground': fallback('--text-pri', '#F0F0F5'),
+      'editorLineNumber.foreground': '#4B4B5C',
+      'editorLineNumber.activeForeground': '#9EA1B6',
+      'editor.selectionBackground': `${fallback('--accent', '#6366F1')}33`,
+      'editor.lineHighlightBackground': `${fallback('--bg-elevated', '#1E1E24')}AA`,
+      'editorCursor.foreground': fallback('--accent', '#6366F1'),
+      'editorIndentGuide.background': fallback('--border-subtle', '#1E1E24'),
+      'editor.inactiveSelectionBackground': `${fallback('--accent', '#6366F1')}22`,
+      'editorGutter.background': fallback('--bg-base', '#0C0C0F'),
+      'scrollbarSlider.background': `${fallback('--border-mid', '#2D2D39')}99`,
+      'scrollbarSlider.hoverBackground': `${fallback('--border-strong', '#3F3F4D')}AA`,
     },
   });
-});
+  monaco.editor.setTheme('soupz-dynamic');
+}
 
 import {
   Files, GitBranch, Settings, ChevronLeft, ChevronRight,
@@ -37,6 +47,7 @@ import {
   Terminal, Search, Trophy, Code2, Bot, Columns
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { CLI_AGENTS } from '../../lib/agents';
 import FileTree from '../filetree/FileTree';
 import SimpleMode from '../simple/SimpleMode';
 
@@ -64,8 +75,9 @@ function getLang(filename) {
   return LANG_MAP[ext] || 'plaintext';
 }
 
-export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateChange }) {
+export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateChange, theme }) {
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
+  const themeVars = useThemeVars(['--bg-base', '--bg-elevated', '--text-pri', '--text-sec', '--accent', '--border-subtle', '--border-mid', '--border-strong']);
 
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     !(typeof window !== 'undefined' && window.innerWidth < 768) && (localStorage.getItem(SIDEBAR_KEY) !== 'false')
@@ -96,6 +108,10 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
 
   const editorRef = useRef(null);
   const saveTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    syncMonacoTheme(themeVars);
+  }, [theme, themeVars]);
 
   useEffect(() => { localStorage.setItem(SIDEBAR_KEY, String(sidebarOpen)); }, [sidebarOpen]);
   useEffect(() => { localStorage.setItem(CHAT_KEY, String(chatOpen)); }, [chatOpen]);
@@ -272,6 +288,15 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
               </Suspense>
             </ErrorBoundary>
           )}
+          {mobileTab === 'terminal' && (
+            <ErrorBoundary name="Terminal">
+              <Suspense fallback={<PanelLoader />}>
+                <div className="h-full overflow-hidden">
+                  <TerminalPanel daemon={daemon} onClose={() => setMobileTab('chat')} maximized variant="mobile" onMaximize={() => {}} />
+                </div>
+              </Suspense>
+            </ErrorBoundary>
+          )}
           {mobileTab === 'settings' && (
             <div className="h-full overflow-y-auto">
               <ErrorBoundary name="Stats Panel">
@@ -299,6 +324,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             { id: 'files', Icon: Files, label: 'Files' },
             { id: 'editor', Icon: Code2, label: 'Editor' },
             { id: 'git', Icon: GitBranch, label: 'Git' },
+            { id: 'terminal', Icon: TerminalIcon, label: 'Term' },
             { id: 'settings', Icon: Settings, label: 'More' },
           ].map(({ id, Icon, label }) => (
             <button
@@ -465,6 +491,11 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                         </div>
                       ))}
                     </div>
+                  </div>
+
+                  <div className="border-t border-border-subtle pt-3">
+                    <p className="text-[11px] text-text-faint font-ui uppercase tracking-wider font-medium mb-2">Agents</p>
+                    <AgentsSettings />
                   </div>
                 </div>
                 <ErrorBoundary name="MCP Panel">
@@ -793,6 +824,105 @@ function PanelLoader() {
   return (
     <div className="flex items-center justify-center py-8">
       <Loader2 size={16} className="text-text-faint animate-spin" />
+    </div>
+  );
+}
+
+function AgentsSettings() {
+  const [enabledAgents, setEnabledAgents] = useState(() => {
+    try {
+      const stored = localStorage.getItem('soupz_enabled_agents');
+      return stored ? JSON.parse(stored) : CLI_AGENTS.map(a => a.id);
+    } catch {
+      return CLI_AGENTS.map(a => a.id);
+    }
+  });
+
+  const [agentConfig, setAgentConfig] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('soupz_agent_config') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  function toggleAgent(agentId) {
+    setEnabledAgents(prev => {
+      const next = prev.includes(agentId)
+        ? prev.filter(id => id !== agentId)
+        : [...prev, agentId];
+      localStorage.setItem('soupz_enabled_agents', JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function setTemperature(agentId, value) {
+    setAgentConfig(prev => {
+      const next = { ...prev, [agentId]: { ...(prev[agentId] || {}), temperature: value } };
+      localStorage.setItem('soupz_agent_config', JSON.stringify(next));
+      return next;
+    });
+  }
+
+  return (
+    <div className="space-y-2">
+      {CLI_AGENTS.map(agent => {
+        const enabled = enabledAgents.includes(agent.id);
+        const temp = agentConfig[agent.id]?.temperature ?? 0.7;
+        const isPremium = agent.id === 'claude-code';
+        return (
+          <div
+            key={agent.id}
+            className="border border-border-subtle rounded p-2.5 space-y-2 bg-bg-base"
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: agent.color }} />
+              <span className="text-[11px] font-medium text-text-pri font-ui flex-1">{agent.name}</span>
+              {isPremium && (
+                <span className="text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                  Premium
+                </span>
+              )}
+              {!isPremium && (
+                <span className="text-[8px] font-mono text-text-faint uppercase">{agent.tier}</span>
+              )}
+              {/* Toggle */}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enabled}
+                onClick={() => toggleAgent(agent.id)}
+                className={cn(
+                  'relative w-8 h-4 rounded-full transition-colors shrink-0',
+                  enabled ? 'bg-accent' : 'bg-bg-elevated border border-border-mid',
+                )}
+              >
+                <span
+                  className={cn(
+                    'absolute top-0.5 w-3 h-3 rounded-full transition-transform bg-white',
+                    enabled ? 'translate-x-4' : 'translate-x-0.5',
+                  )}
+                />
+              </button>
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-text-faint font-ui">Temperature</span>
+                <span className="text-[10px] font-mono text-text-sec">{temp.toFixed(1)}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={temp}
+                onChange={e => setTemperature(agent.id, parseFloat(e.target.value))}
+                className="w-full h-1 bg-bg-elevated rounded appearance-none cursor-pointer accent-accent"
+              />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

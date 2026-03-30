@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Check, Loader2, RefreshCw, Send, Trash2, Square } from 'lucide-react';
-import { cancelOrder } from '../../lib/daemon';
+import { cancelOrder, checkAgentAvailability } from '../../lib/daemon';
 
 const CORE_AGENTS = [
   { id: 'auto', label: 'Auto (Smart Route)' },
@@ -71,9 +71,10 @@ export default function CoreConsole({ workspace }) {
   const [enabledAgents, setEnabledAgents] = useState(() => {
     try {
       const stored = localStorage.getItem(ENABLED_CORE_AGENTS_KEY);
-      return stored ? JSON.parse(stored) : CORE_AGENTS.map(a => a.id);
+      const parsed = stored ? JSON.parse(stored) : CORE_AGENTS.filter(a => a.id !== 'auto').map(a => a.id);
+      return parsed.filter(id => id !== 'auto');
     } catch {
-      return CORE_AGENTS.map(a => a.id);
+      return CORE_AGENTS.filter(a => a.id !== 'auto').map(a => a.id);
     }
   });
   const [orderStatus, setOrderStatus] = useState('idle');
@@ -97,31 +98,93 @@ export default function CoreConsole({ workspace }) {
   const [termLoading, setTermLoading] = useState(false);
   const [termError, setTermError] = useState('');
   const [killingId, setKillingId] = useState(null);
+  const [agentAvailability, setAgentAvailability] = useState({});
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState('');
   const outputRef = useRef(null);
   const questionPanelRef = useRef(null);
   const completionMarkedRef = useRef(false);
   const knownWorkersRef = useRef([]);
   const online = !!workspace?.online;
 
-  const filteredCoreAgents = useMemo(() => {
-    return CORE_AGENTS.filter(a => a.id === 'auto' || enabledAgents.includes(a.id));
-  }, [enabledAgents]);
+  const readyAgents = useMemo(
+    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentAvailability[a.id]).map(a => a.label),
+    [agentAvailability],
+  );
+
+  const missingAgents = useMemo(
+    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentAvailability[a.id] === false).map(a => a.label),
+    [agentAvailability],
+  );
+
+  const autoAgentsEmpty = agentId === 'auto' && enabledAgents.length === 0;
+
+  function persistEnabledAgents(list) {
+    const sanitized = list.filter(id => id !== 'auto');
+    try {
+      localStorage.setItem(ENABLED_CORE_AGENTS_KEY, JSON.stringify(sanitized));
+    } catch { /* ignore */ }
+  }
 
   function toggleAgent(agentIdToToggle) {
+    if (agentIdToToggle !== 'auto' && agentAvailability[agentIdToToggle] === false) {
+      return;
+    }
     setEnabledAgents(prev => {
       const next = prev.includes(agentIdToToggle)
         ? prev.filter(id => id !== agentIdToToggle)
         : [...prev, agentIdToToggle];
-      localStorage.setItem(ENABLED_CORE_AGENTS_KEY, JSON.stringify(next));
-      return next;
+      const sanitized = next.filter(id => id !== 'auto');
+      persistEnabledAgents(sanitized);
+      return sanitized;
     });
   }
 
   function toggleAllAgents(enable) {
-    const next = enable ? CORE_AGENTS.filter(a => a.id !== 'auto').map(a => a.id) : [];
+    const next = enable
+      ? CORE_AGENTS.filter(a => a.id !== 'auto' && agentAvailability[a.id] !== false).map(a => a.id)
+      : [];
     setEnabledAgents(next);
-    localStorage.setItem(ENABLED_CORE_AGENTS_KEY, JSON.stringify(next));
+    persistEnabledAgents(next);
   }
+
+  useEffect(() => {
+    let active = true;
+    async function detectAgents() {
+      setAvailabilityLoading(true);
+      setAvailabilityError('');
+      try {
+        const avail = await checkAgentAvailability();
+        if (!active) return;
+        const normalized = CORE_AGENTS.reduce((acc, agent) => {
+          if (agent.id === 'auto') return acc;
+          acc[agent.id] = Boolean(avail?.[agent.id]);
+          return acc;
+        }, {});
+        setAgentAvailability(normalized);
+        setEnabledAgents(prev => {
+          const filtered = prev.filter(id => id !== 'auto' && (normalized[id] || normalized[id] === undefined));
+          const fallback = Object.keys(normalized).filter(id => normalized[id]);
+          const next = filtered.length ? filtered : fallback;
+          const same = next.length === prev.length && next.every(id => prev.includes(id));
+          if (same) return prev;
+          persistEnabledAgents(next);
+          return next;
+        });
+      } catch (err) {
+        if (!active) return;
+        setAvailabilityError(err?.message || 'Unable to detect CLI agents.');
+      } finally {
+        if (active) setAvailabilityLoading(false);
+      }
+    }
+    detectAgents();
+    const timer = setInterval(detectAgents, 60000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   async function handleStop() {
     if (!lastOrderId) return;
@@ -687,7 +750,10 @@ export default function CoreConsole({ workspace }) {
                 className="w-full bg-bg-surface border border-border-subtle rounded-md px-2 py-2 text-sm"
               >
                 {CORE_AGENTS.map((a) => (
-                  <option key={a.id} value={a.id}>{a.label}</option>
+                  <option key={a.id} value={a.id} disabled={a.id !== 'auto' && agentAvailability[a.id] === false}>
+                    {a.label}
+                    {a.id !== 'auto' && agentAvailability[a.id] === false ? ' (install first)' : ''}
+                  </option>
                 ))}
               </select>
             </div>
@@ -707,35 +773,61 @@ export default function CoreConsole({ workspace }) {
                     <button
                       type="button"
                       onClick={() => toggleAllAgents(false)}
-                      className="text-[10px] px-1.5 py-0.5 rounded text-text-faint hover:text-text-pri hover:bg-white/5"
+                      className="text-[10px] px-1.5 py-0.5 rounded text-text-faint hover:text-text-pri hover:bg-text-pri/5"
                     >
                       None
                     </button>
                   </div>
                 </div>
                 <div className="space-y-1">
-                  {CORE_AGENTS.filter(a => a.id !== 'auto').map(a => (
-                    <button
-                      key={a.id}
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleAgent(a.id);
-                      }}
-                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-white/5 transition-colors border border-transparent"
-                    >
-                      <span
-                        className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${
-                          enabledAgents.includes(a.id)
-                            ? 'bg-accent border-accent'
-                            : 'border-border-subtle bg-bg-base'
-                        }`}
+                  {CORE_AGENTS.filter(a => a.id !== 'auto').map(a => {
+                    const available = agentAvailability[a.id] !== false;
+                    const enabled = enabledAgents.includes(a.id);
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        disabled={!available}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleAgent(a.id);
+                        }}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors border border-transparent disabled:opacity-40 disabled:cursor-not-allowed hover:bg-text-pri/5"
                       >
-                        {enabledAgents.includes(a.id) && <Check size={9} className="text-bg-base" />}
-                      </span>
-                      {a.label}
-                    </button>
-                  ))}
+                        <span
+                          className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${
+                            enabled
+                              ? 'bg-accent border-accent'
+                              : 'border-border-subtle bg-bg-base'
+                          }`}
+                        >
+                          {enabled && <Check size={9} className="text-bg-base" />}
+                        </span>
+                        <span className="flex-1">{a.label}</span>
+                        <span className={`text-[10px] font-mono uppercase ${available ? 'text-success' : 'text-warning'}`}>
+                          {available ? 'ready' : 'missing'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="text-[11px] text-text-faint mt-2 space-y-1">
+                  <div>
+                    {availabilityLoading
+                      ? 'Detecting installed CLIs…'
+                      : readyAgents.length
+                        ? `Detected: ${readyAgents.join(', ')}`
+                        : 'No CLI agents detected yet.'}
+                    {availabilityError && <span className="text-warning ml-2">{availabilityError}</span>}
+                  </div>
+                  {missingAgents.length > 0 && (
+                    <div className="text-warning">
+                      Missing: {missingAgents.join(', ')} — runs will skip these until installed.
+                    </div>
+                  )}
+                  {autoAgentsEmpty && (
+                    <div className="text-warning">Select at least one ready agent so auto mode can run.</div>
+                  )}
                 </div>
               </div>
             )}
@@ -754,6 +846,12 @@ export default function CoreConsole({ workspace }) {
             </select>
           </label>
         </div>
+
+        {autoAgentsEmpty && (
+          <div className="text-[11px] text-warning">
+            Auto mode is disabled until you enable at least one installed agent (Gemini, Codex, Kiro, etc.).
+          </div>
+        )}
 
         {buildMode === 'deep' ? (
           <div className="bg-bg-surface/80 border border-border-subtle/60 rounded-md p-3 space-y-3">

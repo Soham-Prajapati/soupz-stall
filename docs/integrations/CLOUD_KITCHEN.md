@@ -53,7 +53,7 @@ This shows the full banner with connection details.
 
 Modeled after iCloud Keychain's pairing UX:
 
-1. **Server generates** an 8-digit alphanumeric code (charset: `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` — no ambiguous chars like 0/O, 1/I)
+1. **Server generates** an 9-character alphanumeric alphanumeric code (charset: `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` — no ambiguous chars like 0/O, 1/I)
 2. **User enters code** in mobile app or browser extension
 3. **Client validates** via `POST /pair/validate` with the code
 4. **Server returns** a 64-char hex session token

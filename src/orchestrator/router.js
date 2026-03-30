@@ -2,6 +2,9 @@ import { EventEmitter } from 'events';
 import { execFile } from 'child_process';
 import { SemanticRouter } from './semantic-router.js';
 
+const COPILOT_FAST_MODEL = process.env.SOUPZ_COPILOT_FAST_MODEL || 'gpt-4.1';
+const COPILOT_REASONING_MODEL = process.env.SOUPZ_COPILOT_REASONING_MODEL || 'claude-sonnet-4.5';
+
 export class Orchestrator extends EventEmitter {
     constructor(registry, spawner, contextManager, memory, options = {}) {
         super();
@@ -196,7 +199,7 @@ Rating (1-5):`;
         // Layer 1: Try Copilot (gpt-5-mini, free, smarter)
         try {
             const aiScore = await new Promise((resolve, reject) => {
-                execFile('gh', ['copilot', '--model', 'gpt-5-mini', '-p', gradePrompt, '--allow-all-tools'], {
+                execFile('gh', ['copilot', '--model', COPILOT_FAST_MODEL, '-p', gradePrompt, '--allow-all-tools'], {
                     timeout: 15000, maxBuffer: 1024 * 16,
                 }, (err, stdout) => {
                     if (err) { reject(err); return; }
@@ -376,7 +379,7 @@ JSON:`;
         // Layer 1: Copilot GPT-5-mini
         try {
             const result = await new Promise((resolve, reject) => {
-                execFile('gh', ['copilot', '--model', 'gpt-5-mini', '-p', decomposePrompt, '--allow-all-tools'], {
+                execFile('gh', ['copilot', '--model', COPILOT_FAST_MODEL, '-p', decomposePrompt, '--allow-all-tools'], {
                     timeout: 20000, maxBuffer: 1024 * 32,
                 }, (err, stdout) => {
                     if (err) { reject(err); return; }

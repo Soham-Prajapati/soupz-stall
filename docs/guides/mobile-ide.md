@@ -151,7 +151,7 @@ Scan the QR code with **Expo Go** (free app on iOS/Android).
 
 ### 3. Pair Your Phone
 
-The server shows an 8-digit pairing code on startup (like a Cloud Kitchen order number):
+The server shows an 9-character alphanumeric pairing code on startup (like a Cloud Kitchen order number):
 
 ```
 🔑  PAIRING CODE:  75471229
@@ -188,7 +188,7 @@ Generate a new code anytime: `curl -X POST http://localhost:7533/pair`
 The Cloud Kitchen uses a **pairing code model** (similar to Apple's iCloud Keychain):
 
 ### How It Works
-1. Server generates an **8-digit one-time code** on startup
+1. Server generates an **9-character alphanumeric one-time code** on startup
 2. Code is valid for **5 minutes** — enter it on your phone or browser extension
 3. On validation, the server returns a **session token** (valid 24 hours)
 4. All subsequent WebSocket and REST requests require this token

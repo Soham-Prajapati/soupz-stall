@@ -140,7 +140,7 @@ must be Linear / Cursor / Vercel quality — dark, opinionated, professional.
 │   │   │       ├── auth/
 │   │   │       │   └── AuthScreen.jsx  ← GitHub OAuth + email/pw + skip-locally
 │   │   │       ├── connect/
-│   │   │       │   └── ConnectPage.jsx ← 8-digit pairing code entry (/connect route)
+│   │   │       │   └── ConnectPage.jsx ← 9-character alphanumeric pairing code entry (/connect route)
 │   │   │       ├── simple/
 │   │   │       │   └── SimpleMode.jsx  ← Mobile-first chat UI (PRIMARY UI)
 │   │   │       ├── pro/
@@ -305,10 +305,10 @@ messages. This was a deliberate tradeoff:
 - Privacy (stays on device)
 - Downside: not synced across devices
 
-### Why 8-Digit Numeric Pairing Code?
+### Why 9-Character Alphanumeric Pairing Code?
 
 Inspired by GitHub Device Auth flow. The daemon generates a cryptographically random
-8-digit numeric code (using `crypto.randomBytes` mapped to digits 0-9, no ambiguous
+9-character alphanumeric code (using `crypto.randomBytes` mapped to safe charset, no ambiguous
 characters). The code:
 - Is displayed in terminal when daemon starts
 - Auto-refreshes every 5 minutes
@@ -346,7 +346,7 @@ Progress: approximately 55% complete.
 
 ### Infrastructure
 - Full daemon architecture (Express + WebSocket + Supabase listener) in one file
-- OTP pairing system (8-digit code, 5-min expiry, single-use, session tokens)
+- OTP pairing system (9-character alphanumeric code, 5-min expiry, single-use, session tokens)
 - WebSocket auth handshake (10-second timeout, token OR code)
 - File system API (tree, read, write) with path traversal protection
 - Git API (status, diff, stage, commit, push)
@@ -358,7 +358,7 @@ Progress: approximately 55% complete.
 - Full React SPA with Vite + Tailwind
 - Client-side router (`useRoute.js`) using `pushState`
 - Auth: GitHub OAuth + email/password + skip-locally (all via Supabase)
-- `ConnectPage` — 8-digit entry with digit-by-digit inputs, paste support, auto-connect
+- `ConnectPage` — 9-character alphanumeric entry with char-by-char inputs, paste support, auto-connect
 - `AuthScreen` — tabs for login/signup, GitHub OAuth, local skip button
 - `SimpleMode` — full chat UI with agent selector, build mode picker, voice input,
   markdown rendering (code blocks, bold, inline code), message copy, clear history

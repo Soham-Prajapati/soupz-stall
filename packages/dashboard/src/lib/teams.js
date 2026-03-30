@@ -202,13 +202,20 @@ export function createSubAgentTask(subAgentId, task, availableAgents = {}) {
  * @param {Record<string,boolean>} availableAgents
  * @returns {{ team: AgentTeam, tasks: Array, coordinator: { agentId: string, prompt: string } } | null}
  */
-export function createTeamPlan(teamId, task, availableAgents = {}) {
+export function createTeamPlan(teamId, task, availableAgents = {}, customPrompts = {}) {
   const team = AGENT_TEAMS.find(t => t.id === teamId);
   if (!team) return null;
 
   const tasks = team.members
     .map(memberId => createSubAgentTask(memberId, task, availableAgents))
     .filter(Boolean);
+
+  // Apply custom prompts per sub-agent
+  for (const planTask of tasks) {
+    if (customPrompts[planTask.subAgentId]) {
+      planTask.prompt += `\n\nADDITIONAL INSTRUCTIONS: ${customPrompts[planTask.subAgentId]}`;
+    }
+  }
 
   // Resolve coordinator agent
   let coordinatorAgent = team.coordinator;
@@ -284,7 +291,20 @@ export async function executeSubAgent(sendPrompt, task, onChunk) {
     if (outcome.timedOut) {
       throw new Error(outcome.message);
     }
-    return outcome.output || result;
+    const finalResult = outcome.output || result;
+
+    // Quick quality check (heuristics only, no extra API call)
+    const hasContent = finalResult.trim().length > 50;
+    const hasError = /error|exception|failed|cannot|unable/i.test(finalResult.slice(0, 200));
+
+    if (!hasContent || (hasError && finalResult.trim().length < 200)) {
+      task._verificationStatus = 'low-quality';
+      task._verificationNote = !hasContent ? 'Output too short' : 'Possible error in output';
+    } else {
+      task._verificationStatus = 'passed';
+    }
+
+    return finalResult;
   } catch (err) {
     // If error occurred, return what we have collected so far
     if (result.trim()) {
@@ -316,6 +336,7 @@ export async function executeTeam(sendPrompt, plan, onProgress) {
         onProgress?.('sub-agent-done', task.subAgentId, result);
       } catch (err) {
         results[task.subAgentId] = `Error: ${err.message}`;
+        if (err.message.includes('timed out')) task._timedOut = true;
         onProgress?.('sub-agent-error', task.subAgentId, err.message);
       }
     });
@@ -339,6 +360,7 @@ export async function executeTeam(sendPrompt, plan, onProgress) {
         onProgress?.('sub-agent-done', task.subAgentId, result);
       } catch (err) {
         results[task.subAgentId] = `Error: ${err.message}`;
+        if (err.message.includes('timed out')) task._timedOut = true;
         onProgress?.('sub-agent-error', task.subAgentId, err.message);
       }
     }
@@ -392,7 +414,20 @@ export async function executeTeam(sendPrompt, plan, onProgress) {
     ] : [])
   ].join('\n\n');
 
-  const coordinatorPrompt = plan.coordinator.promptTemplate.replace('{{results}}', resultsText);
+  let coordinatorPrompt = plan.coordinator.promptTemplate.replace('{{results}}', resultsText);
+
+  // Add verification status summary so coordinator can weigh results accordingly
+  const verificationNotes = Object.entries(results)
+    .map(([id]) => {
+      const task = plan.tasks.find(t => t.subAgentId === id);
+      const status = task?._verificationStatus || 'unknown';
+      const note = task?._verificationNote || '';
+      return `${id}: ${status}${note ? ` (${note})` : ''}`;
+    })
+    .join('\n');
+
+  coordinatorPrompt += `\n\nVERIFICATION STATUS:\n${verificationNotes}\n`;
+  coordinatorPrompt += '\nPrioritize outputs that passed verification. Note any low-quality results.';
 
   let synthesis = '';
   try {
@@ -409,7 +444,22 @@ export async function executeTeam(sendPrompt, plan, onProgress) {
   }
   onProgress?.('coordinator-done', plan.coordinator.agentId, synthesis);
 
-  return { results, synthesis };
+  return {
+    results: Object.fromEntries(
+      Object.entries(results).map(([id, output]) => {
+        const task = plan.tasks.find(t => t.subAgentId === id);
+        return [id, {
+          output,
+          status: task?._verificationStatus || 'unknown',
+          agent: task?.agentId,
+          timedOut: task?._timedOut || false,
+        }];
+      })
+    ),
+    synthesis,
+    teamId: plan.teamId,
+    strategy: plan.strategy,
+  };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

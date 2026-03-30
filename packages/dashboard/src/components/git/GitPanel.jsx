@@ -11,19 +11,19 @@ export default function GitPanel({ daemon }) {
   const [diff, setDiff]         = useState('');
   const [message, setMessage]   = useState('');
   const [loading, setLoading]   = useState(false);
-  const [staged, setStaged]     = useState(new Set());
   const [pushing, setPushing]   = useState(false);
   const [expandDiff, setExpandDiff] = useState(true);
   const [branch, setBranch]     = useState('main');
   const [branches, setBranches] = useState([]);
   const [generatingMsg, setGeneratingMsg] = useState(false);
   const [branchDropdown, setBranchDropdown] = useState(false);
+  const repoRoot = daemon?.rootPath || daemon?.getRootPath?.() || '';
 
   useEffect(() => {
     refresh();
     const interval = setInterval(refresh, 15000); // Refresh every 15s
     return () => clearInterval(interval);
-  }, [daemon]);
+  }, [daemon, repoRoot]);
 
   async function refresh() {
     setLoading(true);
@@ -31,10 +31,11 @@ export default function GitPanel({ daemon }) {
       const [s, d, br] = await Promise.all([
         daemon?.gitStatus?.(),
         daemon?.gitDiff?.(),
-        fetchBranches(),
+        fetchBranches(repoRoot),
       ]);
       setStatus(s);
-      setDiff(d || '');
+      const diffText = typeof d === 'string' ? d : (d?.diff || d?.content || '');
+      setDiff(diffText);
       setBranch(br?.current || s?.branch || 'main');
       setBranches(br?.branches || []);
     } catch { /* no daemon */ }
@@ -47,7 +48,7 @@ export default function GitPanel({ daemon }) {
       return;
     }
     try {
-      await checkoutBranch(newBranch);
+      await checkoutBranch(newBranch, undefined, repoRoot);
       setBranch(newBranch);
       setBranchDropdown(false);
       refresh();
@@ -60,7 +61,6 @@ export default function GitPanel({ daemon }) {
     if (!status?.unstaged?.length) return;
     const paths = status.unstaged.map(f => f.path);
     await daemon?.gitStage?.(paths);
-    setStaged(new Set(paths));
     refresh();
   }
 
@@ -117,6 +117,7 @@ export default function GitPanel({ daemon }) {
 
   const unstagedFiles = status?.unstaged || [];
   const stagedFiles   = status?.staged   || [];
+  const hasChanges    = (stagedFiles?.length || 0) > 0 || (unstagedFiles?.length || 0) > 0;
 
   return (
     <div className="flex flex-col h-full bg-bg-surface text-text-sec font-ui text-xs">
@@ -132,7 +133,7 @@ export default function GitPanel({ daemon }) {
             <ChevronDown size={11} className={cn('transition-transform', branchDropdown && 'rotate-180')} />
           </button>
           {branchDropdown && (
-            <div className="absolute top-full left-0 mt-1 bg-bg-surface border border-border-subtle rounded shadow-lg z-10 max-h-60 overflow-y-auto">
+            <div className="absolute top-full left-0 mt-1 bg-bg-surface border border-border-subtle rounded shadow-lg z-10 max-h-60 overflow-y-auto w-48 sm:w-56 max-w-[80vw]">
               {branches.map(b => (
                 <button
                   key={b}
@@ -214,7 +215,7 @@ export default function GitPanel({ daemon }) {
           <span className="text-xs font-medium text-text-faint">Commit message</span>
           <button
             onClick={generateCommitMessage}
-            disabled={generatingMsg || staged.length === 0}
+            disabled={generatingMsg || !hasChanges}
             title="Generate commit message with AI"
             className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-ui text-text-faint hover:text-accent hover:bg-accent/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
@@ -266,7 +267,7 @@ function FileSection({ label, files, icon, onStageAll, emptyLabel }) {
     <div className="border-b border-border-subtle last:border-0">
       <div
         onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-1.5 px-3 py-3 sm:py-2 cursor-pointer hover:bg-bg-elevated group min-h-[44px] sm:min-h-0"
+        className="flex flex-wrap items-center gap-1.5 px-3 py-3 sm:py-2 cursor-pointer hover:bg-bg-elevated group min-h-[44px] sm:min-h-0"
       >
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         <span className="text-xs font-medium text-text-sec flex-1">{label}</span>
@@ -276,7 +277,7 @@ function FileSection({ label, files, icon, onStageAll, emptyLabel }) {
         {onStageAll && (
           <button
             onClick={e => { e.stopPropagation(); onStageAll(); }}
-            className="opacity-100 md:opacity-0 md:group-hover:opacity-100 ml-1 px-2 py-1 rounded bg-accent/10 text-accent text-[10px] sm:text-xs hover:bg-accent/20 transition-all flex items-center gap-1 shrink-0"
+            className="opacity-100 md:opacity-0 md:group-hover:opacity-100 ml-auto px-2 py-1 rounded bg-accent/10 text-accent text-[10px] sm:text-xs hover:bg-accent/20 transition-all flex items-center gap-1 shrink-0 w-full sm:w-auto justify-center sm:justify-start mt-2 sm:mt-0"
           >
             <Plus size={10} /> Stage all
           </button>
@@ -287,9 +288,9 @@ function FileSection({ label, files, icon, onStageAll, emptyLabel }) {
           <p className="px-7 pb-2 text-text-faint text-xs">{emptyLabel}</p>
         ) : (
           files.map(f => (
-            <div key={f.path} className="flex items-center gap-2 px-4 sm:px-7 py-2.5 sm:py-1 hover:bg-bg-elevated group/file min-h-[44px] sm:min-h-0">
+            <div key={f.path} className="flex items-center gap-2 px-4 sm:px-7 py-2.5 sm:py-1 hover:bg-bg-elevated group/file min-h-[44px] sm:min-h-0 min-w-0">
               {icon}
-              <span className="flex-1 truncate text-text-sec font-mono text-xs">{f.path}</span>
+              <span className="flex-1 truncate text-text-sec font-mono text-xs min-w-0">{f.path}</span>
               <span className={cn(
                 'text-xs font-mono',
                 f.type === 'M' ? 'text-warning' : f.type === 'D' ? 'text-danger' : 'text-success',

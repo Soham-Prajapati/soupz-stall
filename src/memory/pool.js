@@ -4,6 +4,8 @@ import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { execFile } from 'child_process';
 
+const COPILOT_FAST_MODEL = process.env.SOUPZ_COPILOT_FAST_MODEL || 'gpt-4.1';
+
 const POOL_DIR = join(homedir(), '.soupz-agents', 'memory-pool');
 
 export class MemoryPool {
@@ -114,7 +116,7 @@ export class MemoryPool {
             ).join('\n');
             
             const aiResult = await new Promise((resolve, reject) => {
-                execFile('gh', ['copilot', '--model', 'gpt-5-mini', '-p', 
+                execFile('gh', ['copilot', '--model', COPILOT_FAST_MODEL, '-p',
                     `Given this query: "${query.slice(0, 200)}"\n\nWhich of these memory chunks are most relevant? Reply with ONLY comma-separated indices (e.g., "0,3,7"), nothing else.\n\n${chunkSummaries}`,
                     '--allow-all-tools'], {
                     timeout: 10000, maxBuffer: 1024 * 4,

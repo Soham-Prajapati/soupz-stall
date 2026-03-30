@@ -42,6 +42,8 @@ packages/mobile-ide/.expo/
 
 _bmad
 _bmad-output
+.soupz/
+_soupz_output/
 .github
 .vercel
 .DS_Store

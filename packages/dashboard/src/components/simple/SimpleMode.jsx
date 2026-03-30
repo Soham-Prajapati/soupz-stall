@@ -10,7 +10,8 @@ import { CLI_AGENTS, SPECIALISTS, BUILD_MODES, getAgentById } from '../../lib/ag
 import { SKILLS, detectSkill, applySkill, getSkillById } from '../../lib/skills';
 import { getAutoSelection } from '../../lib/routing';
 import { checkAgentAvailability, cancelOrder } from '../../lib/daemon';
-import { detectTeamTrigger, getTeamById, createTeamPlan, executeTeam } from '../../lib/teams';
+import { detectTeamTrigger, getTeamById, createTeamPlan, executeTeam, getSubAgentById } from '../../lib/teams';
+import TeamExecutionCard from '../shared/TeamExecutionCard';
 import InteractiveQuestions from './InteractiveQuestions';
 import PreviewPanel from '../shared/PreviewPanel';
 import GitPanel from '../git/GitPanel';
@@ -23,6 +24,13 @@ const STORAGE_KEY = 'soupz_chat_history';
 const AGENT_KEY   = 'soupz_agent';
 const MODE_KEY    = 'soupz_build_mode';
 const ENABLED_AGENTS_KEY = 'soupz_enabled_agents';
+const MODEL_TIER_KEY = 'soupz_model_tier';
+
+const MODEL_TIERS = [
+  { id: 'fast',      label: 'Fast',      desc: 'Faster responses, lighter models' },
+  { id: 'balanced',  label: 'Balanced',  desc: 'Good speed and quality' },
+  { id: 'premium',   label: 'Premium',   desc: 'Best quality, slower' },
+];
 
 const ICON_MAP = {
   auto: Cpu, designer: Palette, dev: Code2, researcher: Search,
@@ -52,13 +60,13 @@ function renderMarkdown(text) {
   return parts.map((p, i) => {
     if (p.type === 'code') return (
       <div key={i} className="my-3 rounded-md overflow-hidden border border-border-subtle bg-bg-base">
-        {p.lang && <div className="px-3 py-1.5 border-b border-border-subtle bg-white/5 text-[10px] font-mono text-text-faint uppercase">{p.lang}</div>}
+        {p.lang && <div className="px-3 py-1.5 border-b border-border-subtle bg-bg-elevated/50 text-[10px] font-mono text-text-faint uppercase">{p.lang}</div>}
         <pre className="p-3 text-[12px] font-mono text-text-sec overflow-x-auto leading-relaxed">{p.content}</pre>
       </div>
     );
     const inline = p.content.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).map((chunk, j) => {
       if (chunk.startsWith('`') && chunk.endsWith('`'))
-        return <code key={j} className="font-mono text-accent text-[11px] bg-white/5 px-1 rounded">{chunk.slice(1,-1)}</code>;
+        return <code key={j} className="font-mono text-accent text-[11px] bg-bg-elevated/50 px-1 rounded">{chunk.slice(1,-1)}</code>;
       if (chunk.startsWith('**') && chunk.endsWith('**'))
         return <strong key={j} className="font-bold text-text-pri">{chunk.slice(2,-2)}</strong>;
       return chunk;
@@ -73,7 +81,7 @@ function parseQuestionBlock(content) {
   try { return JSON.parse(match[1]); } catch { return null; }
 }
 
-export default function SimpleMode({ daemon, compact = false }) {
+export default function SimpleMode({ daemon, compact = false, filePaths = [] }) {
   const [messages, setMessages] = useState(() => {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; }
   });
@@ -84,7 +92,12 @@ export default function SimpleMode({ daemon, compact = false }) {
   const [currentOrderId, setCurrentOrderId] = useState(null);
   const [agentOpen, setAgentOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
+  const [tierOpen, setTierOpen] = useState(false);
+  const [modelTier, setModelTier] = useState(() => localStorage.getItem(MODEL_TIER_KEY) || 'balanced');
   const [activeSkill, setActiveSkill] = useState(null);
+  const [pendingTeamPlan, setPendingTeamPlan] = useState(null);
+  const [teamCustomInstructions, setTeamCustomInstructions] = useState({});
+  const [expandedInstructions, setExpandedInstructions] = useState({});
   const [enabledAgents, setEnabledAgents] = useState(() => {
     try {
       const stored = localStorage.getItem(ENABLED_AGENTS_KEY);
@@ -93,6 +106,10 @@ export default function SimpleMode({ daemon, compact = false }) {
       return CLI_AGENTS.map(a => a.id);
     }
   });
+  const normalizedFilePaths = useMemo(() => {
+    if (!Array.isArray(filePaths)) return [];
+    return Array.from(new Set(filePaths)).sort((a, b) => a.localeCompare(b));
+  }, [filePaths]);
   
   // TTS
   const { speak, stop, speaking } = useKokoroTTS();
@@ -100,14 +117,20 @@ export default function SimpleMode({ daemon, compact = false }) {
 
   // STT (Speech-to-Text)
   const [isListening, setIsListening] = useState(false);
-  const [hasSpeechRecognition, setHasSpeechRecognition] = useState(
-    typeof window !== 'undefined' && (window.webkitSpeechRecognition || window.SpeechRecognition)
+  const [speechSupport, setSpeechSupport] = useState(
+    () => typeof window !== 'undefined' && !!(window.webkitSpeechRecognition || window.SpeechRecognition)
   );
+  const [speechError, setSpeechError] = useState(null);
   const speechRecognitionRef = useRef(null);
 
   // Image upload
   const [attachedImages, setAttachedImages] = useState([]);
   const fileInputRef = useRef(null);
+  const [mentionMatches, setMentionMatches] = useState([]);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const mentionRangeRef = useRef(null);
+  const [cursorVersion, setCursorVersion] = useState(0);
 
   const handleImageFile = async (file) => {
     if (!file.type.startsWith('image/')) return;
@@ -146,7 +169,7 @@ export default function SimpleMode({ daemon, compact = false }) {
 
   // Initialize and manage speech recognition
   useEffect(() => {
-    if (!hasSpeechRecognition) return;
+    if (!speechSupport) return;
 
     const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
     const recognition = new SpeechRecognition();
@@ -175,6 +198,14 @@ export default function SimpleMode({ daemon, compact = false }) {
 
     recognition.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
+      if (['not-allowed', 'service-not-allowed', 'network'].includes(event.error)) {
+        setSpeechSupport(false);
+        setSpeechError(event.error === 'network'
+          ? 'Speech recognition unavailable (network)'
+          : 'Microphone access denied');
+      } else {
+        setSpeechError(`Speech recognition error: ${event.error}`);
+      }
       setIsListening(false);
     };
 
@@ -189,10 +220,10 @@ export default function SimpleMode({ daemon, compact = false }) {
         speechRecognitionRef.current.abort();
       }
     };
-  }, [hasSpeechRecognition]);
+  }, [speechSupport]);
 
   const handleMicToggle = () => {
-    if (!speechRecognitionRef.current) return;
+    if (!speechSupport || !speechRecognitionRef.current) return;
 
     if (isListening) {
       speechRecognitionRef.current.stop();
@@ -273,38 +304,21 @@ export default function SimpleMode({ daemon, compact = false }) {
       }
     }
 
-    // Check for team trigger before single-agent flow
+    // Check for team trigger — show plan preview instead of executing immediately
     const teamTrigger = detectTeamTrigger(text);
     if (teamTrigger && teamTrigger.confidence > 0 && daemon?.sendPrompt) {
-      const teamMsgId = Date.now() + 1;
-      const teamMsg = { id: teamMsgId, role: 'ai', content: '', agentId: effectiveAgentId, autoLabel: `Team: ${teamTrigger.teamId}`, streaming: true, isTeam: true };
-      setMessages(prev => [...prev, { id: Date.now(), role: 'user', content: text }, teamMsg]);
-      setIsStreaming(true);
-
       try {
         const avail = await checkAgentAvailability();
         const plan = createTeamPlan(teamTrigger.teamId, text, avail);
         if (plan) {
-          await executeTeam(daemon.sendPrompt, plan, (phase, subAgentId, chunk) => {
-            let addition = '';
-            if (phase === 'sub-agent-start') addition = `\n### ${subAgentId} started...\n`;
-            else if (phase === 'sub-agent-chunk') addition = chunk || '';
-            else if (phase === 'sub-agent-done') addition = `\n---\n`;
-            else if (phase === 'coordinator-start') addition = '\n### Synthesizing results...\n';
-            else if (phase === 'coordinator-chunk') addition = chunk || '';
-            if (addition) {
-              setMessages(prev => prev.map(m => m.id === teamMsgId ? { ...m, content: m.content + addition } : m));
-            }
-          });
+          setTeamCustomInstructions({});
+          setExpandedInstructions({});
+          setPendingTeamPlan({ text, plan, effectiveAgentId });
+          return;
         }
-      } catch (err) {
-        setMessages(prev => prev.map(m => m.id === teamMsgId ? { ...m, content: m.content + `\n\nTeam error: ${err.message}` } : m));
-      } finally {
-        setMessages(prev => prev.map(m => m.id === teamMsgId ? { ...m, streaming: false } : m));
-        setIsStreaming(false);
-        setActiveSkill(null);
+      } catch {
+        // Fall through to single-agent flow if plan creation fails
       }
-      return;
     }
 
     let appliedSkill = activeSkill;
@@ -327,6 +341,7 @@ export default function SimpleMode({ daemon, compact = false }) {
           prompt: promptForDaemon,
           agentId: effectiveAgentId,
           buildMode,
+          modelTier,
           images: attachedImages.length > 0 ? attachedImages.map(img => ({ dataUrl: img.dataUrl })) : undefined
         };
 
@@ -380,7 +395,48 @@ export default function SimpleMode({ daemon, compact = false }) {
     localStorage.setItem(ENABLED_AGENTS_KEY, JSON.stringify(next));
   }
 
-  const currentAgent = getAgentById(agentId) || { name: 'Auto', color: '#6366F1' };
+  async function runPendingTeam() {
+    if (!pendingTeamPlan || !daemon?.sendPrompt) return;
+    const { text, plan, effectiveAgentId } = pendingTeamPlan;
+    setPendingTeamPlan(null);
+
+    // Apply any custom instructions to tasks
+    const finalTasks = plan.tasks.map(task => {
+      const custom = teamCustomInstructions[task.subAgentId];
+      if (custom?.trim()) {
+        return { ...task, prompt: task.prompt + `\n\nADDITIONAL INSTRUCTIONS: ${custom}` };
+      }
+      return task;
+    });
+    const finalPlan = { ...plan, tasks: finalTasks };
+
+    const teamMsgId = Date.now() + 1;
+    const teamMsg = { id: teamMsgId, role: 'ai', content: '', agentId: effectiveAgentId, autoLabel: `Team: ${plan.teamId}`, streaming: true, isTeam: true };
+    setMessages(prev => [...prev, { id: Date.now(), role: 'user', content: text }, teamMsg]);
+    setIsStreaming(true);
+
+    try {
+      await executeTeam(daemon.sendPrompt, finalPlan, (phase, subAgentId, chunk) => {
+        let addition = '';
+        if (phase === 'sub-agent-start') addition = `\n### ${subAgentId} started...\n`;
+        else if (phase === 'sub-agent-chunk') addition = chunk || '';
+        else if (phase === 'sub-agent-done') addition = `\n---\n`;
+        else if (phase === 'coordinator-start') addition = '\n### Synthesizing results...\n';
+        else if (phase === 'coordinator-chunk') addition = chunk || '';
+        if (addition) {
+          setMessages(prev => prev.map(m => m.id === teamMsgId ? { ...m, content: m.content + addition } : m));
+        }
+      });
+    } catch (err) {
+      setMessages(prev => prev.map(m => m.id === teamMsgId ? { ...m, content: m.content + `\n\nTeam error: ${err.message}` } : m));
+    } finally {
+      setMessages(prev => prev.map(m => m.id === teamMsgId ? { ...m, streaming: false } : m));
+      setIsStreaming(false);
+      setActiveSkill(null);
+    }
+  }
+
+  const currentAgent = getAgentById(agentId) || { name: 'Auto', color: 'var(--accent)' };
   const AgentIcon = getIcon(agentId);
 
   return (
@@ -390,7 +446,7 @@ export default function SimpleMode({ daemon, compact = false }) {
         <div className="flex items-center gap-1 sm:gap-2 min-w-0">
           {/* Agent Selector */}
           <div className="relative min-w-0">
-            <button onClick={() => setAgentOpen(!agentOpen)} className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-white/5 transition-colors min-w-0">
+            <button onClick={() => setAgentOpen(!agentOpen)} className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors min-w-0">
               <AgentIcon size={14} className="shrink-0" style={{ color: currentAgent.color }} />
               <span className="text-[11px] sm:text-[12px] font-bold text-text-pri uppercase tracking-tight truncate max-w-[80px] sm:max-w-none">{currentAgent.name}</span>
               <ChevronDown size={12} className={cn("text-text-faint transition-transform shrink-0", agentOpen && "rotate-180")} />
@@ -400,13 +456,13 @@ export default function SimpleMode({ daemon, compact = false }) {
                 <div className="fixed inset-0 z-30" onClick={() => setAgentOpen(false)} />
                 <div className="absolute left-0 top-full mt-1 z-40 bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden min-w-[200px] animate-fade-in">
                   {/* Filter Section */}
-                  <div className="border-b border-border-subtle bg-white/5">
+                  <div className="border-b border-border-subtle bg-bg-elevated/50">
                     <p className="px-3 py-1.5 text-[9px] font-bold text-text-faint uppercase tracking-widest">Filter Agents</p>
                     <div className="px-3 pb-2 space-y-1">
                       {CLI_AGENTS.map(a => (
                         <label
                           key={a.id}
-                          className="flex items-center gap-2 cursor-pointer hover:bg-white/5 rounded px-1 py-0.5 transition-colors"
+                          className="flex items-center gap-2 cursor-pointer hover:bg-text-pri/5 rounded px-1 py-0.5 transition-colors"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div
@@ -433,7 +489,7 @@ export default function SimpleMode({ daemon, compact = false }) {
                         </button>
                         <button
                           onClick={() => toggleAllAgents(false)}
-                          className="flex-1 text-[9px] text-text-faint hover:text-text-pri px-1 py-0.5 rounded hover:bg-white/5 transition-colors"
+                          className="flex-1 text-[9px] text-text-faint hover:text-text-pri px-1 py-0.5 rounded hover:bg-text-pri/5 transition-colors"
                         >
                           None
                         </button>
@@ -470,7 +526,7 @@ export default function SimpleMode({ daemon, compact = false }) {
 
           {/* Build Mode Selector */}
           <div className="relative">
-            <button onClick={() => setModeOpen(!modeOpen)} className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-white/5 transition-colors">
+            <button onClick={() => setModeOpen(!modeOpen)} className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors">
               <span className="text-[10px] sm:text-[11px] font-medium text-text-sec uppercase tracking-wider">{buildMode}<span className="hidden sm:inline"> Build</span></span>
               <ChevronDown size={12} className={cn("text-text-faint transition-transform shrink-0", modeOpen && "rotate-180")} />
             </button>
@@ -485,10 +541,45 @@ export default function SimpleMode({ daemon, compact = false }) {
                       className={cn("w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors text-left", buildMode === m.id ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated")}
                     >
                       <div className="flex-1">
-                        <div className="font-bold uppercase text-[10px] tracking-tight">{m.name}</div>
-                        <div className="text-[9px] text-text-faint">{m.description}</div>
+                        <div className="font-bold uppercase text-[10px] tracking-tight">{m.label || m.name}</div>
+                        <div className="text-[9px] text-text-faint">{m.desc || m.description}</div>
                       </div>
                       {buildMode === m.id && <Check size={10} className="text-accent" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="w-px h-4 bg-border-subtle mx-0.5 hidden sm:block" />
+
+          {/* Model Tier Selector */}
+          <div className="relative">
+            <button onClick={() => setTierOpen(!tierOpen)} className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors">
+              <span className={cn(
+                "text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-tight",
+                modelTier === 'fast' && "bg-green-500/15 text-green-400",
+                modelTier === 'balanced' && "bg-accent/15 text-accent",
+                modelTier === 'premium' && "bg-amber-500/15 text-amber-400",
+              )}>{modelTier}</span>
+              <ChevronDown size={12} className={cn("text-text-faint transition-transform shrink-0", tierOpen && "rotate-180")} />
+            </button>
+            {tierOpen && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setTierOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 z-[100] bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[150px] animate-fade-in">
+                  {MODEL_TIERS.map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => { setModelTier(t.id); localStorage.setItem(MODEL_TIER_KEY, t.id); setTierOpen(false); }}
+                      className={cn("w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors text-left", modelTier === t.id ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated")}
+                    >
+                      <div className="flex-1">
+                        <div className="font-bold uppercase text-[10px] tracking-tight">{t.label}</div>
+                        <div className="text-[9px] text-text-faint">{t.desc}</div>
+                      </div>
+                      {modelTier === t.id && <Check size={10} className="text-accent" />}
                     </button>
                   ))}
                 </div>
@@ -503,7 +594,7 @@ export default function SimpleMode({ daemon, compact = false }) {
               <Terminal size={12} /> <span className="hidden sm:inline">Preview</span>
             </button>
           )}
-          <button onClick={() => setMessages([])} className="p-1.5 text-text-faint hover:text-text-pri hover:bg-white/5 rounded transition-all" title="Clear Chat">
+          <button onClick={() => setMessages([])} className="p-1.5 text-text-faint hover:text-text-pri hover:bg-text-pri/5 rounded transition-all" title="Clear Chat">
             <RotateCcw size={14} />
           </button>
         </div>
@@ -544,10 +635,75 @@ export default function SimpleMode({ daemon, compact = false }) {
         <div ref={bottomRef} />
       </div>
 
+      {/* Team Plan Preview */}
+      {pendingTeamPlan && (
+        <div className="mx-4 mb-2 bg-bg-elevated border border-border-subtle rounded-lg overflow-hidden animate-fade-up">
+          <div className="px-4 py-2.5 border-b border-border-subtle flex items-center justify-between bg-bg-elevated/50">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+              <span className="text-[12px] font-bold text-text-pri uppercase tracking-wide">{pendingTeamPlan.plan.name}</span>
+              <span className="text-[9px] font-mono text-text-faint bg-bg-base px-1.5 py-0.5 rounded uppercase">{pendingTeamPlan.plan.strategy}</span>
+            </div>
+            <button onClick={() => setPendingTeamPlan(null)} className="p-0.5 text-text-faint hover:text-text-pri transition-colors rounded">
+              <X size={13} />
+            </button>
+          </div>
+          <div className="p-3 space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+            {pendingTeamPlan.plan.tasks.map(task => {
+              const subAgent = getSubAgentById(task.subAgentId);
+              const isExpanded = expandedInstructions[task.subAgentId];
+              return (
+                <div key={task.subAgentId} className="border border-border-subtle rounded p-2 space-y-1.5 bg-bg-base">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-accent/60" />
+                      <span className="text-[11px] font-medium text-text-pri">{subAgent?.name || task.subAgentId}</span>
+                      {subAgent?.description && (
+                        <span className="text-[10px] text-text-faint">{subAgent.description}</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setExpandedInstructions(prev => ({ ...prev, [task.subAgentId]: !prev[task.subAgentId] }))}
+                      className="text-[9px] text-text-faint hover:text-accent transition-colors px-1.5 py-0.5 rounded border border-border-subtle hover:border-accent/40"
+                    >
+                      {isExpanded ? 'hide' : '+ instructions'}
+                    </button>
+                  </div>
+                  {isExpanded && (
+                    <textarea
+                      value={teamCustomInstructions[task.subAgentId] || ''}
+                      onChange={e => setTeamCustomInstructions(prev => ({ ...prev, [task.subAgentId]: e.target.value }))}
+                      placeholder="Custom instructions for this agent (optional)..."
+                      rows={2}
+                      className="w-full bg-bg-elevated border border-border-subtle rounded px-2 py-1.5 text-[11px] font-ui text-text-sec placeholder:text-text-faint focus:outline-none focus:border-accent resize-none"
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="px-4 py-2.5 border-t border-border-subtle flex items-center gap-2">
+            <button
+              onClick={runPendingTeam}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-accent text-bg-base text-[11px] font-bold uppercase tracking-wide hover:bg-accent-hover transition-colors"
+            >
+              Run Team
+            </button>
+            <button
+              onClick={() => setPendingTeamPlan(null)}
+              className="px-3 py-1.5 rounded border border-border-subtle text-[11px] font-medium text-text-sec hover:text-text-pri hover:border-border-mid transition-colors"
+            >
+              Cancel
+            </button>
+            <span className="text-[9px] text-text-faint ml-auto">{pendingTeamPlan.plan.tasks.length} agents</span>
+          </div>
+        </div>
+      )}
+
       {/* Slash Command Dropdown */}
       {slashCommandOpen && filteredCommands.length > 0 && (
         <div className="mx-4 mb-2 bg-bg-elevated border border-border-subtle rounded-md shadow-2xl overflow-hidden z-50 animate-fade-up">
-          <div className="px-3 py-1.5 border-b border-border-subtle bg-white/5 flex items-center justify-between">
+          <div className="px-3 py-1.5 border-b border-border-subtle bg-bg-elevated/50 flex items-center justify-between">
             <span className="text-[10px] font-bold text-text-faint uppercase tracking-widest">Commands & Agents</span>
             <span className="text-[9px] text-text-faint">↑↓ to navigate · Enter to select</span>
           </div>
@@ -559,10 +715,10 @@ export default function SimpleMode({ daemon, compact = false }) {
                 onMouseEnter={() => setSlashIndex(i)}
                 className={cn(
                   "w-full px-3 py-2 flex items-center gap-3 text-left transition-colors border-l-2",
-                  i === slashIndex ? "bg-accent/10 text-text-pri border-accent" : "text-text-sec hover:bg-white/5 border-transparent"
+                  i === slashIndex ? "bg-accent/10 text-text-pri border-accent" : "text-text-sec hover:bg-text-pri/5 border-transparent"
                 )}
               >
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color || '#8B5CF6' }} />
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color || 'var(--accent)' }} />
                 <div className="flex-1 min-w-0">
                   <div className="text-[12px] font-bold font-ui flex items-center gap-2">
                     /{c.id}
@@ -642,7 +798,7 @@ export default function SimpleMode({ daemon, compact = false }) {
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="p-1.5 rounded transition-all text-text-faint hover:text-text-pri hover:bg-white/5"
+            className="p-1.5 rounded transition-all text-text-faint hover:text-text-pri hover:bg-text-pri/5"
             title="Attach image"
           >
             <Paperclip size={16} />
@@ -654,7 +810,7 @@ export default function SimpleMode({ daemon, compact = false }) {
             onChange={handleFilePickerChange}
             className="hidden"
           />
-          {hasSpeechRecognition && (
+          {speechSupport && (
             <div className="relative">
               <button
                 onClick={handleMicToggle}
@@ -662,7 +818,7 @@ export default function SimpleMode({ daemon, compact = false }) {
                   "p-1.5 rounded transition-all relative",
                   isListening
                     ? "text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                    : "text-text-faint hover:text-text-pri hover:bg-white/5"
+                    : "text-text-faint hover:text-text-pri hover:bg-text-pri/5"
                 )}
                 title={isListening ? "Stop recording" : "Start recording"}
               >
@@ -672,6 +828,9 @@ export default function SimpleMode({ daemon, compact = false }) {
                 <span className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
               )}
             </div>
+          )}
+          {!speechSupport && speechError && (
+            <span className="text-[10px] text-red-400 px-2">{speechError}</span>
           )}
           {isStreaming ? (
             <button onClick={handleStop} className="p-1.5 rounded transition-all text-red-500 hover:text-red-400 hover:bg-red-500/10" title="Stop">
@@ -701,7 +860,7 @@ function Message({ msg, getIcon, onCopy, onSpeak, isSpeaking }) {
   }
 
   return (
-    <div className={cn("group px-4 py-4 border-b border-border-subtle/30 transition-colors", !isUser && "bg-white/[0.02]")}>
+    <div className={cn("group px-4 py-4 border-b border-border-subtle/30 transition-colors", !isUser && "bg-bg-elevated/60")}>
       <div className="flex gap-3">
         <div className={cn("w-6 h-6 rounded flex items-center justify-center shrink-0 mt-0.5 border", isUser ? "bg-transparent border-border-subtle text-text-sec" : msg.isTeam ? "bg-purple-500/10 border-purple-500/20 text-purple-400" : "bg-accent/10 border-accent/20 text-accent")}>
           {isUser ? <User size={13} /> : <Icon size={14} />}
@@ -724,8 +883,13 @@ function Message({ msg, getIcon, onCopy, onSpeak, isSpeaking }) {
               ))}
             </div>
           )}
-          <div className="text-[13px] text-[#CCCCCC] leading-relaxed font-ui whitespace-pre-wrap break-words">
-            {msg.streaming && !msg.content ? <div className="flex items-center gap-1 py-1"><span className="thinking-dot" /><span className="thinking-dot animate-delay-100" /><span className="thinking-dot animate-delay-200" /></div> : renderMarkdown(msg.content)}
+          <div className="text-[13px] text-text-sec leading-relaxed font-ui whitespace-pre-wrap break-words">
+            {msg.isTeam
+              ? <TeamExecutionCard content={msg.content} streaming={msg.streaming} />
+              : msg.streaming && !msg.content
+                ? <div className="flex items-center gap-1 py-1"><span className="thinking-dot" /><span className="thinking-dot animate-delay-100" /><span className="thinking-dot animate-delay-200" /></div>
+                : renderMarkdown(msg.content)
+            }
             {questionData && <InteractiveQuestions data={questionData} onAnswer={() => {}} />}
           </div>
           {/* Action bar for AI messages */}
@@ -733,7 +897,7 @@ function Message({ msg, getIcon, onCopy, onSpeak, isSpeaking }) {
             <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 pt-2">
               <button
                 onClick={handleCopy}
-                className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-text-faint hover:text-text-pri hover:bg-white/5 transition-all"
+                className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-text-faint hover:text-text-pri hover:bg-text-pri/5 transition-all"
               >
                 {copied ? <CheckCheck size={11} className="text-success" /> : <Copy size={11} />}
                 {copied ? 'Copied' : 'Copy'}
@@ -742,7 +906,7 @@ function Message({ msg, getIcon, onCopy, onSpeak, isSpeaking }) {
                 onClick={onSpeak}
                 className={cn(
                   "flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all",
-                  isSpeaking ? "text-accent bg-accent/10" : "text-text-faint hover:text-text-pri hover:bg-white/5"
+                  isSpeaking ? "text-accent bg-accent/10" : "text-text-faint hover:text-text-pri hover:bg-text-pri/5"
                 )}
               >
                 {isSpeaking ? <VolumeX size={11} /> : <Volume2 size={11} />}

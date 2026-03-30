@@ -260,7 +260,7 @@ const CATEGORY_PREFERRED_AGENT = Object.fromEntries(
 
 // Agent capability tiers — what each agent is good/bad at
 const AGENT_CAPABILITIES = {
-  'claude-code': { strengths: ['code', 'design', 'architecture', 'refactoring', 'security'], weaknesses: [], tier: 'premium', reliable: true },
+  'claude-code': { strengths: ['code', 'design', 'architecture', 'refactoring', 'security'], weaknesses: [], tier: 'premium', reliable: true, optional: true, description: 'Premium agent - enhances Soupz but not required' },
   'gemini':      { strengths: ['research', 'multimodal', 'content', 'analysis', 'search'], weaknesses: [], tier: 'free', reliable: true },
   'copilot':     { strengths: ['github', 'code-completion', 'pr-reviews', 'scaffolding'], weaknesses: ['architecture'], tier: 'freemium', reliable: true },
   'kiro':        { strengths: ['aws', 'cloud', 'serverless', 'devops'], weaknesses: ['general-code', 'non-aws'], tier: 'premium', reliable: false },
@@ -319,7 +319,7 @@ function shouldDeprioritize(agentId, category, prompt) {
  * @param {string[] | Record<string,boolean>} availableAgents - agent ids that are installed/available
  * @returns {{ cliAgent: string, specialist: string, fallbackReason?: string }}
  */
-export function selectAgentLocally(prompt, availableAgents) {
+export function selectAgentLocally(prompt, availableAgents, requestedAgent) {
   const { category } = detectIntent(prompt);
 
   // Normalise availableAgents to a Set of ids
@@ -376,6 +376,16 @@ export function selectAgentLocally(prompt, availableAgents) {
   } else {
     specialist = specialistScores[0].id;
   }
+
+  // Power mode: if Claude Code available and task is architecture/security/refactoring/complex, prefer it
+  if ((availSet.size === 0 || availSet.has('claude-code')) &&
+      ['architecture', 'security', 'refactoring', 'complex'].some(k => prompt.toLowerCase().includes(k))) {
+    const powerMode = typeof window !== 'undefined' && localStorage.getItem('soupz_power_mode') === 'true';
+    if (powerMode) cliAgent = 'claude-code';
+  }
+
+  // If user explicitly selected an agent, respect that (don't override with auto)
+  if (requestedAgent && requestedAgent !== 'auto') cliAgent = requestedAgent;
 
   const result = { cliAgent, specialist };
   if (fallbackReason) result.fallbackReason = fallbackReason;

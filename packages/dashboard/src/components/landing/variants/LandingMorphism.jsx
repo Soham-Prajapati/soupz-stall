@@ -232,7 +232,7 @@ const TERM_LINES = [
   { d: 0,    t: 'cmd',  text: '$ npx soupz' },
   { d: 600,  t: 'out',  text: 'Starting agent server...' },
   { d: 1100, t: 'out',  text: 'Tunnel established' },
-  { d: 1600, t: 'pair', text: '4 7 B 2 - 9 X 1 K' },
+  { d: 1600, t: 'pair', text: '4 7 B - 2 9 X - 1 K 5' },
   { d: 2600, t: 'out',  text: 'Waiting for connection...' },
   { d: 3600, t: 'ok',   text: 'Connected from iPhone 15 Pro' },
   { d: 4100, t: 'ok',   text: 'Claude + Gemini + Copilot ready' },
@@ -397,9 +397,12 @@ export default function LandingMorphism({ navigate }) {
           </Reveal>
 
           <Reveal delay={300}>
-            <p className="text-text-sec text-xl md:text-2xl leading-relaxed max-w-2xl mx-auto mb-12 font-medium">
+            <p className="text-text-sec text-xl md:text-2xl leading-relaxed max-w-2xl mx-auto mb-6 font-medium">
               Launch local AI agents on your machine. Command them securely from your browser, tablet, or phone.
             </p>
+            <div className="inline-block px-4 py-1.5 rounded-full border border-success/30 bg-success/10 mb-8">
+              <span className="text-sm font-bold text-success">Free to use</span>
+            </div>
           </Reveal>
 
           <Reveal delay={450}>
@@ -422,17 +425,17 @@ export default function LandingMorphism({ navigate }) {
         <div className="max-w-[1500px] mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-12 auto-rows-[350px] md:auto-rows-[420px]">
             
-            {/* Bento 1: Massive Terminal (Row 1-2, Col 1-2) ------- */}
+            {/* Bento 1: Multi-Agent Orchestration (Row 1-2, Col 1-2) ------- */}
             <div className="md:col-span-2 md:row-span-2">
               <Reveal className="h-full">
                 <BentoCard className="h-full p-0 flex flex-col overflow-hidden">
                   <div className="p-10 md:p-12 z-20">
                     <div className="w-12 h-12 rounded-[20px] bg-accent/10 border border-accent/20 flex items-center justify-center mb-6 shadow-inner">
-                      <Terminal size={24} className="text-accent" />
+                      <Layers size={24} className="text-accent" />
                     </div>
-                    <h3 className="text-3xl font-black mb-4 tracking-tighter">Liquid Terminal Swarm.</h3>
+                    <h3 className="text-3xl font-black mb-4 tracking-tighter">Multi-Agent Orchestration.</h3>
                     <p className="text-lg text-text-sec max-w-md leading-relaxed font-medium tracking-tight">
-                      Experience the fluid transition between local execution and global collaboration. Pure performance, zero latency.
+                      Deploy a team of AI agents working in parallel. Route tasks, decompose complexity, and synthesize results in real-time.
                     </p>
                   </div>
                   <div className="mt-auto px-8 pb-0 md:px-16 relative group h-full flex flex-col justify-end pt-4">
@@ -479,44 +482,44 @@ export default function LandingMorphism({ navigate }) {
               </Reveal>
             </div>
 
-            {/* Bento 4: Voice First (Row 3, Col 1) ----------------- */}
+            {/* Bento 4: Vision + Image Upload (Row 3, Col 1) ----------------- */}
             <div className="md:col-span-1 md:row-span-1">
               <Reveal delay={0} className="h-full">
                 <BentoCard glow className="h-full justify-between">
                   <div className="w-12 h-12 rounded-2xl bg-accent/20 border border-accent/30 flex items-center justify-center mt-2">
-                    <Mic size={24} className="text-accent" />
+                    <Search size={24} className="text-accent" />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-black mb-2 tracking-tighter">Vocal Command.</h3>
-                    <p className="text-text-sec font-medium text-sm tracking-tight">Talk to your codebase. Our agents translate speech to surgical commits instantly.</p>
+                    <h3 className="text-2xl font-black mb-2 tracking-tighter">Vision + Images.</h3>
+                    <p className="text-text-sec font-medium text-sm tracking-tight">Upload screenshots and designs. Vision agents analyze, extract, and implement in seconds.</p>
                   </div>
                 </BentoCard>
               </Reveal>
             </div>
 
-            {/* Bento 6: Task Synthesis (Row 3, Col 2) -------------- */}
+            {/* Bento 6: Builder Mode (Row 3, Col 2) -------------- */}
             <div className="md:col-span-1 md:row-span-1">
               <Reveal delay={150} className="h-full">
                 <BentoCard className="h-full justify-between bg-gradient-to-tr from-accent/5 to-transparent">
                   <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mt-2">
-                    <Layers size={24} className="text-purple-400" />
+                    <Sparkles size={24} className="text-purple-400" />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-black mb-2 tracking-tighter">Task Synthesis.</h3>
-                    <p className="text-text-sec font-medium text-sm tracking-tight">Decompose 12-line prompts into parallel sub-agents. They execute, we summarize.</p>
+                    <h3 className="text-2xl font-black mb-2 tracking-tighter">Builder Mode.</h3>
+                    <p className="text-text-sec font-medium text-sm tracking-tight">Chat + live preview. Design UIs with natural language, see changes in real-time.</p>
                   </div>
                 </BentoCard>
               </Reveal>
             </div>
 
-            {/* Bento 5: The Agent Swarm Strip (Row 4, Col 1-3) ----- */}
+            {/* Bento 5: Free Agents + Collaboration (Row 4, Col 1-3) ----- */}
             <div className="md:col-span-3 md:row-span-1">
               <Reveal delay={150} className="h-full">
                 <BentoCard className="h-full flex flex-col md:flex-row items-center gap-12 bg-bg-elevated/20">
                   <div className="flex-1 text-center md:text-left">
-                    <h3 className="text-3xl font-black mb-4 tracking-tighter">The Pantheon of Models.</h3>
+                    <h3 className="text-3xl font-black mb-4 tracking-tighter">Free Agents + Real-time Relay.</h3>
                     <p className="text-lg text-text-sec font-medium max-w-lg tracking-tight leading-relaxed">
-                      Connect to Claude 3.5 Sonnet, GPT-4o, or your own local Llama 3 weights. Orchestrate the swarm from a single command center.
+                      Work with free agents—no paid subscription required. Real-time collaboration via Supabase relay. Your code, your machine, your rules.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center justify-center md:justify-end gap-4 flex-1">

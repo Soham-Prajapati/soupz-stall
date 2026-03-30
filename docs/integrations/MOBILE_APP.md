@@ -57,7 +57,7 @@ Scan the QR code with Expo Go on your phone.
    ```
    The Cloud Kitchen server starts automatically in the background on port 7533.
 
-2. **Get your OTP** — type `/cloud-kitchen` in the stall to see the current 8-digit pairing code.
+2. **Get your OTP** — type `/cloud-kitchen` in the stall to see the current 9-character alphanumeric pairing code.
 
 3. **Open the app** — enter the OTP code. If on the same WiFi, use `localhost`; otherwise use your laptop's local IP (shown in `/cloud-kitchen` output).
 
@@ -108,7 +108,7 @@ Quick-tap buttons for common soupz-stall commands:
 
 ## OTP Security
 
-- Pairing codes are **8-digit alphanumeric** (charset: `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`)
+- Pairing codes are **9-character alphanumeric alphanumeric** (charset: `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`)
 - Codes **auto-refresh every 5 minutes** on the server
 - Each code is **one-time use** — consumed on first pairing
 - Session tokens are **64-char hex** (32 bytes random)

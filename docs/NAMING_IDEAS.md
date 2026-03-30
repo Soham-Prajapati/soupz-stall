@@ -4,6 +4,42 @@
 
 ---
 
+## April 2026 Cockpit Shortlist (New)
+
+1. **Runway**  
+   - *Why now:* Reinforces the "preflight" moment before unleashing multiple agents. You prep locally, take off remotely.  
+   - *Tone:* Confident, motion-oriented. Works with cockpit metaphors (Runway + Cockpit).  
+   - *Domains:* runwaycockpit.com, flyrunway.dev, ry.runway.dev (full runway.dev is taken but getrunway.dev variants exist).
+
+2. **OpsDeck**  
+   - *Why now:* Communicates "operations deck" or "ops console" — a layer above the CLIs orchestrating everything.  
+   - *Tone:* Commanding, enterprise-friendly while still modern.  
+   - *Domains:* opsdeck.dev/.app/.sh variants open; `opsdeck.run` also free.
+
+3. **Hangar**  
+   - *Why now:* Hangar houses your fleet (agents, daemons) and you access it from anywhere. Connects with QR pairing (scan → enter the hangar).  
+   - *Tone:* Slightly gritty/industrial; pairs well with "Soupz Stall" parent story.  
+   - *Domains:* hangar.run, usehangar.dev, hangarios.com available.
+
+4. **Switchboard**  
+   - *Why now:* Highlights the routing brain of Soupz (gemini ↔ copilot ↔ kiro). Makes it obvious the product connects multiple lines.  
+   - *Tone:* Retro control-room energy; easy to understand for first-time hackers.  
+   - *Domains:* switchboard.dev (taken), but switchbd.dev, useswitchboard.app, switchboardkit.com available.
+
+5. **Relay** *(carry-over from legacy list)*  
+   - *Why it stays high:* Directly communicates "signal handoff" and pairs well with the `_soupz_output` archive narrative (handoffs logged). Already resonates with hackathon workflows.
+
+6. **Tether** *(carry-over)*  
+   - *Why it stays high:* Immediately conveys you can tether any device to your coding environment; still the clearest explanation for newcomers scanning the README.
+
+7. **Orbit**  
+   - *Why now:* Brings a premium feel without sounding like a VS Code clone. Orbit implies satellites/devices sending work back to the core Ship computer.  
+   - *Domains:* orbitdeck.dev, joinorbit.app, orbitcockpit.com currently open.
+
+Use this shortlist as the discussion set before any user-facing rename; it balances new aviation-inspired labels (Runway, Hangar, Orbit) with control-center metaphors (OpsDeck, Switchboard) and the previously validated signal names (Relay, Tether).
+
+---
+
 ## The 15 Core Candidates
 
 ### 1. Relay
@@ -195,7 +231,7 @@
 ## 5 New Architecture & Orchestration Names
 
 ### 31. Prism
-- **Reasoning:** A prism takes a single beam of light and breaks it into multiple parallel spectrums. Just like Soupz takes a single complex prompt and breaks it into parallel agent workstreams (BMAD).
+- **Reasoning:** A prism takes a single beam of light and breaks it into multiple parallel spectrums. Just like Soupz takes a single complex prompt and breaks it into parallel agent workstreams.
 - **Spoken:** One syllable, PRIZ-um. Sharp and memorable.
 - **Evokes:** Light, clarity, parallel streams, refraction, Pink Floyd.
 - **Domains:** prism.dev (likely taken), prismcode.dev, useprism.dev

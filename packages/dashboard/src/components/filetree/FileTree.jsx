@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Folder, FolderOpen, ChevronRight, ChevronDown,
   FileCode2, FileText, FileJson, Globe, Palette,
@@ -26,11 +26,20 @@ function getFileIcon(name) {
   return EXT_ICONS[ext] || File;
 }
 
+function normalizePathSegment(segment) {
+  if (!segment) return segment;
+  if (segment.includes('->')) {
+    const parts = segment.split('->');
+    return parts[parts.length - 1].trim();
+  }
+  return segment.trim();
+}
+
 function getGitStatus(path, changedPaths = []) {
   const paths = Array.isArray(changedPaths) ? changedPaths : [];
   // porcelain uses 'M path', '?? path', etc.
   const entry = paths.find(p => {
-    const pathPart = p.slice(3).trim();
+    const pathPart = normalizePathSegment(p.slice(3));
     return pathPart === path;
   });
 
@@ -44,8 +53,8 @@ function getGitStatus(path, changedPaths = []) {
 
 function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, collapsedAll }) {
   const [open, setOpen] = useState(false);
-  
-  useMemo(() => {
+
+  useEffect(() => {
     if (collapsedAll) setOpen(false);
   }, [collapsedAll]);
 
@@ -57,12 +66,12 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
 
   // Folder coloring logic: check if any file inside this folder is modified/added
   const hasModified = isDir && paths.some(p => {
-    const pathPart = p.slice(3).trim();
+    const pathPart = normalizePathSegment(p.slice(3));
     const status = p.slice(0, 2).trim();
     return (status === 'M' || status === 'D') && pathPart.startsWith(node.path);
   });
   const hasUntracked = isDir && paths.some(p => {
-    const pathPart = p.slice(3).trim();
+    const pathPart = normalizePathSegment(p.slice(3));
     const status = p.slice(0, 2).trim();
     return (status === '??' || status === 'A') && pathPart.startsWith(node.path);
   });

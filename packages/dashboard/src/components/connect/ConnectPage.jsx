@@ -105,7 +105,7 @@ function CountdownRing({ remainingMs, totalMs = CODE_TTL_MS, size = 120 }) {
 
 export default function ConnectPage({ getParam, navigate }) {
   const urlCode = getParam?.('code') || '';
-  const [digits, setDigits] = useState(urlCode.replace(/-/g, '').slice(0, 8).split('').concat(Array(8).fill('')).slice(0, 8));
+  const [digits, setDigits] = useState(urlCode.replace(/-/g, '').slice(0, 9).split('').concat(Array(9).fill('')).slice(0, 9));
   const [status, setStatus] = useState('idle');
   const [machine, setMachine] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
@@ -119,7 +119,7 @@ export default function ConnectPage({ getParam, navigate }) {
   const [remainingMs, setRemainingMs] = useState(CODE_TTL_MS);
 
   const code = digits.join('');
-  const isComplete = code.length === 8 && digits.every(d => d !== '');
+  const isComplete = code.length === 9 && digits.every(d => d !== '');
 
   // Detect mobile
   useEffect(() => { setIsMobileDevice(isProbablyMobileDevice()); }, []);
@@ -139,13 +139,18 @@ export default function ConnectPage({ getParam, navigate }) {
     return () => { cancelled = true; };
   }, []);
 
-  // URL code auto-fill and auto-connect on mobile
+  // URL code auto-fill and auto-connect (mobile or remote deep-link)
   useEffect(() => {
     if (!urlCode) return;
-    const clean = urlCode.replace(/-/g, '').slice(0, 8);
-    setDigits(clean.padEnd(8, '').split(''));
-    if (clean.length === 8) {
-      if (isProbablyMobileDevice()) handleConnect(clean);
+    const clean = urlCode.replace(/-/g, '').slice(0, 9);
+    const digitsArray = clean.padEnd(9, ' ').split('').map(ch => (ch.trim() || ''));
+    setDigits(digitsArray);
+    const remoteHint = typeof window !== 'undefined' && window.sessionStorage?.getItem('soupz_auto_remote_hint') === '1';
+    if (remoteHint && typeof window !== 'undefined') {
+      window.sessionStorage.removeItem('soupz_auto_remote_hint');
+    }
+    if (clean.length === 9) {
+      if (remoteHint || isProbablyMobileDevice()) handleConnect(clean);
       else setConnectMode('share');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -186,8 +191,8 @@ export default function ConnectPage({ getParam, navigate }) {
         const endpoint = base ? `${base}/pair/current` : '/pair/current';
         const res = await fetch(endpoint, { signal: AbortSignal.timeout(1500) });
         const data = await parseJsonSafe(res);
-        const currentCode = (data?.code || '').toString().replace(/\D/g, '').slice(0, 8);
-        if (currentCode.length === 8) {
+        const currentCode = (data?.code || '').toString().replace(/[^A-Z0-9]/gi, '').slice(0, 9);
+        if (currentCode.length === 9) {
           setDigits(currentCode.split(''));
           const ttl = (data?.expiresIn || 300) * 1000;
           setExpiresAt(Date.now() + ttl);
@@ -201,7 +206,7 @@ export default function ConnectPage({ getParam, navigate }) {
 
   async function handleConnect(overrideCode) {
     const c = overrideCode || code;
-    if (c.length !== 8) return;
+    if (c.length !== 9) return;
     setStatus('loading');
     setErrorMsg('');
 
@@ -258,11 +263,11 @@ export default function ConnectPage({ getParam, navigate }) {
   }
 
   function onDigitChange(idx, val) {
-    const char = val.replace(/\D/g, '').slice(-1);
+    const char = val.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(-1);
     const next = [...digits];
     next[idx] = char;
     setDigits(next);
-    if (char && idx < 7) inputRefs.current[idx + 1]?.focus();
+    if (char && idx < 8) inputRefs.current[idx + 1]?.focus();
   }
 
   function onKeyDown(idx, e) {
@@ -272,15 +277,15 @@ export default function ConnectPage({ getParam, navigate }) {
 
   function onPaste(e) {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 8);
-    const next = pasted.split('').concat(Array(8).fill('')).slice(0, 8);
+    const pasted = e.clipboardData.getData('text').replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 9);
+    const next = pasted.split('').concat(Array(9).fill('')).slice(0, 9);
     setDigits(next);
-    inputRefs.current[Math.min(pasted.length, 7)]?.focus();
-    if (pasted.length === 8) handleConnect(pasted);
+    inputRefs.current[Math.min(pasted.length, 8)]?.focus();
+    if (pasted.length === 9) handleConnect(pasted);
   }
 
   function reset() {
-    setDigits(Array(8).fill(''));
+    setDigits(Array(9).fill(''));
     setStatus('idle');
     setErrorMsg('');
     inputRefs.current[0]?.focus();
@@ -357,10 +362,10 @@ export default function ConnectPage({ getParam, navigate }) {
               <QRConnectMode code={code} remainingMs={remainingMs} onManual={() => setConnectMode('code')} isMobileDevice={isMobileDevice} />
             ) : (
             <>
-              {/* Code input: 4+4 groups */}
+              {/* Code input: 3 groups of 3 for 9 chars */}
               <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-6 justify-center max-w-full">
                 <div className="flex gap-1 sm:gap-1.5">
-                  {[0,1,2,3].map(i => (
+                  {[0,1,2].map(i => (
                     <DigitInput
                       key={i}
                       ref={el => inputRefs.current[i] = el}
@@ -374,7 +379,21 @@ export default function ConnectPage({ getParam, navigate }) {
                 </div>
                 <span className="text-text-faint text-lg font-bold mx-0.5">-</span>
                 <div className="flex gap-1 sm:gap-1.5">
-                  {[4,5,6,7].map(i => (
+                  {[3,4,5].map(i => (
+                    <DigitInput
+                      key={i}
+                      ref={el => inputRefs.current[i] = el}
+                      value={digits[i]}
+                      onChange={v => onDigitChange(i, v)}
+                      onKeyDown={e => onKeyDown(i, e)}
+                      onPaste={onPaste}
+                      hasError={status === 'error'}
+                    />
+                  ))}
+                </div>
+                <span className="text-text-faint text-lg font-bold mx-0.5">-</span>
+                <div className="flex gap-1 sm:gap-1.5">
+                  {[6,7,8].map(i => (
                     <DigitInput
                       key={i}
                       ref={el => inputRefs.current[i] = el}
@@ -429,7 +448,7 @@ export default function ConnectPage({ getParam, navigate }) {
                   {[
                     'Open Terminal on your machine',
                     'Run: npx soupz',
-                    'Scan the terminal QR or enter the 8-digit code above',
+                    'Scan the terminal QR or enter the 9-character code above',
                   ].map((step, i) => (
                     <li key={i} className="flex items-start gap-2.5 text-text-sec text-sm">
                       <span className="shrink-0 w-5 h-5 rounded-full bg-bg-elevated border border-border-subtle text-text-faint text-xs flex items-center justify-center font-mono">
@@ -599,17 +618,20 @@ function QRConnectMode({ code, remainingMs, onManual, isMobileDevice }) {
   );
 }
 
-const DigitInput = forwardRef(function DigitInput({ value, onChange, onKeyDown, onPaste, hasError }, ref) {
+function DigitInput({ value, onChange, onKeyDown, onPaste, hasError }, ref) {
   return (
     <input
       ref={ref}
       type="text"
-      inputMode="numeric"
+      inputMode="text"
       maxLength={1}
       value={value}
       onChange={e => onChange(e.target.value)}
       onKeyDown={onKeyDown}
       onPaste={onPaste}
+      autoCapitalize="characters"
+      autoCorrect="off"
+      spellCheck="false"
       className={cn(
         'w-8 h-10 sm:w-10 sm:h-12 rounded-md text-center font-mono text-base sm:text-lg font-medium caret-accent',
         'bg-bg-elevated border transition-all outline-none',
@@ -621,4 +643,4 @@ const DigitInput = forwardRef(function DigitInput({ value, onChange, onKeyDown, 
       )}
     />
   );
-});
+}

@@ -116,7 +116,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 
 | # | Name | Invoke Handle | Icon | Underlying Agent | Core Specialty |
 |---|---|---|---|---|---|
-| 1 | Agent Builder (Bond) | `@agent-builder` | 🔧 | Copilot / Gemini | Agent architecture specialist and BMAD compliance expert who creates robust, maintainable agents |
+| 1 | Agent Builder (Bond) | `@agent-builder` | 🔧 | Copilot / Gemini | Agent architecture specialist and Soupz compliance expert who creates robust, maintainable agents |
 | 2 | Business Analyst | `@analyst` | 📊 | Copilot / Gemini | Senior business analyst — requirements, user stories, competitive analysis, market sizing, KPIs |
 | 3 | Tech Architect | `@architect` | 🏗️ | Copilot / Gemini | CTO-level technical architect who plans for 50-person teams with production-grade systems |
 | 4 | Brainstorming Coach | `@brainstorm` | 💡 | Copilot / Gemini | SCAMPER, Six Thinking Hats, Mind Mapping, Crazy 8s, Reverse Brainstorming — master ideation facilitator |
@@ -134,9 +134,9 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 | 16 | Gemini | `@gemini` | 🔮 | Copilot / Gemini | Google Gemini CLI — research, code generation, multi-modal analysis |
 | 17 | Innovation Strategist | `@innovator` | 🚀 | Copilot / Gemini | Blue Ocean Strategy, Jobs-to-be-Done, Business Model Canvas, disruption analysis — strategic innovation architect |
 | 18 | Team Lead | `@master` | 👑 | Copilot / Gemini | Master orchestrator — decomposes complex projects into parallel persona work streams, coordinates and integrates outputs |
-| 19 | Module Builder (Morgan) | `@module-builder` | 📦 | Copilot / Gemini | Module architecture specialist who creates cohesive, scalable BMAD modules with agents, workflows, and infrastructure |
+| 19 | Module Builder (Morgan) | `@module-builder` | 📦 | Copilot / Gemini | Module architecture specialist who creates cohesive, scalable Soupz modules with agents, workflows, and infrastructure |
 | 20 | Ollama | `@ollama` | 🤖 | Copilot / Gemini | Ollama — local LLMs (Llama, Mistral, Phi) |
-| 21 | Orchestrator | `@orchestrator` | 🎯 | Copilot / Gemini | Master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates multi-agent workflows like BMAD |
+| 21 | Orchestrator | `@orchestrator` | 🎯 | Copilot / Gemini | Master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates Soupz multi-agent workflows |
 | 22 | Project Planner | `@planner` | 📋 | Copilot / Gemini | Sprint planning, task breakdown, dependency mapping, Gantt charts |
 | 23 | Product Manager | `@pm` | 🎯 | Copilot / Gemini | PRDs, roadmaps, RICE/MoSCoW prioritization, user research, north star metrics — outcome-driven PM |
 | 24 | Presentation Coach | `@presenter` | 🎤 | Copilot / Gemini | 10x hackathon champion and pitch coach — demo scripts, investor decks, judge prep, storytelling |
@@ -156,17 +156,17 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 | 38 | Test Architect | `@tester` | 🔍 | Copilot / Gemini | Test strategy, automation frameworks, quality gates, CI/CD |
 | 39 | UI Builder | `@ui-builder` | 🏗️ | Copilot / Gemini | Builds the actual HTML prototypes — GSAP animations, design systems, SVG assets, Awwwards-quality output |
 | 40 | UX Designer (Sally) | `@ux-designer` | 🎯 | Copilot / Gemini | Senior UX designer specializing in user research, interaction design, and human-centered experience strategy |
-| 41 | Workflow Builder (Wendy) | `@workflow-builder` | 🔄 | Copilot / Gemini | Workflow architecture specialist and process design expert who creates efficient, scalable BMAD workflows |
+| 41 | Workflow Builder (Wendy) | `@workflow-builder` | 🔄 | Copilot / Gemini | Workflow architecture specialist and process design expert who creates efficient, scalable Soupz workflows |
 
 
 ### 5b. Per-Persona Deep Dive (ALL personas — do not skip any)
 
 #### 1. Agent Builder (Bond) (@agent-builder)
 - **Underlying Agent**: Copilot / Gemini
-- **Specialty**: Agent architecture specialist and BMAD compliance expert who creates robust, maintainable agents
+- **Specialty**: Agent architecture specialist and Soupz compliance expert who creates robust, maintainable agents
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @agent-builder, agent architecture specialist and bmad compliance expert who creates robust, maintainable agents for the new auth feature."
+- **Example Use Case**: "Hey @agent-builder, agent architecture specialist and Soupz compliance expert who creates robust, maintainable agents for the new auth feature."
 - **How It Differs From Similar Personas**: Focuses entirely on Agent Builder (Bond) workflows rather than general responsibilities.
 
 #### 2. Business Analyst (@analyst)
@@ -307,10 +307,10 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 
 #### 19. Module Builder (Morgan) (@module-builder)
 - **Underlying Agent**: Copilot / Gemini
-- **Specialty**: Module architecture specialist who creates cohesive, scalable BMAD modules with agents, workflows, and infrastructure
+- **Specialty**: Module architecture specialist who creates cohesive, scalable Soupz modules with agents, workflows, and infrastructure
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @module-builder, module architecture specialist who creates cohesive, scalable bmad modules with agents, workflows, and infrastructure for the new auth feature."
+- **Example Use Case**: "Hey @module-builder, module architecture specialist who creates cohesive, scalable Soupz modules with agents, workflows, and infrastructure for the new auth feature."
 - **How It Differs From Similar Personas**: Focuses entirely on Module Builder (Morgan) workflows rather than general responsibilities.
 
 #### 20. Ollama (@ollama)
@@ -323,10 +323,10 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 
 #### 21. Orchestrator (@orchestrator)
 - **Underlying Agent**: Copilot / Gemini
-- **Specialty**: Master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates multi-agent workflows like BMAD
+- **Specialty**: Master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates Soupz multi-agent workflows
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @orchestrator, master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates multi-agent workflows like bmad for the new auth feature."
+- **Example Use Case**: "Hey @orchestrator, master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates Soupz multi-agent workflows for the new auth feature."
 - **How It Differs From Similar Personas**: Focuses entirely on Orchestrator workflows rather than general responsibilities.
 
 #### 22. Project Planner (@planner)
@@ -483,10 +483,10 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 
 #### 41. Workflow Builder (Wendy) (@workflow-builder)
 - **Underlying Agent**: Copilot / Gemini
-- **Specialty**: Workflow architecture specialist and process design expert who creates efficient, scalable BMAD workflows
+- **Specialty**: Workflow architecture specialist and process design expert who creates efficient, scalable Soupz workflows
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @workflow-builder, workflow architecture specialist and process design expert who creates efficient, scalable bmad workflows for the new auth feature."
+- **Example Use Case**: "Hey @workflow-builder, workflow architecture specialist and process design expert who creates efficient, scalable Soupz workflows for the new auth feature."
 - **How It Differs From Similar Personas**: Focuses entirely on Workflow Builder (Wendy) workflows rather than general responsibilities.
 
 

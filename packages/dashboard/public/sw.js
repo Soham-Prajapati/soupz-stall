@@ -88,6 +88,9 @@ self.addEventListener('fetch', event => {
             });
           }
           return response;
+        }).catch(() => {
+          // Return empty response for failed font/asset fetches (offline)
+          return new Response('', { status: 200, headers: { 'Content-Type': 'text/css' } });
         });
       })
     );

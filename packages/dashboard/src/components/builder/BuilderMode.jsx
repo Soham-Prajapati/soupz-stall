@@ -47,6 +47,13 @@ function renderMarkdown(text) {
 }
 
 const BUILD_MODE_KEY = 'soupz_builder_mode';
+const MODEL_TIER_KEY = 'soupz_model_tier';
+
+const MODEL_TIERS = [
+  { id: 'fast',      label: 'Fast',      desc: 'Faster responses, lighter models' },
+  { id: 'balanced',  label: 'Balanced',  desc: 'Good speed and quality' },
+  { id: 'premium',   label: 'Premium',   desc: 'Best quality, slower' },
+];
 
 export default function BuilderMode({ daemon }) {
   const [messages, setMessages] = useState(() => {
@@ -61,6 +68,8 @@ export default function BuilderMode({ daemon }) {
   const [devServerChecked, setDevServerChecked] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
+  const [tierOpen, setTierOpen] = useState(false);
+  const [modelTier, setModelTier] = useState(() => localStorage.getItem(MODEL_TIER_KEY) || 'balanced');
   const [previewOpen, setPreviewOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
@@ -134,7 +143,7 @@ export default function BuilderMode({ daemon }) {
 
     try {
       if (daemon?.sendPrompt) {
-        const orderId = await daemon.sendPrompt({ prompt: text, agentId: effectiveAgentId, buildMode }, chunk => {
+        const orderId = await daemon.sendPrompt({ prompt: text, agentId: effectiveAgentId, buildMode, modelTier }, chunk => {
           setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: m.content + chunk } : m));
         });
         setCurrentOrderId(orderId);
@@ -222,6 +231,41 @@ export default function BuilderMode({ daemon }) {
                         <div className="text-[9px] text-text-faint">{m.description}</div>
                       </div>
                       {buildMode === m.id && <Check size={10} className="text-accent" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="w-px h-4 bg-border-subtle" />
+
+          {/* Model Tier Selector */}
+          <div className="relative">
+            <button onClick={() => setTierOpen(!tierOpen)} className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 transition-colors">
+              <span className={cn(
+                "text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-tight",
+                modelTier === 'fast' && "bg-green-500/15 text-green-400",
+                modelTier === 'balanced' && "bg-accent/15 text-accent",
+                modelTier === 'premium' && "bg-amber-500/15 text-amber-400",
+              )}>{modelTier}</span>
+              <ChevronDown size={12} className={cn("text-text-faint transition-transform", tierOpen && "rotate-180")} />
+            </button>
+            {tierOpen && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setTierOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 z-[100] bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[150px] animate-fade-in">
+                  {MODEL_TIERS.map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => { setModelTier(t.id); localStorage.setItem(MODEL_TIER_KEY, t.id); setTierOpen(false); }}
+                      className={cn("w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors text-left", modelTier === t.id ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated")}
+                    >
+                      <div className="flex-1">
+                        <div className="font-bold uppercase text-[10px] tracking-tight">{t.label}</div>
+                        <div className="text-[9px] text-text-faint">{t.desc}</div>
+                      </div>
+                      {modelTier === t.id && <Check size={10} className="text-accent" />}
                     </button>
                   ))}
                 </div>
@@ -339,6 +383,41 @@ export default function BuilderMode({ daemon }) {
                       <div className="text-[9px] text-text-faint">{m.description}</div>
                     </div>
                     {buildMode === m.id && <Check size={10} className="text-accent" />}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="w-px h-4 bg-border-subtle" />
+
+        {/* Model Tier Selector */}
+        <div className="relative">
+          <button onClick={() => setTierOpen(!tierOpen)} className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 transition-colors">
+            <span className={cn(
+              "text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-tight",
+              modelTier === 'fast' && "bg-green-500/15 text-green-400",
+              modelTier === 'balanced' && "bg-accent/15 text-accent",
+              modelTier === 'premium' && "bg-amber-500/15 text-amber-400",
+            )}>{modelTier}</span>
+            <ChevronDown size={12} className={cn("text-text-faint transition-transform", tierOpen && "rotate-180")} />
+          </button>
+          {tierOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setTierOpen(false)} />
+              <div className="absolute left-0 top-full mt-1 z-[100] bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[150px] animate-fade-in">
+                {MODEL_TIERS.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => { setModelTier(t.id); localStorage.setItem(MODEL_TIER_KEY, t.id); setTierOpen(false); }}
+                    className={cn("w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors text-left", modelTier === t.id ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated")}
+                  >
+                    <div className="flex-1">
+                      <div className="font-bold uppercase text-[10px] tracking-tight">{t.label}</div>
+                      <div className="text-[9px] text-text-faint">{t.desc}</div>
+                    </div>
+                    {modelTier === t.id && <Check size={10} className="text-accent" />}
                   </button>
                 ))}
               </div>

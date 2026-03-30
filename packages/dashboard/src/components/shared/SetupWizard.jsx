@@ -34,6 +34,10 @@ export default function SetupWizard({ isOpen, onClose }) {
     }
   }, [isOpen]);
 
+  const handleWizardClose = (detail = {}) => {
+    onClose?.({ ...detail, clis });
+  };
+
   const handleInstall = async (name) => {
     try {
       setInstalling(name);
@@ -41,7 +45,7 @@ export default function SetupWizard({ isOpen, onClose }) {
       if (res.success) {
         await fetchCLIs();
       } else {
-        setError(res.output || `Failed to install ${name}`);
+        setError(res.error || res.output || `Failed to install ${name}`);
       }
     } catch (err) {
       setError(`Error installing ${name}: ${err.message}`);
@@ -75,7 +79,7 @@ export default function SetupWizard({ isOpen, onClose }) {
               </div>
             </div>
             <button
-              onClick={onClose}
+              onClick={() => handleWizardClose({ reason: 'dismissed' })}
               className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
             >
               <X className="w-5 h-5" />
@@ -127,10 +131,11 @@ export default function SetupWizard({ isOpen, onClose }) {
                               )}
                             </div>
                             <p className="text-xs text-zinc-500 mt-0.5">
-                              {cli.installed 
-                                ? `Version ${cli.version} installed` 
-                                : `Required for ${cli.name === 'git' ? 'source control' : 'agent operations'}`
-                              }
+                              {cli.installed && cli.version
+                                ? `Version ${cli.version}`
+                                : cli.installed
+                                  ? 'Installed'
+                                  : `Required for ${cli.name === 'git' ? 'source control' : 'agent operations'}`}
                             </p>
                           </div>
                         </div>
@@ -181,7 +186,7 @@ export default function SetupWizard({ isOpen, onClose }) {
               Soupz needs these tools to interact with your local environment securely.
             </p>
             <button
-              onClick={onClose}
+              onClick={() => handleWizardClose({ completed: allInstalled })}
               className={cn(
                 "px-6 py-2 rounded-xl text-sm font-semibold transition-all",
                 allInstalled

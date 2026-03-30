@@ -51,6 +51,8 @@ export default function StatusBar({
   editorState = null,
   daemon = null,
   onOpenGitPanel = null,
+  rootPath = '',
+  devServerUrl = null,
 }) {
   const [agentPopupOpen, setAgentPopupOpen] = useState(false);
   const [notifPopupOpen, setNotifPopupOpen] = useState(false);
@@ -78,12 +80,12 @@ export default function StatusBar({
     if (workspaceOnline && daemon) {
       checkAgentAvailability().then(a => setAvailability(a || {}));
       // Fetch current git branch
-      fetchBranches().then(data => {
+      fetchBranches(rootPath).then(data => {
         if (data?.current) setGitBranch(data.current);
         else if (data?.branch) setGitBranch(data.branch);
       }).catch(() => {});
     }
-  }, [workspaceOnline, daemon]);
+  }, [workspaceOnline, daemon, rootPath]);
 
   // Monitor WebSocket connection state
   useEffect(() => {
@@ -190,6 +192,16 @@ export default function StatusBar({
           <StatusItem title="Chat Mode">
             <MessageSquare size={10} />
             <span className="hidden sm:inline">Chat</span>
+          </StatusItem>
+        )}
+
+        {devServerUrl && (
+          <StatusItem
+            title="Open live preview"
+            onClick={() => window.open(devServerUrl, '_blank', 'noopener,noreferrer')}
+          >
+            <Radio size={10} />
+            <span className="hidden sm:inline">Preview</span>
           </StatusItem>
         )}
 

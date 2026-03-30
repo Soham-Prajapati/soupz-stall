@@ -1,10 +1,14 @@
 {
     "name": "soupz",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Code from anywhere — AI coding IDE that bridges your phone to your laptop",
     "type": "module",
+    "publishConfig": {
+        "access": "public"
+    },
     "bin": {
-        "soupz": "./bin/soupz.js"
+        "soupz": "./bin/soupz.js",
+        "soupz-cockpit": "./bin/soupz.js"
     },
     "scripts": {
         "setup": "node --max-old-space-size=4096 scripts/setup.js",

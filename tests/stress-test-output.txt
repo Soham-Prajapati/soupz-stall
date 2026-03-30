@@ -1,0 +1,58 @@
+╔════════════════════════════════════════╗
+║   SOUPZ ORDER SYSTEM STRESS TEST       ║
+╚════════════════════════════════════════╝
+Target: http://localhost:7533
+✓ Daemon is healthy
+
+
+=== Test 1: Basic Order Creation ===
+✓ Created order ord_65
+❌ Order did not complete: order_failed
+
+=== Test 2: Concurrent Order Creation (10 orders) ===
+✓ Created 10/10 orders
+✓ 0/10 orders completed
+
+=== Test 3: Rapid Fire (50 orders in 5 seconds) ===
+Error creating order: read ECONNRESET
+✓ Created 49/50 orders
+
+=== Test 4: Order Cancellation ===
+✓ Created order ord_125
+✓ Order cancelled successfully
+
+=== Test 5: Order Retrieval & Listing ===
+✓ Retrieved order ord_126
+✓ Listed 7 orders
+
+=== Test 6: Interactive Input Handling ===
+✓ Created order ord_127
+⚠ Input send failed (expected if order doesn't support interactive mode)
+
+╔════════════════════════════════════════╗
+║        STRESS TEST RESULTS             ║
+╚════════════════════════════════════════╝
+Duration:        143.50s
+Orders Created:  63
+Completed:       0
+Failed:          11
+Cancelled:       1
+Timeouts:        0
+Errors:          2
+
+Latency Stats:
+  Average:       2843.17ms
+  P50:           2ms
+  P95:           14502ms
+  P99:           27756ms
+  Min:           0ms
+  Max:           28877ms
+
+Success Rate:    0.0%
+Throughput:      0.44 orders/sec
+
+╔════════════════════════════════════════╗
+║  Tests Passed: 4/6                    ║
+║  Tests Failed: 2/6                    ║
+╚════════════════════════════════════════╝
+

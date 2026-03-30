@@ -1,102 +1,57 @@
-# Soupz Stall
+# Soupz
 
-[![Deploy with Vercel](https://vercel.com/button)](https://dashboard-mu-two-44.vercel.app)
+**Control your laptop's AI coding tools from any device.** Run `npx soupz-cockpit` (alias `npx soupz`), scan a code, and code from your phone.
 
-Local-first multi-agent orchestration for coding workflows.
-
-Soupz runs a local daemon on your machine and provides a web UI for orchestrating agent work, deep parallel runs, and interactive resume flows.
-
-## What You Get
-
-- Dashboard UI for running and observing agents
-- Local daemon for command execution, orchestration, file and git operations
-- Deep orchestration with parallel workers and synthesis
-- Optional AI planner controls for deep mode
-- Interactive clarification and resume flow for long-running tasks
-
-## Current Runtime Highlights (March 2026)
-
-- Deep planner controls:
-  - `useAiPlanner`
-  - `plannerStyle`
-  - `plannerNotes`
-- Interactive deep-run pause and resume:
-  - order can enter `waiting_input`
-  - answers submitted via `POST /api/orders/:id/input`
-  - order resumes after input
-- Core Console behavior:
-  - planner options are collapsible
-  - interactive question panel appears only when required
-  - interactive question panel is rendered in the Output section
-- Startup and pairing resilience:
-  - `npm run dev:web` continues in local mode when bootstrap token creation fails
-  - pairing compatibility checks include `/pair/validate` and `/api/pair`
-  - consumed active pairing code rotates immediately
+Soupz is a local-first AI agent orchestration daemon with a hosted web IDE. It bridges your laptop's AI coding agents (Claude Code, Gemini, Copilot, Ollama, Kiro) to any browser — phone, tablet, or another PC.
 
 ## Quick Start
 
-1. Install dependencies:
-
+### 1. Install
 ```bash
-npm install
+npx soupz-cockpit    # alias: npx soupz
 ```
 
-2. Start full stack (daemon + dashboard):
+### 2. Pair
+Open your browser to `soupz.vercel.app`. Scan the QR code from your terminal, or enter the 9-character pairing code.
 
-```bash
-npm run dev:web
-```
+### 3. Build
+- **Chat Mode**: Send prompts to your AI agents, get real-time responses
+- **IDE Mode**: Edit files, run git commands, use a terminal — all from your phone
+- **Builder Mode**: Lovable-style centered prompt with live preview split
 
-3. If runtime or UI appears stale:
+## Features
 
-```bash
-# stop current process with Ctrl+C
-npm run dev:web
-# hard refresh browser: Cmd+Shift+R
-```
+- **Multi-Agent Orchestration** — Automatically picks the best available agent (Claude Code, Gemini, Copilot, Ollama)
+- **Real-Time IDE** — Monaco editor, file tree, git operations, terminal
+- **Local-First** — Your code never leaves your machine. Web app is just a remote control.
+- **Mobile-Ready** — Works on phones, tablets, any browser. True responsive design.
+- **Voice Support** — Chat with voice input and neural text-to-speech
+- **Run Archive** — Each order drops JSON/MD logs into `.soupz/output/` so you can review prompts, plans, stdout, and events later
+- **Free to Use** — Works with free agents (Copilot, Gemini). No subscriptions required.
 
-## Common Commands
+## Architecture
 
-```bash
-# Full stack dev
-npm run dev:web
+- **Daemon** — Runs on your laptop (`npx soupz-cockpit`), spawns CLI agents, manages files/git
+- **Web App** — Hosted at soupz.vercel.app, acts as a remote control
+- **Relay** — Supabase Realtime for remote connections (LAN uses WebSocket)
+- **Pairing** — 9-character OTP or QR code, 5-min auto-refresh
 
-# Dashboard only
-cd packages/dashboard && npm run dev
+## Requirements
 
-# Dashboard production build
-cd packages/dashboard && npm run build
+- Node.js 18+
+- At least one CLI agent installed:
+  - Claude Code (`npm install -g @anthropic-ai/claude-code`)
+  - Gemini CLI (`npm install -g @google/gemini-cli`)
+  - GitHub Copilot CLI (`gh copilot --version`)
+  - Ollama (`ollama pull <model>`)
 
-# Daemon only
-npx soupz
-```
+## Documentation
 
-## Canonical Documentation
+- [Setup & Troubleshooting](docs/SETUP.md)
+- [System Architecture](docs/CURRENT_SYSTEM.md)
+- [Runtime Changelog](docs/RUNTIME_CHANGELOG.md)
+- [Project Overview](PROJECT_OVERVIEW.md)
 
-Use these files as source of truth:
+## License
 
-1. Current runtime behavior: [docs/CURRENT_SYSTEM.md](docs/CURRENT_SYSTEM.md)
-2. Setup and troubleshooting: [docs/SETUP.md](docs/SETUP.md)
-3. Runtime changelog: [docs/RUNTIME_CHANGELOG.md](docs/RUNTIME_CHANGELOG.md)
-4. Docs index: [docs/README.md](docs/README.md)
-5. Team runtime reference: [CLAUDE.md](CLAUDE.md)
-
-## Repository Structure (Key Paths)
-
-```text
-packages/dashboard/          Web UI
-packages/remote-server/      Local daemon
-scripts/dev-web-stack.js     Dev stack launcher
-defaults/agents/             Agent definitions
-src/                         Core runtime modules
-```
-
-## Historical and Deep Reference
-
-The previous long-form persona and architecture deep dive has been intentionally moved out of the front page.
-
-Use:
-
-- [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
-- [docs/guides](docs/guides)
-- [defaults/agents](defaults/agents)
+MIT

@@ -1,55 +1,108 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense, useRef, useMemo } from 'react';
 import {
   Terminal, Wifi, WifiOff, LogOut, Layers, Code2, Loader2, Sun, Moon, Contrast,
   Leaf, Snowflake, Ghost, Coffee, Landmark, Flower2, SunDim, Github, Check, Search,
   Shield, Sparkles, CheckCircle, Lock, Users
 } from 'lucide-react';
-import { useRoute } from './hooks/useRoute';
-import AuthScreen from './components/auth/AuthScreen';
-import SimpleMode from './components/simple/SimpleMode';
-import StatusBar from './components/shared/StatusBar';
-import CoreConsole from './components/core/CoreConsole';
-import ErrorBoundary from './components/shared/ErrorBoundary';
+import AuthScreen from './components/auth/AuthScreen.jsx';
+import SimpleMode from './components/simple/SimpleMode.jsx';
+import StatusBar from './components/shared/StatusBar.jsx';
+import CoreConsole from './components/core/CoreConsole.jsx';
+import ErrorBoundary from './components/shared/ErrorBoundary.jsx';
 
 // Lazy-load routes and heavy components not needed on first paint
-const ConnectPage = lazy(() => import('./components/connect/ConnectPage'));
-const ProMode = lazy(() => import('./components/pro/ProMode'));
-const BuilderMode = lazy(() => import('./components/builder/BuilderMode'));
-const LandingPage = lazy(() => import('./components/landing/LandingPage'));
-const ProfilePage = lazy(() => import('./components/profile/ProfilePage'));
-const AdminPage = lazy(() => import('./components/admin/AdminPage'));
-const CommandPalette = lazy(() => import('./components/shared/CommandPalette'));
-const FolderPicker = lazy(() => import('./components/shared/FolderPicker'));
-const SetupWizard = lazy(() => import('./components/shared/SetupWizard'));
+const ConnectPage = lazy(() => import('./components/connect/ConnectPage.jsx'));
+const ProMode = lazy(() => import('./components/pro/ProMode.jsx'));
+const BuilderMode = lazy(() => import('./components/builder/BuilderMode.jsx'));
+const LandingPage = lazy(() => import('./components/landing/LandingPage.jsx'));
+const ProfilePage = lazy(() => import('./components/profile/ProfilePage.jsx'));
+const AdminPage = lazy(() => import('./components/admin/AdminPage.jsx'));
+const CommandPalette = lazy(() => import('./components/shared/CommandPalette.jsx'));
+const FolderPicker = lazy(() => import('./components/shared/FolderPicker.jsx'));
+const SetupWizard = lazy(() => import('./components/shared/SetupWizard.jsx'));
+const OnboardingOverlay = lazy(() => import('./components/shared/OnboardingOverlay.jsx'));
 import { supabase, isSupabaseConfigured } from './lib/supabase.js';
 import {
   checkDaemonHealth, subscribeToDaemon, sendAgentPrompt,
   getFileTree, readFile, writeFile, getGitStatus, getGitDiff,
   gitStage, gitCommit, gitPush, checkSystemCLIs,
   listTerminals, killTerminalById, getOrderDetail,
-  submitOrderInput,
+  submitOrderInput, getDevServerUrl,
 } from './lib/daemon.js';
 import { cn } from './lib/cn';
+import { flattenFilePaths } from './lib/tree';
 
 const MODE_KEY  = 'soupz_ide_mode';
 const THEME_KEY = 'soupz_theme';
 
-const THEMES = [
-  { id: 'dark',      label: 'Soupz Dark',   icon: Moon },
-  { id: 'dracula',   label: 'Dracula',      icon: Ghost },
-  { id: 'tokyo',     label: 'Tokyo Night',  icon: SunDim },
-  { id: 'github',    label: 'GitHub Dark',  icon: Github },
-  { id: 'nord',      label: 'Nord',         icon: Snowflake },
-  { id: 'monokai',   label: 'Monokai',      icon: Coffee },
-  { id: 'light',     label: 'Soupz Light',  icon: Sun },
-];
+const THEME_ALIASES = {
+  tokyo: 'tokyo-night',
+  github: 'github-dark',
+};
 
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
+const SETUP_COMPLETION_KEY = 'soupz_setup_completed_v1';
+
+function readSetupCompletion() {
+  if (typeof window === 'undefined') return {};
+  try { return JSON.parse(localStorage.getItem(SETUP_COMPLETION_KEY) || '{}') || {}; }
+  catch { return {}; }
 }
 
+function writeSetupCompletion(map) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(SETUP_COMPLETION_KEY, JSON.stringify(map));
+}
+
+const THEMES = [
+  { id: 'dark',         label: 'Soupz Dark',   icon: Moon },
+  { id: 'dim',          label: 'Dim',          icon: Contrast },
+  { id: 'midnight',     label: 'Midnight',     icon: Ghost },
+  { id: 'tokyo-night',  label: 'Tokyo Night',  icon: SunDim },
+  { id: 'dracula',      label: 'Dracula',      icon: Ghost },
+  { id: 'rose-pine',    label: 'Rose Pine',    icon: Flower2 },
+  { id: 'catppuccin',   label: 'Catppuccin',   icon: Coffee },
+  { id: 'nord',         label: 'Nord',         icon: Snowflake },
+  { id: 'monokai',      label: 'Monokai',      icon: Leaf },
+  { id: 'solarized',    label: 'Solarized',    icon: Landmark },
+  { id: 'github-dark',  label: 'GitHub Dark',  icon: Github },
+  { id: 'light',        label: 'Soupz Light',  icon: Sun },
+];
+
+function normalizeTheme(theme) {
+  return THEME_ALIASES[theme] || theme;
+}
+
+function applyTheme(theme) {
+  const normalized = normalizeTheme(theme || 'dark');
+  document.documentElement.setAttribute('data-theme', normalized);
+  return normalized;
+}
+
+const initialRouteState = () => ({
+  path: typeof window !== 'undefined' ? window.location.pathname : '/',
+  search: typeof window !== 'undefined' ? window.location.search : '',
+});
+
 export default function App() {
-  const { path, getParam, navigate } = useRoute();
+  const [route, setRoute] = useState(initialRouteState);
+  const { path, search } = route;
+
+  const navigate = useCallback((to) => {
+    window.history.pushState({}, '', to);
+    setRoute({ path: window.location.pathname, search: window.location.search });
+  }, []);
+
+  const getParam = useCallback((key) => {
+    return new URLSearchParams(search).get(key);
+  }, [search]);
+
+  useEffect(() => {
+    function onPop() {
+      setRoute({ path: window.location.pathname, search: window.location.search });
+    }
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   // Bootstrap daemon connection from URL query params.
   // This enables one-click links from dev-web stack and phone pairing handoff.
@@ -59,7 +112,10 @@ export default function App() {
       const remote = params.get('remote');
       const token = params.get('token');
 
-      if (remote) localStorage.setItem('soupz_daemon_url', remote);
+      if (remote) {
+        localStorage.setItem('soupz_daemon_url', remote);
+        try { sessionStorage.setItem('soupz_auto_remote_hint', '1'); } catch {}
+      }
       if (token) localStorage.setItem('soupz_daemon_token', token);
 
       if (remote || token) {
@@ -79,8 +135,9 @@ export default function App() {
   const [mode, setMode]           = useState(() => localStorage.getItem(MODE_KEY) || 'simple');
   const [theme, setTheme]         = useState(() => {
     const saved = localStorage.getItem(THEME_KEY) || 'dark';
-    applyTheme(saved);
-    return saved;
+    const normalized = applyTheme(saved);
+    if (normalized !== saved) localStorage.setItem(THEME_KEY, normalized);
+    return normalized;
   });
   const [workspaceOnline, setWorkspaceOnline] = useState(false);
   const [workspaceMachine, setWorkspaceMachine] = useState(null);
@@ -110,21 +167,97 @@ export default function App() {
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [workspaceRoot, setWorkspaceRoot] = useState(null);
+  const storedWorkspaceRoot = typeof window !== 'undefined' ? (localStorage.getItem('soupz_workspace_root') || '') : '';
+  const activeWorkspaceRoot = workspaceRoot || storedWorkspaceRoot || '';
+  const setupSignature = useMemo(() => {
+    if (typeof window === 'undefined') return 'local::global';
+    const host = localStorage.getItem('soupz_hostname') || 'local';
+    return `${host}::${activeWorkspaceRoot || 'global'}`;
+  }, [activeWorkspaceRoot, workspaceMachine]);
 
-  useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
+  useEffect(() => {
+    localStorage.setItem(MODE_KEY, mode);
+  }, [mode]);
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  const flattenedFilePaths = useMemo(() => flattenFilePaths(fileTree || []), [fileTree]);
+
+  const [devServerUrl, setDevServerUrl] = useState(null);
+  useEffect(() => {
+    let ignore = false;
+    let timer = null;
+    async function poll() {
+      if (!workspaceOnline) {
+        setDevServerUrl(null);
+        return;
+      }
+      try {
+        const result = await getDevServerUrl();
+        if (!ignore) setDevServerUrl(result?.url || null);
+      } catch {
+        if (!ignore) setDevServerUrl(null);
+      }
+      timer = setTimeout(poll, 15000);
+    }
+    poll();
+    return () => {
+      ignore = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [workspaceOnline]);
 
   // Auto-check setup on mount/login
   useEffect(() => {
-    if (user && workspaceOnline && !localStorage.getItem('soupz_setup_completed')) {
-      checkSystemCLIs().then(clis => {
-        if (clis && clis.length > 0 && clis.some(c => !c.installed)) {
-          setSetupOpen(true);
-        } else if (clis && clis.length > 0) {
-          localStorage.setItem('soupz_setup_completed', 'true');
-        }
-      }).catch(() => {});
+    if (!user || !workspaceOnline) return;
+    const completionMap = readSetupCompletion();
+    const entry = completionMap[setupSignature];
+    const sessionKey = `soupz_setup_dismissed::${setupSignature}`;
+    if (entry?.completedAt) {
+      setSetupOpen(false);
+      return;
     }
-  }, [user, workspaceOnline]);
+    if (typeof window !== 'undefined' && sessionStorage.getItem(sessionKey) === '1') {
+      return;
+    }
+    checkSystemCLIs().then(clis => {
+      if (!Array.isArray(clis) || clis.length === 0) return;
+      const missing = clis.some(c => !c.installed);
+      if (missing) {
+        setSetupOpen(true);
+      } else {
+        completionMap[setupSignature] = {
+          completedAt: Date.now(),
+          versions: clis.reduce((acc, cli) => {
+            acc[cli.name] = cli.version || null;
+            return acc;
+          }, {}),
+        };
+        writeSetupCompletion(completionMap);
+        setSetupOpen(false);
+      }
+    }).catch(() => {});
+  }, [user, workspaceOnline, setupSignature]);
+
+  const handleSetupClose = useCallback((detail = {}) => {
+    const sessionKey = `soupz_setup_dismissed::${setupSignature}`;
+    if (detail.completed && Array.isArray(detail.clis)) {
+      const map = readSetupCompletion();
+      map[setupSignature] = {
+        completedAt: Date.now(),
+        versions: detail.clis.reduce((acc, cli) => {
+          acc[cli.name] = cli.version || null;
+          return acc;
+        }, {}),
+      };
+      writeSetupCompletion(map);
+    } else if (typeof window !== 'undefined') {
+      sessionStorage.setItem(sessionKey, '1');
+    }
+    setSetupOpen(false);
+  }, [setupSignature]);
 
   useEffect(() => {
     function handleKey(e) {
@@ -162,7 +295,9 @@ export default function App() {
     if (actionId === 'toggle-mode') setMode(m => m === 'simple' ? 'builder' : m === 'builder' ? 'pro' : 'simple');
     else if (actionId.startsWith('theme-')) {
       const t = actionId.replace('theme-', '');
-      setTheme(t); localStorage.setItem(THEME_KEY, t); applyTheme(t);
+      const normalized = applyTheme(t);
+      setTheme(normalized);
+      localStorage.setItem(THEME_KEY, normalized);
     }
     else if (actionId.startsWith('agent-')) {
       const a = actionId.replace('agent-', '');
@@ -172,9 +307,9 @@ export default function App() {
   }
 
   function changeTheme(t) {
-    setTheme(t);
-    localStorage.setItem(THEME_KEY, t);
-    applyTheme(t);
+    const normalized = applyTheme(t);
+    setTheme(normalized);
+    localStorage.setItem(THEME_KEY, normalized);
     setThemeOpen(false);
   }
 
@@ -231,8 +366,8 @@ export default function App() {
         setWorkspaceMachine(h.machine);
         // Auto-fetch file tree when locally connected
         try {
-          const root = workspaceRoot || localStorage.getItem('soupz_workspace_root') || '';
-          const treeData = await getFileTree(root);
+          const root = activeWorkspaceRoot;
+          const treeData = await getFileTree(root || undefined);
           if (treeData?.tree) {
             const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
             setFileTree(children);
@@ -246,7 +381,7 @@ export default function App() {
     check();
     const id = setInterval(check, 8000);
     return () => clearInterval(id);
-  }, [workspaceRoot]);
+  }, [activeWorkspaceRoot]);
 
   // Supabase relay
   useEffect(() => {
@@ -273,10 +408,12 @@ export default function App() {
     online: workspaceOnline,
     machine: workspaceMachine,
     activeFleet,
+    rootPath: activeWorkspaceRoot || null,
+    getRootPath() { return activeWorkspaceRoot || null; },
     async refreshTree() {
       try {
-        const root = workspaceRoot || localStorage.getItem('soupz_workspace_root') || '';
-        const treeData = await getFileTree(root);
+        const root = activeWorkspaceRoot;
+        const treeData = await getFileTree(root || undefined);
         if (treeData?.tree) {
           const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
           setFileTree(children);
@@ -292,29 +429,29 @@ export default function App() {
       return sendAgentPrompt({ prompt, agentId, allowedAgents, sameAgentOnly, buildMode, cwd, orchestrationMode, useAiPlanner, plannerStyle, plannerNotes, returnOrderImmediately }, user?.id, onChunk);
     },
     async readFile(path) {
-      return readFile(path, user?.id);
+      return readFile(path, user?.id, activeWorkspaceRoot);
     },
     async writeFile(path, content) {
-      return writeFile(path, content, user?.id);
+      return writeFile(path, content, user?.id, activeWorkspaceRoot);
     },
     async runFile(path) {
       const { runFile } = await import('./lib/daemon.js');
-      return runFile(path, user?.id);
+      return runFile(path, user?.id, activeWorkspaceRoot);
     },
     async gitStatus() {
-      return getGitStatus(null, user?.id);
+      return getGitStatus(null, user?.id, activeWorkspaceRoot);
     },
     async gitDiff() {
-      return getGitDiff(null, user?.id);
+      return getGitDiff(null, user?.id, activeWorkspaceRoot);
     },
     async gitStage(paths) {
-      for (const p of paths) await gitStage(p, user?.id);
+      for (const p of paths) await gitStage(p, user?.id, activeWorkspaceRoot);
     },
     async gitCommit(message) {
-      return gitCommit(message, user?.id);
+      return gitCommit(message, user?.id, activeWorkspaceRoot);
     },
     async gitPush() {
-      return gitPush(user?.id);
+      return gitPush(user?.id, activeWorkspaceRoot);
     },
     async listTerminals() {
       return listTerminals();
@@ -540,7 +677,7 @@ export default function App() {
         )}
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {mode === 'simple' ? (
-            <SimpleMode daemon={workspace} />
+            <SimpleMode daemon={workspace} filePaths={flattenedFilePaths} />
           ) : mode === 'builder' ? (
             <ErrorBoundary name="Builder Mode">
               <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
@@ -550,7 +687,13 @@ export default function App() {
           ) : (
             <ErrorBoundary name="Pro Mode">
               <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
-                <ProMode daemon={workspace} fileTree={fileTree} changedPaths={changedFiles} onEditorStateChange={setEditorState} />
+                <ProMode
+                  daemon={workspace}
+                  fileTree={fileTree}
+                  changedPaths={changedFiles}
+                  onEditorStateChange={setEditorState}
+                  theme={theme}
+                />
               </Suspense>
             </ErrorBoundary>
           )}
@@ -589,7 +732,7 @@ export default function App() {
           <Suspense fallback={null}>
             <SetupWizard
               isOpen={setupOpen}
-              onClose={() => setSetupOpen(false)}
+              onClose={handleSetupClose}
             />
           </Suspense>
         </ErrorBoundary>
@@ -602,7 +745,14 @@ export default function App() {
         mode={mode}
         editorState={editorState}
         daemon={workspace}
+        rootPath={activeWorkspaceRoot}
+        devServerUrl={devServerUrl}
       />
+
+      {/* Onboarding Overlay (only on dashboard) */}
+      <Suspense fallback={null}>
+        <OnboardingOverlay />
+      </Suspense>
     </div>
   );
 }

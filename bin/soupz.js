@@ -61,7 +61,7 @@ await startDaemon();
 async function startDaemon() {
     ensureDirectories();
 
-    const header = chalk.hex('#6C63FF').bold('🫕  Soupz') + chalk.dim(` v${VERSION}`);
+    const header = chalk.hex('#6C63FF').bold('Soupz Cockpit') + chalk.dim(` v${VERSION}`);
     console.log(`\n  ${header}\n`);
 
     let startRemoteServer;
@@ -85,7 +85,7 @@ async function startDaemon() {
     const QRCode = (await import('qrcode')).default;
 
     async function printPairingBlock(pairing) {
-        const connectUrl = `${WEBAPP_URL}/connect?code=${pairing.code}`;
+        const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/connect?code=${pairing.code}`;
         const tunnelUrl = process.env.SOUPZ_TUNNEL_URL || process.env.SOUPZ_TUNNEL_URLS || '';
 
         // Generate ASCII QR code for terminal
@@ -136,7 +136,7 @@ async function startDaemon() {
     console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
 
     // Open browser to the connect page
-    const connectUrl = `${WEBAPP_URL}/connect?code=${pairing.code}`;
+        const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/connect?code=${pairing.code}`;
     const { exec } = await import('child_process');
     if (process.platform === 'darwin') exec(`open "${connectUrl}"`);
     else if (process.platform === 'linux') exec(`xdg-open "${connectUrl}"`);
