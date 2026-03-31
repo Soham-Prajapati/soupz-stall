@@ -158,7 +158,8 @@ export default function CoreConsole({ workspace }) {
         if (!active) return;
         const normalized = CORE_AGENTS.reduce((acc, agent) => {
           if (agent.id === 'auto') return acc;
-          acc[agent.id] = Boolean(avail?.[agent.id]);
+          const map = avail?.simple || avail;
+          acc[agent.id] = Boolean(map?.[agent.id]);
           return acc;
         }, {});
         setAgentAvailability(normalized);

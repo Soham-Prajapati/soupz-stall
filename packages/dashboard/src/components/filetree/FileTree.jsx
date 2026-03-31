@@ -76,6 +76,18 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
     return (status === '??' || status === 'A') && pathPart.startsWith(node.path);
   });
 
+  const iconColor = isDir
+    ? (hasUntracked ? 'text-success' : hasModified ? 'text-warning' : 'text-text-pri')
+    : gitStatus?.color || (isSelected ? 'text-accent' : 'text-text-sec');
+
+  const handleDragStart = (e) => {
+    e.stopPropagation();
+    if (!node.path) return;
+    e.dataTransfer.setData('application/x-soupz-path', node.path);
+    e.dataTransfer.setData('text/plain', node.path);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
   return (
     <div>
       <div
@@ -91,6 +103,8 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
           (!gitStatus && hasModified && !hasUntracked) && 'text-warning',
           (!gitStatus && hasUntracked) && 'text-success'
         )}
+        draggable
+        onDragStart={handleDragStart}
       >
         <div className="w-4 flex items-center justify-center shrink-0">
           {isDir && (
@@ -99,7 +113,7 @@ function TreeNode({ node, depth = 0, changedPaths = [], onSelect, selectedPath, 
             </span>
           )}
         </div>
-        <Icon size={14} className={cn('shrink-0', isDir ? 'text-[#EAB308]/80' : (isSelected ? 'text-accent' : ''))} />
+        <Icon size={14} className={cn('shrink-0', iconColor)} />
         <span className={cn('text-[13px] font-ui truncate flex-1', isSelected ? 'text-text-pri' : '')}>{node.name}</span>
         
         {gitStatus && (

@@ -40,8 +40,8 @@ export default function AgentDashboard({ daemon }) {
   // Fetch agent availability & load skills
   useEffect(() => {
     async function checkAgents() {
-      const status = await checkAgentAvailability();
-      setAgentStatus(status);
+      const info = await checkAgentAvailability();
+      setAgentStatus(info?.simple || {});
       setLoading(false);
     }
 

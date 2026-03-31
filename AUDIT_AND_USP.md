@@ -32,6 +32,8 @@ You run `npx soupz-cockpit` (alias `npx soupz`) on your machine. It starts a loc
 | **File Tree** | Real filesystem browsing via daemon API, filtered (no node_modules/.git) | Working |
 | **File Read/Write** | Real file operations with path traversal prevention, LRU cache (50 files, 5MB) | Enhanced |
 | **Terminal** | node-pty, xterm-256color, bidirectional WebSocket streaming | Working |
+| **Live Preview Pane** | Chat & builder modes embed the local dev server (or last HTML block) beside the conversation so you can see changes on phones | NEW - Working |
+| **Source Control Diff Pills** | Git panel mirrors VS Code with per-file pill navigation, status badges, and streaming commit-message generation | NEW - Working |
 | **Git Operations** | Real git: status, diff, stage, commit, push -- real branch detection (no hardcoding) | Enhanced |
 | **Order Management** | Create, track, cancel orders with lifecycle events, max 5 concurrent, queue overflow | Enhanced |
 | **Supabase Relay** | Async command queue for remote (non-LAN) connections | Working |
@@ -205,7 +207,7 @@ Real differentiators:
 - **Brand/story gap:** Naming "Soupz" + VS-Code-like shell makes newcomers assume "remote VS Code" instead of "agent command center". Need clearer cockpit identity plus an easier `npx` alias (e.g. `npx soupz-cockpit`).
 - **Telemetry gap:** `_soupz_output` run archives now exist, but there’s no “open last run” affordance in the dashboard so most users never notice.
 - **Education gap:** Features such as `/party-mode`, `/team-lead`, and agent teams exist but aren’t surfaced in the UI, so users do not know what problem Soupz uniquely solves.
-- **Provider gap:** We are assuming Copilot availability in /core even though the current quota is empty; Codex/Gemini/Kiro flows need an explicit verification pass so /core never hard-fails.
+- **Provider gap:** We are assuming Copilot availability in /core even though the current quota is empty; Codex/Gemini/Kiro flows need an explicit verification pass so /core never hard-fails (agent detection now surfaces detailed statuses but Codex onboarding docs are still pending).
 
 ### Immediate Focus Areas
 - **UI health debt** — Source control panel, action bars, and theme tokens need alignment for 360–768px viewports; otherwise hackathon photos still look like a cramped VS Code remote session.
@@ -215,8 +217,9 @@ Real differentiators:
 1. **QR + pairing clarity** — ✅ deep links + auto-submit now live; add a “Paired via {remote}” toast so people trust it worked.
 2. **Rename & CLI alias** — keep experimenting with names (Runway, OpsDeck, Hangar, Switchboard, Relay, Tether, Orbit) before flipping the public npm description.
 3. **Permanent run archive visibility** — ✅ daemon writes `.soupz/output/...`; next step is surfacing "Open last run" + docs pointer so the archive actually gets used.
-4. **UI framing + mobile polish** — fix Git/source-control stacking, make the theme tokens drive every panel (status bar, quick actions, wizard), and reintroduce builder/agent context above the fold so Soupz feels like a cockpit, not a VS Code skin.
-5. **Provider-first /core QA** — Core console now auto-detects installed CLIs, greys out missing agents, and warns when auto-mode has zero providers; once Copilot credit returns, rerun Codex/Gemini-only flows to finalize the `/core` smoke.
+4. **UI framing + mobile polish** — ✅ Git/source control now mirrors VS Code pills, dropdowns respect z-index, theming propagates to Monaco/terminal, and SimpleMode gained file mentions + drag-and-drop so the cockpit finally feels intentional on phones.
+5. **Provider-first /core QA** — Core console now auto-detects installed CLIs, greys out missing agents, and warns when auto-mode has zero providers; once Copilot credit returns, rerun Codex/Gemini-only flows to finalize the `/core` smoke (and extend detection to emerging CLIs like Codex CLI).
+6. **Remote run + preview** — Code mode now exposes a “Run File” trigger (wired to `/api/exec`) and surfaces live dev-server links, but we still owe a richer “preview pane” similar to Builder Mode.
 - "VS Code replacement" (it's a remote IDE, different class of product)
 
 ### Is This Venture-Scale?

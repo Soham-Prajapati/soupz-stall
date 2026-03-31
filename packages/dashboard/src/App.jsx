@@ -595,8 +595,8 @@ export default function App() {
           </button>
           {themeOpen && (
             <>
-              <div className="fixed inset-0 z-30" onClick={() => setThemeOpen(false)} />
-              <div className="absolute right-0 top-8 z-40 bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden py-1 min-w-[140px]">
+              <div className="fixed inset-0 z-[80]" onClick={() => setThemeOpen(false)} />
+              <div className="absolute right-0 top-8 z-[90] bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden py-1 min-w-[140px]">
                 {THEMES.map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}

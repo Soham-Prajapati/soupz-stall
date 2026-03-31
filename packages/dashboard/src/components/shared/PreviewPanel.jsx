@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { RefreshCw, ExternalLink, Globe, Code2, Monitor } from 'lucide-react';
 import { cn } from '../../lib/cn';
 
@@ -9,6 +9,14 @@ export default function PreviewPanel({
 }) {
   const iframeRef = useRef(null);
   const [mode, setMode] = useState(previewUrl ? 'url' : 'html'); // 'url' or 'html'
+
+  useEffect(() => {
+    if (previewUrl && mode !== 'url') {
+      setMode('url');
+    } else if (!previewUrl && mode === 'url') {
+      setMode('html');
+    }
+  }, [previewUrl, mode]);
 
   // Validate URL format
   const isValidUrl = previewUrl && (

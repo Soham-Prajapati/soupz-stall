@@ -2,8 +2,30 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
 import ErrorBoundary from '../shared/ErrorBoundary';
 import { useThemeVars } from '../../hooks/useThemeVars';
+import { flattenFilePaths } from '../../lib/tree';
 
 let lastThemeSignature = null;
+
+function isColorLight(hexColor = '') {
+  const hex = hexColor.replace('#', '').trim();
+  if (hex.length !== 6 && hex.length !== 3) return false;
+  const normalized = hex.length === 3
+    ? hex.split('').map(ch => ch + ch).join('')
+    : hex;
+  const bigint = parseInt(normalized, 16);
+  if (Number.isNaN(bigint)) return false;
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  // Relative luminance per WCAG
+  const [sr, sg, sb] = [r, g, b].map(v => {
+    const channel = v / 255;
+    return channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+  });
+  const luminance = 0.2126 * sr + 0.7152 * sg + 0.0722 * sb;
+  return luminance > 0.6;
+}
+
 async function syncMonacoTheme(themeVars = {}) {
   const monaco = await loader.init();
   const signature = JSON.stringify(themeVars);
@@ -12,9 +34,11 @@ async function syncMonacoTheme(themeVars = {}) {
     return;
   }
   lastThemeSignature = signature;
-  const fallback = (key, fallbackHex) => themeVars[key] || fallbackHex;
+  const fallback = (key, fallbackHex) => themeVars[key]?.trim() || fallbackHex;
+  const baseBg = fallback('--bg-base', '#0C0C0F');
+  const base = isColorLight(baseBg) ? 'vs' : 'vs-dark';
   monaco.editor.defineTheme('soupz-dynamic', {
-    base: 'vs-dark',
+    base,
     inherit: true,
     rules: [
       { token: 'comment', foreground: '8A8FA4', fontStyle: 'italic' },
@@ -24,7 +48,7 @@ async function syncMonacoTheme(themeVars = {}) {
       { token: 'type', foreground: '#0EA5E9' },
     ],
     colors: {
-      'editor.background': fallback('--bg-base', '#0C0C0F'),
+      'editor.background': baseBg,
       'editor.foreground': fallback('--text-pri', '#F0F0F5'),
       'editorLineNumber.foreground': '#4B4B5C',
       'editorLineNumber.activeForeground': '#9EA1B6',
@@ -33,7 +57,7 @@ async function syncMonacoTheme(themeVars = {}) {
       'editorCursor.foreground': fallback('--accent', '#6366F1'),
       'editorIndentGuide.background': fallback('--border-subtle', '#1E1E24'),
       'editor.inactiveSelectionBackground': `${fallback('--accent', '#6366F1')}22`,
-      'editorGutter.background': fallback('--bg-base', '#0C0C0F'),
+      'editorGutter.background': baseBg,
       'scrollbarSlider.background': `${fallback('--border-mid', '#2D2D39')}99`,
       'scrollbarSlider.hoverBackground': `${fallback('--border-strong', '#3F3F4D')}AA`,
     },
@@ -44,7 +68,7 @@ async function syncMonacoTheme(themeVars = {}) {
 import {
   Files, GitBranch, Settings, ChevronLeft, ChevronRight,
   Play, Loader2, PanelRightClose, PanelRightOpen, X, Package,
-  Terminal, Search, Trophy, Code2, Bot, Columns
+  Terminal, Search, Trophy, Code2, Bot, Columns, MessageSquare
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS } from '../../lib/agents';
@@ -78,6 +102,7 @@ function getLang(filename) {
 export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateChange, theme }) {
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
   const themeVars = useThemeVars(['--bg-base', '--bg-elevated', '--text-pri', '--text-sec', '--accent', '--border-subtle', '--border-mid', '--border-strong']);
+  const flattenedPaths = useMemo(() => flattenFilePaths(fileTree || []), [fileTree]);
 
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     !(typeof window !== 'undefined' && window.innerWidth < 768) && (localStorage.getItem(SIDEBAR_KEY) !== 'false')
@@ -105,6 +130,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
   const [terminalHeight, setTerminalHeight] = useState(192);
   const [terminalMaximized, setTerminalMaximized] = useState(false);
   const [mobileTab, setMobileTab] = useState('chat');
+  const [runToast, setRunToast] = useState(null);
 
   const editorRef = useRef(null);
   const saveTimeoutRef = useRef(null);
@@ -118,6 +144,20 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
   useEffect(() => {
     localStorage.setItem(OPEN_FILES_KEY, JSON.stringify(openFiles.slice(0, 20)));
   }, [openFiles]);
+
+  const handleRunActiveFile = async () => {
+    if (!activeFile?.path || !daemon?.runFile) return;
+    setRunToast({ status: 'running', message: `Running ${activeFile.name}...` });
+    try {
+      const result = await daemon.runFile(activeFile.path);
+      const message = result?.command ? `Triggered ${result.command}` : 'Run request sent to daemon';
+      setRunToast({ status: 'done', message });
+    } catch (err) {
+      setRunToast({ status: 'error', message: err?.message || 'Failed to run file' });
+    } finally {
+      setTimeout(() => setRunToast(null), 5000);
+    }
+  };
 
   // Responsive: update isMobile and close panels on mobile
   useEffect(() => {
@@ -252,7 +292,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
     return (
       <div className="h-full flex flex-col">
         <div className="flex-1 overflow-hidden min-h-0">
-          {mobileTab === 'chat' && <SimpleMode daemon={daemon} />}
+          {mobileTab === 'chat' && <SimpleMode daemon={daemon} filePaths={flattenedPaths} />}
           {mobileTab === 'files' && (
             <div className="h-full bg-bg-surface">
               <FileTree tree={fileTree} changedPaths={changedPaths} onSelect={(node) => { openFile(node); setMobileTab('editor'); }} selectedPath={activeFile?.path} />
@@ -266,7 +306,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
               </div>
               <div className="flex-1 min-h-0">
                 <Editor
-                  theme="vs-dark"
+                  theme="soupz-dynamic"
                   language={lang}
                   value={fileContents[activeFile.path] || ''}
                   onChange={handleEditorChange}
@@ -320,11 +360,11 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
         {/* Bottom tab bar */}
         <div className="h-12 bg-bg-surface border-t border-border-subtle flex items-center justify-around shrink-0 px-1">
           {[
-            { id: 'chat', Icon: Terminal, label: 'Chat' },
+            { id: 'chat', Icon: MessageSquare, label: 'Chat' },
             { id: 'files', Icon: Files, label: 'Files' },
             { id: 'editor', Icon: Code2, label: 'Editor' },
             { id: 'git', Icon: GitBranch, label: 'Git' },
-            { id: 'terminal', Icon: TerminalIcon, label: 'Term' },
+            { id: 'terminal', Icon: Terminal, label: 'Term' },
             { id: 'settings', Icon: Settings, label: 'More' },
           ].map(({ id, Icon, label }) => (
             <button
@@ -518,7 +558,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
       )}
 
       {/* Editor area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Top bar */}
         <div className="flex items-center gap-2 px-3 h-9 border-b border-border-subtle bg-bg-surface shrink-0">
           {/* Sidebar toggle */}
@@ -570,6 +610,19 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             title={splitMode ? 'Close split editor' : 'Split editor right'}
           >
             <Columns size={15} />
+          </button>
+
+          {/* Run Active File */}
+          <button
+            onClick={handleRunActiveFile}
+            disabled={!activeFile || running}
+            className={cn(
+              'text-text-faint hover:text-text-sec transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+              runToast?.status === 'error' && 'text-danger'
+            )}
+            title={activeFile ? `Run ${activeFile.name}` : 'Open a file to run'}
+          >
+            <Play size={15} />
           </button>
 
           {/* Terminal toggle */}
@@ -638,7 +691,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                   path={activeFile.path}
                   value={String(fileContents[activeFile.path] || '')}
                   language={getLang(activeFile.name)}
-                  theme="soupz-dark"
+                  theme="soupz-dynamic"
                   onChange={(value) => {
                     setFileContents(prev => ({ ...prev, [activeFile.path]: value }));
                   }}
@@ -680,7 +733,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                     path={activeFileRight.path + '_right'} // Unique path to prevent model clash if same file
                     value={String(fileContents[activeFileRight.path] || '')}
                     language={getLang(activeFileRight.name)}
-                    theme="soupz-dark"
+                    theme="soupz-dynamic"
                     onChange={(value) => {
                       setFileContents(prev => ({ ...prev, [activeFileRight.path]: value }));
                       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -761,7 +814,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             onResize={(delta) => setChatWidth(prev => Math.max(260, Math.min(600, prev - delta)))}
           />
           <div style={{ width: chatWidth }} className="border-l border-border-subtle flex flex-col shrink-0 min-h-0">
-            <SimpleMode daemon={daemon} compact={chatWidth < 360} />
+            <SimpleMode daemon={daemon} compact={chatWidth < 360} filePaths={flattenedPaths} />
           </div>
         </>
       )}
@@ -919,8 +972,21 @@ function AgentsSettings() {
                 onChange={e => setTemperature(agent.id, parseFloat(e.target.value))}
                 className="w-full h-1 bg-bg-elevated rounded appearance-none cursor-pointer accent-accent"
               />
-            </div>
+        </div>
+
+        {runToast && (
+          <div
+            className={cn(
+              'absolute bottom-6 right-6 px-3 py-2 rounded border text-xs font-ui shadow-soft bg-bg-surface flex items-center gap-2',
+              runToast.status === 'error' && 'border-danger/40 text-danger',
+              runToast.status === 'done' && 'border-success/40 text-success',
+              runToast.status === 'running' && 'border-accent/40 text-accent'
+            )}
+          >
+            {runToast.message}
           </div>
+        )}
+      </div>
         );
       })}
     </div>

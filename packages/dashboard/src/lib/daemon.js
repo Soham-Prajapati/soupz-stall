@@ -7,11 +7,11 @@ import { supabase } from './supabase.js';
 
 const DEFAULT_DAEMON_URL = import.meta.env.VITE_DAEMON_URL || 'http://localhost:7533';
 
-function getDaemonUrl() {
+export function getDaemonUrl() {
   return localStorage.getItem('soupz_daemon_url') || DEFAULT_DAEMON_URL;
 }
 
-function getDaemonWsUrl() {
+export function getDaemonWsUrl() {
   return getDaemonUrl().replace(/^http/, 'ws');
 }
 
@@ -185,13 +185,30 @@ export async function initProject({ name, path, supabase, github }) {
  */
 export async function checkAgentAvailability() {
   try {
-    const res = await fetch(`${getDaemonUrl()}/api/agents`, {
+    const res = await fetch(`${getDaemonUrl()}/api/agents?detailed=true`, {
       signal: AbortSignal.timeout(2000),
     });
-    if (!res.ok) return {};
-    return await res.json();
+    if (!res.ok) return { simple: {} };
+    const data = await res.json();
+    if (data?.agents) {
+      const simple = {};
+      for (const [id, details] of Object.entries(data.agents)) {
+        simple[id] = !!details.ready;
+      }
+      return {
+        simple,
+        detailed: data.agents,
+        available: data.available || Object.keys(simple).filter(key => simple[key]),
+      };
+    }
+    const fallback = data || {};
+    return {
+      simple: fallback,
+      detailed: null,
+      available: Object.keys(fallback).filter(key => fallback[key]),
+    };
   } catch {
-    return {};
+    return { simple: {} };
   }
 }
 

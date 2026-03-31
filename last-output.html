@@ -69,9 +69,19 @@ pre{background:#1a1a1a;padding:15px;border-radius:8px;
     A1 · Fix getLocalIPs Bug · 18:46
   </button>
   <button id="tab-0226" 
-    class="tab done active" 
+    class="tab done" 
     onclick="showTab('0226')">
     A1 · Branding + Core UI hardening · 02:26
+  </button>
+  <button id="tab-0521" 
+    class="tab done" 
+    onclick="showTab('0521')">
+    A1 · Mobile UX + provider polish · 05:21
+  </button>
+  <button id="tab-1456" 
+    class="tab done active" 
+    onclick="showTab('1456')">
+    A1 · Remote preview + git polish · 14:56
   </button>
   <!-- TAB BUTTONS GO HERE -->
 </div>
@@ -295,7 +305,7 @@ packages/dashboard/src/App.jsx</pre>
     <pre>NONE</pre>
   </div>
 </div>
-<div id="panel-0226" class="panel active">
+<div id="panel-0226" class="panel">
   <p class="ts">Tuesday March 31 2026 02:26 AM IST</p>
   <div class="section">
     <h2>Branding shortlist + mobile/core UI hardening</h2>
@@ -341,6 +351,107 @@ last-output.html</pre>
     <pre>NONE (Codex/Gemini manual run deferred until fresh credentials are available.)</pre>
   </div>
 </div>
+
+<div id="panel-0521" class="panel active">
+  <p class="ts">Tuesday March 31 2026 05:21 AM IST</p>
+  <div class="section">
+    <h2>Mobile UX + provider polish</h2>
+    <p class="status-done">Status: done</p>
+  </div>
+  <div class="meta">
+    <div class="meta-item">
+      <div class="meta-label">Files Changed</div>
+      <div class="meta-value">15</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-label">Duration</div>
+      <div class="meta-value">3h</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-label">Agent</div>
+      <div class="meta-value">A1</div>
+    </div>
+  </div>
+  <div class="section">
+    <h2>Files Modified</h2>
+    <pre>AUDIT_AND_USP.md
+TODO_TERMINALS.md
+last-output.html
+packages/dashboard/src/App.jsx
+packages/dashboard/src/components/simple/SimpleMode.jsx
+packages/dashboard/src/components/git/GitPanel.jsx
+packages/dashboard/src/components/filetree/FileTree.jsx
+packages/dashboard/src/components/pro/ProMode.jsx
+packages/dashboard/src/components/pro/TerminalPanel.jsx
+packages/dashboard/src/components/pro/AgentDashboard.jsx
+packages/dashboard/src/components/builder/BuilderMode.jsx
+packages/dashboard/src/components/shared/StatusBar.jsx
+packages/dashboard/src/lib/daemon.js
+packages/dashboard/src/lib/tree.js
+docs/CORE_DEMO_SCRIPT.md</pre>
+  </div>
+  <div class="section">
+    <h2>Full Raw Output</h2>
+    <pre>- Tightened SimpleMode for phones: dropdowns respect stacking, build-mode pills stay legible, and you can drag files from the explorer (or type @path) to reference files directly in prompts.
+- Git panel now mirrors VS Code diff tabs with per-file pills, real syntax highlighting, and streaming commit-message generation.
+- Terminal panel gained multiple tabs plus a dedicated mobile tab; builder/live preview data now surfaces via the status bar.
+- /core auto-detects installed CLIs (with detail on missing Copilot/Codex), run buttons hit /api/exec, and dev server links are one click away.
+- Added docs/CORE_DEMO_SCRIPT.md so the 5-minute demo has a repeatable script.
+- Tests: npm run test.</pre>
+  </div>
+  <div class="section">
+    <h2>Errors</h2>
+    <pre>NONE</pre>
+  </div>
+</div>
+
+
+<div id="panel-1456" class="panel active">
+  <p class="ts">Tuesday March 31 2026 02:56 PM IST</p>
+  <div class="section">
+    <h2>Remote preview + git polish</h2>
+    <p class="status-done">Status: done</p>
+  </div>
+  <div class="meta">
+    <div class="meta-item">
+      <div class="meta-label">Files Changed</div>
+      <div class="meta-value">10</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-label">Duration</div>
+      <div class="meta-value">2h</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-label">Agent</div>
+      <div class="meta-value">A1</div>
+    </div>
+  </div>
+  <div class="section">
+    <h2>Files Modified</h2>
+    <pre>TODO_TERMINALS.md
+AUDIT_AND_USP.md
+docs/CORE_DEMO_SCRIPT.md
+last-output.html
+packages/dashboard/src/components/git/GitPanel.jsx
+packages/dashboard/src/components/pro/TerminalPanel.jsx
+packages/dashboard/src/components/pro/ProMode.jsx
+packages/dashboard/src/components/simple/SimpleMode.jsx
+packages/dashboard/src/components/shared/PreviewPanel.jsx
+packages/dashboard/src/components/filetree/FileTree.jsx</pre>
+  </div>
+  <div class="section">
+    <h2>Full Raw Output</h2>
+    <pre>- Git panel now mirrors VS Code: per-file diff navigator, status badges, and the AI commit generator streams through daemon.sendPrompt instead of silently failing.
+- Terminal tabs are finally manageable: per-tab kill buttons, a mobile header, and xterm picks up whatever theme is active.
+- SimpleMode gains a persistent preview column that auto-detects dev servers (or reuses the newest HTML block) so mobile orchestration has real visuals.
+- Monaco + file tree colors stay in sync with the active theme, and docs/TODO log the new remote-run + preview parity work.</pre>
+  </div>
+  <div class="section">
+    <h2>Errors</h2>
+    <pre>NONE</pre>
+  </div>
+</div>
+
 <!-- PANELS GO HERE -->
 <script>
 function showTab(id){

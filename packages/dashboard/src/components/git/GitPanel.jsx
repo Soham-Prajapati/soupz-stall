@@ -1,10 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   GitBranch, Plus, Minus, Check, Upload, RefreshCw, ChevronDown, ChevronRight,
   Sparkles, Loader2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { fetchBranches, checkoutBranch } from '../../lib/daemon';
+
+const STATUS_META = {
+  M: { label: 'MOD', className: 'border-warning/40 text-warning bg-warning/10' },
+  D: { label: 'DEL', className: 'border-danger/40 text-danger bg-danger/10' },
+  A: { label: 'ADD', className: 'border-success/40 text-success bg-success/10' },
+  U: { label: 'NEW', className: 'border-success/40 text-success bg-success/10' },
+  '?': { label: 'NEW', className: 'border-success/40 text-success bg-success/10' },
+};
 
 export default function GitPanel({ daemon }) {
   const [status, setStatus]     = useState(null);
@@ -17,7 +25,45 @@ export default function GitPanel({ daemon }) {
   const [branches, setBranches] = useState([]);
   const [generatingMsg, setGeneratingMsg] = useState(false);
   const [branchDropdown, setBranchDropdown] = useState(false);
+  const [commitError, setCommitError] = useState('');
   const repoRoot = daemon?.rootPath || daemon?.getRootPath?.() || '';
+  const diffSections = useMemo(() => parseDiffSections(diff), [diff]);
+  const [activeDiffId, setActiveDiffId] = useState(null);
+  useEffect(() => {
+    if (diffSections.length > 0) {
+      setActiveDiffId(diffSections[0].id);
+    } else {
+      setActiveDiffId(null);
+    }
+  }, [diffSections]);
+  const fileStatusMap = useMemo(() => {
+    const map = new Map();
+    const collect = (list = []) => {
+      list.forEach(item => {
+        if (!item?.path) return;
+        map.set(item.path, item.type || item.status || 'M');
+      });
+    };
+    if (status?.staged) collect(status.staged);
+    if (status?.unstaged) collect(status.unstaged);
+    if (Array.isArray(status?.files)) collect(status.files);
+    return map;
+  }, [status]);
+
+  const diffFiles = useMemo(() => {
+    if (!diffSections.length) return [];
+    return diffSections.map(section => {
+      const cleanPath = section.file?.replace(/^a\//, '').replace(/^b\//, '') || section.file;
+      const statusCode = fileStatusMap.get(cleanPath) || fileStatusMap.get(section.file) || null;
+      return {
+        ...section,
+        file: cleanPath,
+        status: statusCode,
+      };
+    });
+  }, [diffSections, fileStatusMap]);
+
+  const activeDiff = diffFiles.find((sec) => sec.id === activeDiffId) || diffFiles[0];
 
   useEffect(() => {
     refresh();
@@ -67,6 +113,7 @@ export default function GitPanel({ daemon }) {
   async function commit() {
     if (!message.trim()) return;
     setLoading(true);
+    setCommitError('');
     try {
       // Append Soupz co-author tag (like Claude Code / Copilot do)
       const coAuthor = '\n\nCo-Authored-By: Soupz <agent@soupz.vercel.app>';
@@ -82,27 +129,40 @@ export default function GitPanel({ daemon }) {
 
   async function generateCommitMessage() {
     if (generatingMsg) return;
+    if (!daemon?.sendPrompt) {
+      setCommitError('Daemon is offline — cannot contact agents.');
+      return;
+    }
     setGeneratingMsg(true);
+    setCommitError('');
     try {
       // Get diff for context
-      const diff = await daemon?.gitDiff?.() || {};
-      const status = await daemon?.gitStatus?.() || {};
+      const diffResult = await daemon?.gitDiff?.() || {};
+      const statusResult = await daemon?.gitStatus?.() || {};
 
-      const diffText = diff.diff || diff.content || '';
-      const changedFiles = status.files?.map(f => f.path || f).join(', ') || '';
+      const diffText = diffResult.diff || diffResult.content || '';
+      const changedFiles = (statusResult.files || [])
+        .map(f => f.path || f)
+        .filter(Boolean)
+        .join(', ');
 
       const prompt = `Generate a concise git commit message (imperative mood, max 72 chars for subject line) for these changes:\n\nChanged files: ${changedFiles}\n\nDiff:\n${diffText.slice(0, 3000)}\n\nRespond with ONLY the commit message. No quotes, no explanation. Format: subject line, then optional blank line + bullet body.`;
 
       let result = '';
-      if (daemon?.sendPrompt) {
-        await daemon.sendPrompt({ prompt, agentId: 'auto', buildMode: 'quick' }, (chunk, done) => {
-          result += chunk;
-          if (!done) setMessage(result.trim());
-        });
+      const orderId = await daemon.sendPrompt({ prompt, agentId: 'auto', buildMode: 'quick' }, (chunk, done) => {
+        if (done) {
+          setMessage(prev => (result.trim() || prev || '').trim());
+          return;
+        }
+        result += chunk;
+        setMessage(result.trim());
+      });
+      if (!orderId && !result.trim()) {
+        setCommitError('No response from agent. Try again or pick a different provider.');
       }
-      setMessage(result.trim() || message);
     } catch (err) {
       console.warn('Could not generate commit message:', err);
+      setCommitError(err?.message || 'Failed to contact agent.');
     } finally {
       setGeneratingMsg(false);
     }
@@ -179,7 +239,7 @@ export default function GitPanel({ daemon }) {
         />
 
         {/* Diff viewer */}
-        {diff && (
+        {diffFiles.length > 0 && (
           <div className="border-t border-border-subtle">
             <button
               onClick={() => setExpandDiff(v => !v)}
@@ -189,22 +249,54 @@ export default function GitPanel({ daemon }) {
               <span className="text-xs font-medium">Diff</span>
             </button>
             {expandDiff && (
-              <div className="overflow-x-auto max-h-64 font-mono text-xs">
-                {diff.split('\n').map((line, i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      'px-3 py-0.5 whitespace-pre',
-                      line.startsWith('+') && !line.startsWith('+++') ? 'diff-add' : '',
-                      line.startsWith('-') && !line.startsWith('---') ? 'diff-del' : '',
-                      line.startsWith('@@') ? 'diff-hunk' : '',
-                    )}
-                  >
-                    {line}
-                  </div>
-                ))}
+              <div className="border-t border-border-subtle/60 flex flex-col sm:flex-row">
+                <div className="sm:w-52 border-b sm:border-b-0 sm:border-r border-border-subtle/60 bg-bg-base/50 max-h-48 sm:max-h-64 overflow-y-auto">
+                  {diffFiles.map(section => (
+                    <button
+                      key={section.id}
+                      onClick={() => setActiveDiffId(section.id)}
+                      className={cn(
+                        'w-full flex items-center gap-2 px-3 py-2 text-[11px] text-left border-l-2 transition-colors',
+                        section.id === activeDiff?.id
+                          ? 'border-accent bg-accent/5 text-text-pri'
+                          : 'border-transparent text-text-sec hover:text-text-pri'
+                      )}
+                    >
+                      <span className="flex-1 truncate font-mono">{section.file}</span>
+                      {section.status && (
+                        <span className={cn(
+                          'text-[9px] font-mono px-1.5 py-0.5 rounded border shrink-0',
+                          STATUS_META[section.status]?.className || 'border-border-subtle text-text-faint'
+                        )}>
+                          {STATUS_META[section.status]?.label || section.status}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex-1 overflow-auto max-h-72 sm:max-h-80 font-mono text-xs">
+                  {(activeDiff?.lines || diff.split('\n')).map((line, i) => (
+                    <div
+                      key={`${activeDiff?.id || 'diff'}-${i}`}
+                      className={cn(
+                        'px-3 py-0.5 whitespace-pre flex gap-3 min-h-[18px]',
+                        line.startsWith('+') && !line.startsWith('+++') ? 'diff-add' : '',
+                        line.startsWith('-') && !line.startsWith('---') ? 'diff-del' : '',
+                        line.startsWith('@@') ? 'diff-hunk' : '',
+                      )}
+                    >
+                      <span className="w-10 text-right text-text-faint/70 select-none">{i + 1}</span>
+                      <span className="flex-1">{line || ' '}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
+          </div>
+        )}
+        {diffFiles.length === 0 && (
+          <div className="border-t border-border-subtle px-4 py-6 text-center">
+            <p className="text-[11px] text-text-faint font-ui">Working tree clean — no diff to show.</p>
           </div>
         )}
       </div>
@@ -215,7 +307,7 @@ export default function GitPanel({ daemon }) {
           <span className="text-xs font-medium text-text-faint">Commit message</span>
           <button
             onClick={generateCommitMessage}
-            disabled={generatingMsg || !hasChanges}
+            disabled={generatingMsg || !hasChanges || !daemon?.sendPrompt}
             title="Generate commit message with AI"
             className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-ui text-text-faint hover:text-accent hover:bg-accent/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
@@ -255,6 +347,9 @@ export default function GitPanel({ daemon }) {
             Push
           </button>
         </div>
+        {commitError && (
+          <p className="text-[11px] text-danger font-ui">{commitError}</p>
+        )}
       </div>
     </div>
   );
@@ -303,4 +398,26 @@ function FileSection({ label, files, icon, onStageAll, emptyLabel }) {
       )}
     </div>
   );
+}
+
+function parseDiffSections(raw) {
+  if (!raw) return [];
+  const lines = raw.split('\n');
+  const sections = [];
+  let current = null;
+  lines.forEach((line) => {
+    if (line.startsWith('diff --git')) {
+      if (current) sections.push(current);
+      const match = line.match(/ b\/(.+)$/);
+      const file = match ? match[1] : line;
+      current = { id: `${sections.length}-${file}`, file, lines: [] };
+    } else if (current) {
+      current.lines.push(line);
+    }
+  });
+  if (current) sections.push(current);
+  if (sections.length === 0) {
+    return [{ id: 'combined', file: 'Changes', lines }];
+  }
+  return sections;
 }

@@ -78,7 +78,9 @@ export default function StatusBar({
   // Check which CLI agents are installed and fetch git branch
   useEffect(() => {
     if (workspaceOnline && daemon) {
-      checkAgentAvailability().then(a => setAvailability(a || {}));
+      checkAgentAvailability().then(info => {
+        setAvailability(info?.detailed || info?.simple || {});
+      });
       // Fetch current git branch
       fetchBranches(rootPath).then(data => {
         if (data?.current) setGitBranch(data.current);

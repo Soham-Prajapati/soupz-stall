@@ -456,6 +456,16 @@ All agents are done modifying index.js. NOW it's safe to split:
 - Document gaps (CLI detection, routing) and add failsafes so core mode never blocks due to provider mix.
 - Update TODO + AUDIT with any follow-ups discovered during the run.
 
+### [x] T1-22: Mobile UX + file references
+- Fix SimpleMode header overflow, agent dropdown stacking, and add agent filter gating so narrow layouts stop overlapping.
+- Add drag-and-drop from the explorer into chat plus `@file` typeahead so prompts can reference files quickly (and reflect folder status colors).
+- Wire Monaco + terminal themes to current palette so theme switches no longer leave the editor in dark-default.
+
+### [x] T1-23: Remote run & live preview parity
+- Git view mirrors VS Code now (per-file diff rail, badges, and streaming commit-message generation that actually pipes through `daemon.sendPrompt`).
+- SimpleMode ships a toggleable preview column that auto-detects the local dev server (via `/api/dev-server`) and falls back to the last HTML block if no server is alive.
+- Monaco + xterm themes respect the active palette (no more light editor in dark theme), and the terminal panel finally lets you kill/close tabs from desktop or the dedicated mobile tab.
+
 ---
 
 ## TERMINAL 2 (BATCH 4): New Features

@@ -167,6 +167,30 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
     setAttachedImages(prev => prev.filter(img => img.id !== id));
   };
 
+  const insertMention = (path) => {
+    if (!path) return;
+    const textarea = textareaRef.current;
+    const range = mentionRangeRef.current;
+    const start = range ? range.start : (textarea?.selectionStart ?? input.length);
+    const end = range ? range.end : (textarea?.selectionEnd ?? input.length);
+    const before = input.slice(0, start);
+    const after = input.slice(end);
+    const insertion = `@${path} `;
+    const nextValue = `${before}${insertion}${after}`;
+    setInput(nextValue);
+    setMentionOpen(false);
+    setMentionMatches([]);
+    setMentionIndex(0);
+    mentionRangeRef.current = null;
+    setTimeout(() => {
+      if (textarea) {
+        const cursor = before.length + insertion.length;
+        textarea.focus();
+        textarea.setSelectionRange(cursor, cursor);
+      }
+    }, 0);
+  };
+
   // Initialize and manage speech recognition
   useEffect(() => {
     if (!speechSupport) return;
@@ -198,11 +222,11 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
 
     recognition.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
-      if (['not-allowed', 'service-not-allowed', 'network'].includes(event.error)) {
+      if (event.error === 'network') {
+        setSpeechError('Speech recognition unavailable (network)');
+      } else if (['not-allowed', 'service-not-allowed'].includes(event.error)) {
         setSpeechSupport(false);
-        setSpeechError(event.error === 'network'
-          ? 'Speech recognition unavailable (network)'
-          : 'Microphone access denied');
+        setSpeechError('Microphone access denied');
       } else {
         setSpeechError(`Speech recognition error: ${event.error}`);
       }
@@ -238,6 +262,86 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
     }
   };
 
+  const handleSpeechRetry = () => {
+    setSpeechError(null);
+    if (!speechSupport && (window.webkitSpeechRecognition || window.SpeechRecognition)) {
+      setSpeechSupport(true);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    if (e.dataTransfer?.types?.includes('text/plain')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleDrop = (e) => {
+    const payload = e.dataTransfer?.getData('application/x-soupz-path') || e.dataTransfer?.getData('text/plain');
+    if (payload) {
+      e.preventDefault();
+      insertMention(payload.trim());
+    }
+  };
+
+  const derivedHtmlPreview = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (msg.role !== 'ai' || !msg.content) continue;
+      const block = msg.content.match(/```html\n([\s\S]*?)```/i);
+      if (block && block[1]) return block[1].trim();
+      if (msg.content.includes('<html') || msg.content.includes('<body')) {
+        return msg.content;
+      }
+    }
+    return null;
+  }, [messages]);
+
+  const previewHelperText = useMemo(() => {
+    if (previewStatus === 'loading') return 'Checking the daemon for a running dev server...';
+    if (previewStatus === 'ready' && previewUrl) return `Live preview → ${previewUrl}`;
+    if (previewStatus === 'html' && derivedHtmlPreview) return 'Rendering the last HTML block from the agent output.';
+    if (previewStatus === 'empty') return 'No preview yet. Ask an agent to build UI or start `npm run dev` locally.';
+    if (previewStatus === 'error') return 'Unable to reach the dev server. Ensure it is running and paired.';
+    return '';
+  }, [previewStatus, previewUrl, derivedHtmlPreview]);
+
+  const evaluatePreview = useCallback(async () => {
+    try {
+      const result = await getDevServerUrl();
+      if (result?.url) {
+        return { status: 'ready', url: result.url };
+      }
+      if (derivedHtmlPreview) {
+        return { status: 'html', url: null };
+      }
+      return { status: 'empty', url: null };
+    } catch (err) {
+      console.warn('Preview check failed:', err);
+      return { status: derivedHtmlPreview ? 'html' : 'error', url: null };
+    }
+  }, [derivedHtmlPreview]);
+
+  const refreshPreview = useCallback(async () => {
+    setPreviewStatus('loading');
+    const next = await evaluatePreview();
+    setPreviewUrl(next.url);
+    setPreviewStatus(next.status);
+  }, [evaluatePreview]);
+
+  useEffect(() => {
+    if (!previewOpen) return undefined;
+    let ignore = false;
+    (async () => {
+      setPreviewStatus('loading');
+      const next = await evaluatePreview();
+      if (ignore) return;
+      setPreviewUrl(next.url);
+      setPreviewStatus(next.status);
+    })();
+    return () => { ignore = true; };
+  }, [previewOpen, messages.length, evaluatePreview]);
+
   const filteredCLIAgents = useMemo(() => {
     return CLI_AGENTS.filter(a => enabledAgents.includes(a.id));
   }, [enabledAgents]);
@@ -252,6 +356,8 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
 
   const [slashCommandOpen, setSlashCommandOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewStatus, setPreviewStatus] = useState('idle');
   const [filteredCommands, setFilteredCommands] = useState(allCommands);
   const [slashIndex, setSlashIndex] = useState(0);
   const bottomRef = useRef(null);
@@ -272,6 +378,29 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
       setSlashCommandOpen(false);
     }
   }, [input, allCommands]);
+
+  useEffect(() => {
+    if (!textareaRef.current) return;
+    const cursor = textareaRef.current.selectionStart;
+    const beforeCursor = input.slice(0, cursor);
+    const mentionMatch = beforeCursor.match(/@([^\s@]*)$/);
+    if (mentionMatch && normalizedFilePaths.length > 0) {
+      const query = mentionMatch[1].toLowerCase();
+      const matches = normalizedFilePaths
+        .filter(path => path.toLowerCase().includes(query))
+        .slice(0, 8);
+      if (matches.length > 0) {
+        mentionRangeRef.current = { start: mentionMatch.index, end: cursor };
+        setMentionMatches(matches);
+        setMentionIndex(0);
+        setMentionOpen(true);
+        return;
+      }
+    }
+    mentionRangeRef.current = null;
+    setMentionMatches([]);
+    setMentionOpen(false);
+  }, [input, normalizedFilePaths, cursorVersion]);
 
   async function handleCommandSelect(cmd) {
     if (cmd.type === 'skill') {
@@ -295,7 +424,8 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
     if (agentId === 'auto') {
       try {
         const avail = await checkAgentAvailability();
-        const { cliAgent, fallbackReason } = await getAutoSelection(text, avail, true);
+        const availMap = avail?.simple || avail;
+        const { cliAgent, fallbackReason } = await getAutoSelection(text, availMap, true);
         effectiveAgentId = cliAgent;
         autoLabel = `Auto → ${getAgentById(cliAgent)?.name || cliAgent}${fallbackReason ? ` (${fallbackReason})` : ''}`;
       } catch {
@@ -309,7 +439,7 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
     if (teamTrigger && teamTrigger.confidence > 0 && daemon?.sendPrompt) {
       try {
         const avail = await checkAgentAvailability();
-        const plan = createTeamPlan(teamTrigger.teamId, text, avail);
+        const plan = createTeamPlan(teamTrigger.teamId, text, avail?.simple || avail);
         if (plan) {
           setTeamCustomInstructions({});
           setExpandedInstructions({});
@@ -440,9 +570,13 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
   const AgentIcon = getIcon(agentId);
 
   return (
-    <div className="flex flex-col h-full bg-bg-surface overflow-hidden relative">
+    <div
+      className="flex flex-col h-full bg-bg-surface overflow-hidden relative"
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       {/* Header */}
-      <div className="h-10 px-2 sm:px-4 border-b border-border-subtle flex items-center justify-between shrink-0 bg-bg-surface z-20">
+      <div className="h-10 px-2 sm:px-4 border-b border-border-subtle flex flex-wrap items-center justify-between gap-2 shrink-0 bg-bg-surface z-20">
         <div className="flex items-center gap-1 sm:gap-2 min-w-0">
           {/* Agent Selector */}
           <div className="relative min-w-0">
@@ -453,50 +587,50 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
             </button>
             {agentOpen && (
               <>
-                <div className="fixed inset-0 z-30" onClick={() => setAgentOpen(false)} />
-                <div className="absolute left-0 top-full mt-1 z-40 bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden min-w-[200px] animate-fade-in">
-                  {/* Filter Section */}
-                  <div className="border-b border-border-subtle bg-bg-elevated/50">
-                    <p className="px-3 py-1.5 text-[9px] font-bold text-text-faint uppercase tracking-widest">Filter Agents</p>
-                    <div className="px-3 pb-2 space-y-1">
-                      {CLI_AGENTS.map(a => (
-                        <label
-                          key={a.id}
-                          className="flex items-center gap-2 cursor-pointer hover:bg-text-pri/5 rounded px-1 py-0.5 transition-colors"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div
-                            className={cn(
-                              "w-3 h-3 rounded border flex items-center justify-center transition-all cursor-pointer",
-                              enabledAgents.includes(a.id)
-                                ? "bg-accent border-accent"
-                                : "border-border-subtle bg-bg-base"
-                            )}
-                            onClick={() => toggleAgent(a.id)}
+                <div className="fixed inset-0 z-[60]" onClick={() => setAgentOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 z-[70] bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden min-w-[220px] animate-fade-in">
+                  {agentId === 'auto' && (
+                    <div className="border-b border-border-subtle bg-bg-elevated/50">
+                      <p className="px-3 py-1.5 text-[9px] font-bold text-text-faint uppercase tracking-widest">Filter Agents</p>
+                      <div className="px-3 pb-2 space-y-1">
+                        {CLI_AGENTS.map(a => (
+                          <label
+                            key={a.id}
+                            className="flex items-center gap-2 cursor-pointer hover:bg-text-pri/5 rounded px-1 py-0.5 transition-colors"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            {enabledAgents.includes(a.id) && <Check size={10} className="text-bg-base" />}
-                          </div>
-                          <a.icon size={11} style={{ color: a.color }} />
-                          <span className="text-[11px] text-text-sec">{a.name}</span>
-                        </label>
-                      ))}
-                      <div className="flex gap-1 pt-1">
-                        <button
-                          onClick={() => toggleAllAgents(true)}
-                          className="flex-1 text-[9px] text-accent hover:text-accent-hover px-1 py-0.5 rounded hover:bg-accent/10 transition-colors"
-                        >
-                          All
-                        </button>
-                        <button
-                          onClick={() => toggleAllAgents(false)}
-                          className="flex-1 text-[9px] text-text-faint hover:text-text-pri px-1 py-0.5 rounded hover:bg-text-pri/5 transition-colors"
-                        >
-                          None
-                        </button>
+                            <div
+                              className={cn(
+                                "w-3 h-3 rounded border flex items-center justify-center transition-all cursor-pointer",
+                                enabledAgents.includes(a.id)
+                                  ? "bg-accent border-accent"
+                                  : "border-border-subtle bg-bg-base"
+                              )}
+                              onClick={() => toggleAgent(a.id)}
+                            >
+                              {enabledAgents.includes(a.id) && <Check size={10} className="text-bg-base" />}
+                            </div>
+                            <a.icon size={11} style={{ color: a.color }} />
+                            <span className="text-[11px] text-text-sec">{a.name}</span>
+                          </label>
+                        ))}
+                        <div className="flex gap-1 pt-1">
+                          <button
+                            onClick={() => toggleAllAgents(true)}
+                            className="flex-1 text-[9px] text-accent hover:text-accent-hover px-1 py-0.5 rounded hover:bg-accent/10 transition-colors"
+                          >
+                            All
+                          </button>
+                          <button
+                            onClick={() => toggleAllAgents(false)}
+                            className="flex-1 text-[9px] text-text-faint hover:text-text-pri px-1 py-0.5 rounded hover:bg-text-pri/5 transition-colors"
+                          >
+                            None
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  {/* Agent Selection */}
+                  )}
                   <div className="py-1">
                     <p className="px-3 py-1 text-[9px] font-bold text-text-faint uppercase tracking-widest">Select Agent</p>
                     <button
@@ -526,14 +660,14 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
 
           {/* Build Mode Selector */}
           <div className="relative">
-            <button onClick={() => setModeOpen(!modeOpen)} className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors">
+            <button onClick={() => setModeOpen(!modeOpen)} className="flex items-center justify-between gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors min-w-[90px]">
               <span className="text-[10px] sm:text-[11px] font-medium text-text-sec uppercase tracking-wider">{buildMode}<span className="hidden sm:inline"> Build</span></span>
               <ChevronDown size={12} className={cn("text-text-faint transition-transform shrink-0", modeOpen && "rotate-180")} />
             </button>
             {modeOpen && (
               <>
-                <div className="fixed inset-0 z-30" onClick={() => setModeOpen(false)} />
-                <div className="absolute left-0 top-full mt-1 z-40 bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[140px] animate-fade-in">
+                <div className="fixed inset-0 z-[60]" onClick={() => setModeOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 z-[70] bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[160px] animate-fade-in">
                   {BUILD_MODES.map(m => (
                     <button
                       key={m.id}
@@ -600,39 +734,53 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
         </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
-        {messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
-            <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center border border-accent/20">
-              <AgentIcon size={24} style={{ color: currentAgent.color }} />
+      {/* Messages + Preview */}
+      <div className={cn('flex-1 min-h-0 flex flex-col', previewOpen ? 'lg:flex-row lg:gap-3' : '')}>
+        <div className={cn('flex-1 min-h-0 overflow-y-auto custom-scrollbar', previewOpen ? 'lg:pr-2' : '')}>
+          {messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
+              <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center border border-accent/20">
+                <AgentIcon size={24} style={{ color: currentAgent.color }} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-text-pri uppercase tracking-widest">What would you like to build?</h3>
+                <p className="text-xs text-text-faint mt-1 max-w-xs mx-auto">Describe your task and the agent will help you execute it.</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-text-pri uppercase tracking-widest">What would you like to build?</h3>
-              <p className="text-xs text-text-faint mt-1 max-w-xs mx-auto">Describe your task and the agent will help you execute it.</p>
-            </div>
-          </div>
-        ) : (
-          messages.map(msg => (
-            <Message
-              key={msg.id}
-              msg={msg}
-              getIcon={getIcon}
-              onCopy={() => navigator.clipboard.writeText(msg.content)}
-              onSpeak={() => {
-                if (speakingMsgId === msg.id && speaking) {
-                  stop();
-                  setSpeakingMsgId(null);
-                } else {
-                  setSpeakingMsgId(msg.id);
-                  speak(msg.content);
-                }
-              }}
-              isSpeaking={speakingMsgId === msg.id && speaking}
+          ) : (
+            messages.map(msg => (
+              <Message
+                key={msg.id}
+                msg={msg}
+                getIcon={getIcon}
+                onCopy={() => navigator.clipboard.writeText(msg.content)}
+                onSpeak={() => {
+                  if (speakingMsgId === msg.id && speaking) {
+                    stop();
+                    setSpeakingMsgId(null);
+                  } else {
+                    setSpeakingMsgId(msg.id);
+                    speak(msg.content);
+                  }
+                }}
+                isSpeaking={speakingMsgId === msg.id && speaking}
+              />
+            ))
+          )}
+          <div ref={bottomRef} />
+        </div>
+        {previewOpen && (
+          <div className="mt-3 lg:mt-0 lg:w-[360px] flex flex-col min-h-[240px]">
+            <PreviewPanel
+              previewUrl={previewUrl}
+              previewHtml={derivedHtmlPreview}
+              onRefresh={refreshPreview}
             />
-          ))
+            <p className="text-[10px] text-text-faint mt-2">
+              {previewHelperText || 'Drop HTML or start a dev server to preview work without leaving chat.'}
+            </p>
+          </div>
         )}
-        <div ref={bottomRef} />
       </div>
 
       {/* Team Plan Preview */}
@@ -738,6 +886,30 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
         </div>
       )}
 
+      {mentionOpen && mentionMatches.length > 0 && (
+        <div className="mx-4 mb-2 bg-bg-elevated border border-border-subtle rounded-md shadow-2xl overflow-hidden z-40 animate-fade-up">
+          <div className="px-3 py-1.5 border-b border-border-subtle bg-bg-elevated/50 flex items-center justify-between">
+            <span className="text-[10px] font-bold text-text-faint uppercase tracking-widest">Files</span>
+            <span className="text-[9px] text-text-faint">Type to filter · Enter to insert</span>
+          </div>
+          <div className="max-h-60 overflow-y-auto custom-scrollbar">
+            {mentionMatches.map((path, idx) => (
+              <button
+                key={path}
+                onClick={() => insertMention(path)}
+                onMouseEnter={() => setMentionIndex(idx)}
+                className={cn(
+                  'w-full px-3 py-1.5 text-left text-[11px] font-mono border-l-2 transition-colors',
+                  idx === mentionIndex ? 'bg-accent/10 text-text-pri border-accent' : 'text-text-sec hover:bg-text-pri/5 border-transparent'
+                )}
+              >
+                {path}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Active Skill Indicator */}
       {activeSkill && (
         <div className="mx-4 mb-2 flex items-center gap-2 px-2 py-1 bg-accent/10 border border-accent/20 rounded text-accent text-[11px] font-medium w-fit">
@@ -776,6 +948,12 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
               e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
             }}
             onKeyDown={e => {
+              if (mentionOpen && mentionMatches.length > 0) {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => (i + 1) % mentionMatches.length); return; }
+                if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => (i - 1 + mentionMatches.length) % mentionMatches.length); return; }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); insertMention(mentionMatches[mentionIndex]); return; }
+                if (e.key === 'Escape') { setMentionOpen(false); mentionRangeRef.current = null; return; }
+              }
               if (slashCommandOpen && filteredCommands.length > 0) {
                 if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIndex(i => (i + 1) % filteredCommands.length); }
                 else if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length); }
@@ -790,6 +968,8 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
                 sendMessage();
               }
             }}
+            onKeyUp={() => setCursorVersion(v => v + 1)}
+            onClick={() => setCursorVersion(v => v + 1)}
             onPaste={handlePaste}
             placeholder={compact ? "Ask anything..." : "What would you like to build? (type / for skills)"}
             rows={1}
@@ -829,8 +1009,11 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
               )}
             </div>
           )}
-          {!speechSupport && speechError && (
-            <span className="text-[10px] text-red-400 px-2">{speechError}</span>
+          {speechError && (
+            <div className="text-[10px] text-red-400 px-2 flex items-center gap-1">
+              <span>{speechError}</span>
+              <button onClick={handleSpeechRetry} className="text-accent hover:underline">Retry</button>
+            </div>
           )}
           {isStreaming ? (
             <button onClick={handleStop} className="p-1.5 rounded transition-all text-red-500 hover:text-red-400 hover:bg-red-500/10" title="Stop">

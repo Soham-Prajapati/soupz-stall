@@ -119,7 +119,8 @@ export default function BuilderMode({ daemon }) {
     if (agentId === 'auto') {
       try {
         const avail = await checkAgentAvailability();
-        const { cliAgent, fallbackReason } = await getAutoSelection(text, avail, true);
+        const availMap = avail?.simple || avail;
+        const { cliAgent, fallbackReason } = await getAutoSelection(text, availMap, true);
         effectiveAgentId = cliAgent;
         autoLabel = `Auto → ${getAgentById(cliAgent)?.name || cliAgent}${fallbackReason ? ` (${fallbackReason})` : ''}`;
       } catch {

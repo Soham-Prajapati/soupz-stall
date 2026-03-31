@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Terminal as TerminalIcon, X, ChevronUp, ChevronDown, Trash2, Plus, SplitSquareHorizontal
+  X, ChevronUp, ChevronDown, Trash2, Plus, Eraser
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { Terminal } from 'xterm';
@@ -21,21 +21,34 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
   const fitAddonRef = useRef(null);
   const wsRef = useRef(null);
   const bufferRef = useRef(new Map());
+  const activeTabRef = useRef(null);
+  const terminalIdRef = useRef(null);
+  const [killing, setKilling] = useState(false);
+
+  const isMobileVariant = variant === 'mobile';
+
+  const buildTermTheme = useCallback(() => ({
+    background: themeVars['--bg-surface'] || '#0C0C0F',
+    foreground: themeVars['--text-pri'] || '#E5E7EB',
+    cursor: themeVars['--accent'] || '#6366F1',
+    selectionBackground: `${themeVars['--accent'] || '#6366F1'}33`,
+  }), [themeVars]);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  useEffect(() => {
+    terminalIdRef.current = terminalId;
+  }, [terminalId]);
 
   // Initialize XTerm
   useEffect(() => {
-    const termTheme = {
-      background: themeVars['--bg-surface'] || '#0C0C0F',
-      foreground: themeVars['--text-pri'] || '#E5E7EB',
-      cursor: themeVars['--accent'] || '#6366F1',
-      selectionBackground: `${themeVars['--accent'] || '#6366F1'}33`,
-    };
-
     const term = new Terminal({
       cursorBlinking: true,
-      fontSize: 13,
+      fontSize: isMobileVariant ? 14 : 13,
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      theme: termTheme,
+      theme: buildTermTheme(),
       allowProposedApi: true,
       allowTransparency: true,
     });
@@ -61,7 +74,31 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
     return () => {
       term.dispose();
     };
-  }, [terminalId, themeVars]);
+  }, [buildTermTheme, isMobileVariant]);
+
+  useEffect(() => {
+    if (!xtermRef.current) return;
+    xtermRef.current.setOption('theme', buildTermTheme());
+    xtermRef.current.setOption('fontSize', isMobileVariant ? 14 : 13);
+    xtermRef.current.refresh(0, xtermRef.current.rows - 1);
+  }, [buildTermTheme, isMobileVariant]);
+
+  const subscribeToTerminal = useCallback((id) => {
+    if (!id || wsRef.current?.readyState !== 1) return;
+    wsRef.current.send(JSON.stringify({ type: 'subscribe', terminalId: id }));
+  }, []);
+
+  const activateTab = useCallback((id) => {
+    if (!id) return;
+    setActiveTab(id);
+    setTerminalId(id);
+    if (xtermRef.current) {
+      xtermRef.current.clear();
+      const buffer = bufferRef.current.get(id) || '';
+      if (buffer) xtermRef.current.write(buffer);
+    }
+    subscribeToTerminal(id);
+  }, [subscribeToTerminal]);
 
   // Connect to daemon WS
   useEffect(() => {
@@ -94,11 +131,12 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
           setActiveTab(msg.terminalId);
           bufferRef.current.set(msg.terminalId, '');
           setConnected(true);
+          subscribeToTerminal(msg.terminalId);
         }
 
         if (msg.type === 'history') {
           bufferRef.current.set(msg.terminalId, msg.data || '');
-          if (msg.terminalId === activeTab && xtermRef.current) {
+          if (msg.terminalId === activeTabRef.current && xtermRef.current) {
             xtermRef.current.clear();
             xtermRef.current.write(msg.data || '');
           }
@@ -107,26 +145,29 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
         if (msg.type === 'output') {
           const existing = bufferRef.current.get(msg.terminalId) || '';
           bufferRef.current.set(msg.terminalId, existing + msg.data);
-          if (msg.terminalId === activeTab && xtermRef.current) {
+          if (msg.terminalId === activeTabRef.current && xtermRef.current) {
             xtermRef.current.write(msg.data);
           }
         }
 
         if (msg.type === 'exit') {
           bufferRef.current.set(msg.terminalId, `${bufferRef.current.get(msg.terminalId) || ''}\r\n[Process exited]\r\n`);
-          if (msg.terminalId === activeTab) {
+          if (msg.terminalId === activeTabRef.current) {
             xtermRef.current?.write('\r\n\x1b[31m[Process exited]\x1b[0m\r\n');
           }
-          if (msg.terminalId === terminalId) {
+          if (msg.terminalId === terminalIdRef.current) {
             setConnected(false);
           }
           setTerminalTabs(prev => prev.filter(id => id !== msg.terminalId));
-          if (activeTab === msg.terminalId) {
-            const fallback = bufferRef.current.size > 0 ? Array.from(bufferRef.current.keys())[0] : null;
-            setActiveTab(fallback);
-            setTerminalId(fallback);
-            if (fallback && wsRef.current?.readyState === 1) {
-              wsRef.current.send(JSON.stringify({ type: 'subscribe', terminalId: fallback }));
+          if (activeTabRef.current === msg.terminalId) {
+            const remaining = Array.from(bufferRef.current.keys()).filter(key => key !== msg.terminalId);
+            const fallback = remaining[0] || null;
+            if (fallback) {
+              activateTab(fallback);
+            } else {
+              setActiveTab(null);
+              setTerminalId(null);
+              xtermRef.current?.clear();
             }
           }
         }
@@ -137,7 +178,7 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
     ws.onclose = () => setConnected(false);
 
     return () => ws.close();
-  }, [activeTab]);
+  }, [activateTab, subscribeToTerminal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,8 +194,8 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
         setTerminalId((current) => current || ids[0]);
         if (wsRef.current?.readyState === 1) {
           ids.forEach(id => {
-            bufferRef.current.set(id, '');
-            wsRef.current.send(JSON.stringify({ type: 'subscribe', terminalId: id }));
+            bufferRef.current.set(id, bufferRef.current.get(id) || '');
+            subscribeToTerminal(id);
           });
         }
       } catch {
@@ -162,12 +203,7 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
       }
     })();
     return () => { cancelled = true; };
-  }, [daemon]);
-
-  useEffect(() => {
-    if (!wsRef.current || wsRef.current.readyState !== 1 || !activeTab) return;
-    wsRef.current.send(JSON.stringify({ type: 'subscribe', terminalId: activeTab }));
-  }, [activeTab]);
+  }, [daemon, subscribeToTerminal]);
 
   // Handle Resize
   useEffect(() => {
@@ -207,20 +243,35 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
     setConnected(false);
   }, []);
 
-  const switchTerminal = (id) => {
-    setActiveTab(id);
-    setTerminalId(id);
-    if (xtermRef.current) {
-      xtermRef.current.clear();
-      const buffer = bufferRef.current.get(id) || '';
-      if (buffer) xtermRef.current.write(buffer);
+  const handleKillTab = useCallback(async (id) => {
+    const target = id || activeTabRef.current;
+    if (!target) return;
+    setKilling(true);
+    try {
+      await daemon?.killTerminal?.(target);
+    } catch (err) {
+      console.warn('Failed to kill terminal', err);
+    } finally {
+      setKilling(false);
+      bufferRef.current.delete(target);
+      setTerminalTabs(prev => prev.filter(tabId => tabId !== target));
+      if (activeTabRef.current === target) {
+        const fallback = bufferRef.current.size ? Array.from(bufferRef.current.keys())[0] : null;
+        if (fallback) {
+          activateTab(fallback);
+        } else {
+          setActiveTab(null);
+          setTerminalId(null);
+          xtermRef.current?.clear();
+        }
+      }
     }
-  };
+  }, [activateTab, daemon]);
 
   return (
     <div className="h-full flex flex-col bg-bg-surface border-t border-border-subtle relative">
       {/* Header Tabs */}
-      <div className="h-9 flex items-center px-2 sm:px-4 gap-3 shrink-0 bg-bg-surface border-b border-border-subtle/20">
+      <div className={cn('flex items-center gap-3 shrink-0 bg-bg-surface border-b border-border-subtle/20', isMobileVariant ? 'h-11 px-3' : 'h-9 px-2 sm:px-4')}>
         <div className="flex items-center gap-1 h-full overflow-x-auto">
           {terminalTabs.length === 0 && (
             <span className="text-[11px] text-text-faint">No terminals yet</span>
@@ -228,15 +279,22 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
           {terminalTabs.map(id => (
             <button
               key={id}
-              onClick={() => switchTerminal(id)}
+              onClick={() => activateTab(id)}
               className={cn(
-                'px-2 py-1 rounded text-[11px] font-mono transition-colors border',
+                'px-2 py-1 rounded text-[11px] font-mono transition-colors border relative flex items-center gap-1',
                 activeTab === id
                   ? 'border-accent text-text-pri bg-accent/10'
                   : 'border-transparent text-text-faint hover:text-text-pri hover:border-border-subtle'
               )}
             >
-              {`TTY ${id}`}
+              <span>{`TTY ${id}`}</span>
+              <button
+                className="text-text-faint hover:text-text-pri transition-colors"
+                onClick={(e) => { e.stopPropagation(); handleKillTab(id); }}
+                title="Close terminal"
+              >
+                <X size={10} />
+              </button>
             </button>
           ))}
           <button className="text-text-faint hover:text-text-pri transition-colors mt-0.5" title="New Terminal" onClick={spawnNewTerminal}>
@@ -252,8 +310,16 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
           ) : (
             <span className="text-[10px] font-mono text-text-faint mr-2">connecting...</span>
           )}
-          <button onClick={clearTerminal} className="p-1 text-text-faint hover:text-text-pri hover:bg-text-pri/10 rounded transition-colors" title="Clear Terminal">
-            <Trash2 size={13} />
+          <button
+            onClick={() => handleKillTab()}
+            disabled={!activeTab || killing}
+            className={cn('p-1 rounded transition-colors', killing ? 'text-danger/60' : 'text-text-faint hover:text-danger hover:bg-danger/10', !activeTab && 'opacity-40 cursor-not-allowed')}
+            title="Kill terminal session"
+          >
+            <Trash2 size={13} className={killing ? 'animate-spin' : ''} />
+          </button>
+          <button onClick={clearTerminal} className="p-1 text-text-faint hover:text-text-pri hover:bg-text-pri/10 rounded transition-colors" title="Clear buffer">
+            <Eraser size={13} />
           </button>
           <div className="w-px h-3 bg-border-subtle mx-1" />
           <button onClick={onMaximize} className="p-1 text-text-faint hover:text-text-pri hover:bg-text-pri/10 rounded transition-colors" title={maximized ? "Restore" : "Maximize"}>
@@ -268,7 +334,7 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
       {/* Terminal Viewport */}
       <div 
         ref={terminalRef} 
-        className="flex-1 overflow-hidden px-4 py-2"
+        className={cn('flex-1 overflow-hidden px-4 py-2', isMobileVariant && 'px-2 pb-3')}
         style={{ minHeight: 0, backgroundColor: 'transparent' }}
       />
     </div>
