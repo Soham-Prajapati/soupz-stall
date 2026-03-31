@@ -79,9 +79,19 @@ pre{background:#1a1a1a;padding:15px;border-radius:8px;
     A1 · Mobile UX + provider polish · 05:21
   </button>
   <button id="tab-1456" 
-    class="tab done active" 
+    class="tab done" 
     onclick="showTab('1456')">
     A1 · Remote preview + git polish · 14:56
+  </button>
+  <button id="tab-1518" 
+    class="tab done" 
+    onclick="showTab('1518')">
+    A1 · Remote WS + naming refresh · 15:18
+  </button>
+  <button id="tab-1531" 
+    class="tab done active" 
+    onclick="showTab('1531')">
+    A1 · Pairing UX + TTS safety · 15:31
   </button>
   <!-- TAB BUTTONS GO HERE -->
 </div>
@@ -445,6 +455,89 @@ packages/dashboard/src/components/filetree/FileTree.jsx</pre>
 - Terminal tabs are finally manageable: per-tab kill buttons, a mobile header, and xterm picks up whatever theme is active.
 - SimpleMode gains a persistent preview column that auto-detects dev servers (or reuses the newest HTML block) so mobile orchestration has real visuals.
 - Monaco + file tree colors stay in sync with the active theme, and docs/TODO log the new remote-run + preview parity work.</pre>
+  </div>
+  <div class="section">
+    <h2>Errors</h2>
+    <pre>NONE</pre>
+  </div>
+</div>
+
+
+<div id="panel-1518" class="panel active">
+  <p class="ts">Tuesday March 31 2026 03:18 PM IST</p>
+  <div class="section">
+    <h2>Remote WS + naming refresh</h2>
+    <p class="status-done">Status: done</p>
+  </div>
+  <div class="meta">
+    <div class="meta-item">
+      <div class="meta-label">Files Changed</div>
+      <div class="meta-value">4</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-label">Duration</div>
+      <div class="meta-value">40m</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-label">Agent</div>
+      <div class="meta-value">A1</div>
+    </div>
+  </div>
+  <div class="section">
+    <h2>Files Modified</h2>
+    <pre>docs/NAMING_IDEAS.md
+packages/dashboard/src/components/pro/ProMode.jsx
+packages/dashboard/src/components/pro/TerminalPanel.jsx
+packages/dashboard/vite.config.js</pre>
+  </div>
+  <div class="section">
+    <h2>Full Raw Output</h2>
+    <pre>- Terminal panel now reads the paired daemon URL (instead of hardcoding localhost), so remote sessions on soupz.vercel.app open WebSockets against the right machine and update whenever the pairing changes.
+- ProMode import was missing useMemo; reintroducing it fixed the runtime ReferenceError that crashed the editor tab.
+- Builder/Simple mode hook warnings came from duplicate React copies; Vite config now resolves React/ReactDOM via require.resolve() so the app sees a single dispatcher.
+- Added a "phone-friendly" naming section (Kite, Volt, Luma) to docs/NAMING_IDEAS.md so we have easy spellable candidates alongside the cockpit shortlist.</pre>
+  </div>
+  <div class="section">
+    <h2>Errors</h2>
+    <pre>NONE</pre>
+  </div>
+</div>
+
+
+<div id="panel-1531" class="panel active">
+  <p class="ts">Tuesday March 31 2026 03:31 PM IST</p>
+  <div class="section">
+    <h2>Pairing UX + TTS safety</h2>
+    <p class="status-done">Status: done</p>
+  </div>
+  <div class="meta">
+    <div class="meta-item">
+      <div class="meta-label">Files Changed</div>
+      <div class="meta-value">5</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-label">Duration</div>
+      <div class="meta-value">25m</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-label">Agent</div>
+      <div class="meta-value">A1</div>
+    </div>
+  </div>
+  <div class="section">
+    <h2>Files Modified</h2>
+    <pre>packages/dashboard/src/main.jsx
+packages/dashboard/src/hooks/useKokoroTTS.js
+packages/dashboard/src/components/connect/ConnectPage.jsx
+docs/NAMING_IDEAS.md
+last-output.html</pre>
+  </div>
+  <div class="section">
+    <h2>Full Raw Output</h2>
+    <pre>- React now exposes a singleton on window so hooks like useKokoroTTS borrow the same dispatcher as the renderer; the Kokoro hook resolves that pointer before calling useState so the "invalid hook call" crash is gone.
+- ConnectPage finally handles paste properly (multi-char clipboard, fallback for Safari) and the OTP inputs use forwardRef, so no more ref warnings. Desktop sessions can tap “Show current pairing code” to view the rotating OTP without touching the terminal.
+- Naming doc now lists only names with domains we actually verified (kitecmd.com, gokite.dev, voltide.dev, tryvolt.app, lumadeck.dev, lumacode.app).
+- Tests: npm run test.</pre>
   </div>
   <div class="section">
     <h2>Errors</h2>

@@ -40,6 +40,27 @@ Use this shortlist as the discussion set before any user-facing rename; it balan
 
 ---
 
+## Phone-Friendly Names (verified `.dev` / `.in` availability)
+
+1. **Opsail**  
+   - *Why it works:* Feels like a command center for a fleet — "ops" + "sail" hits the remote cockpit vibe without sounding like a VS Code clone. Two syllables, easy to spell when heard.  
+   - *Tone:* Operational, adventurous, pairs well with runway/hangar metaphors.  
+   - *Domains:* opsail.dev, opsail.in, opsail.app all returned NXDOMAIN on 31 Mar 2026 (checked via `nslookup`), so the exact name is open on common TLDs.
+
+2. **Flyria**  
+   - *Why it works:* Suggests flight and aria (a clear voice) which nods to voice input plus remote control. Still short (FLY-ree-uh) and distinctive.  
+   - *Tone:* Light, modern, phone-friendly.  
+   - *Domains:* flyria.dev and flyria.in were both NXDOMAIN on 31 Mar 2026, so the primary TLDs that match the spoken name are free.
+
+3. **Airlio**  
+   - *Why it works:* Air + I/O gives a literal "airborne I/O" reference — ship commands through the air back to your machine.  
+   - *Tone:* Premium but pronounceable (AIR-lee-oh).  
+   - *Domains:* airlio.dev and airlio.in are available (nxDOMAIN responses 31 Mar 2026). airlio.app is taken, but the `.dev`/`.in` pair keep the exact name intact.
+
+Use these quick-call names when you need something as easy to spell as "Claude" or "Cursor" during user interviews; they complement the heavier cockpit metaphors above.
+
+---
+
 ## The 15 Core Candidates
 
 ### 1. Relay

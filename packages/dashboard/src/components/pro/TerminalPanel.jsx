@@ -7,14 +7,14 @@ import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 import { useThemeVars } from '../../hooks/useThemeVars';
-
-const DAEMON_WS_URL = (import.meta.env.VITE_DAEMON_URL || 'http://localhost:7533').replace(/^http/, 'ws');
+import { getDaemonWsUrl } from '../../lib/daemon';
 
 export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, variant = 'default' }) {
   const [connected, setConnected] = useState(false);
   const [terminalId, setTerminalId] = useState(null);
   const [terminalTabs, setTerminalTabs] = useState([]);
   const [activeTab, setActiveTab] = useState(null);
+  const [daemonWsUrl, setDaemonWsUrl] = useState(() => getDaemonWsUrl());
   const themeVars = useThemeVars(['--bg-base', '--bg-surface', '--text-pri', '--accent', '--accent-hover']);
   const terminalRef = useRef(null); // The div for xterm
   const xtermRef = useRef(null);    // The Terminal instance
@@ -77,10 +77,18 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
   }, [buildTermTheme, isMobileVariant]);
 
   useEffect(() => {
-    if (!xtermRef.current) return;
-    xtermRef.current.setOption('theme', buildTermTheme());
-    xtermRef.current.setOption('fontSize', isMobileVariant ? 14 : 13);
-    xtermRef.current.refresh(0, xtermRef.current.rows - 1);
+    const term = xtermRef.current;
+    if (!term) return;
+    const theme = buildTermTheme();
+    if (typeof term.setOption === 'function') {
+      term.setOption('theme', theme);
+      term.setOption('fontSize', isMobileVariant ? 14 : 13);
+      try {
+        term.refresh(0, term.rows - 1);
+      } catch {
+        // term may be mid-disposal; ignore
+      }
+    }
   }, [buildTermTheme, isMobileVariant]);
 
   const subscribeToTerminal = useCallback((id) => {
@@ -102,11 +110,13 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
 
   // Connect to daemon WS
   useEffect(() => {
+    const targetWsUrl = daemonWsUrl;
+    if (!targetWsUrl) return;
     const token = localStorage.getItem('soupz_daemon_token');
-    const isLocal = DAEMON_WS_URL.includes('localhost') || DAEMON_WS_URL.includes('127.0.0.1');
+    const isLocal = targetWsUrl.includes('localhost') || targetWsUrl.includes('127.0.0.1');
     if (!token && !isLocal) return;
 
-    const ws = new WebSocket(DAEMON_WS_URL);
+    const ws = new WebSocket(targetWsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -178,7 +188,7 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
     ws.onclose = () => setConnected(false);
 
     return () => ws.close();
-  }, [activateTab, subscribeToTerminal]);
+  }, [activateTab, subscribeToTerminal, daemonWsUrl]);
 
   useEffect(() => {
     let cancelled = false;
@@ -267,6 +277,27 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
       }
     }
   }, [activateTab, daemon]);
+
+  useEffect(() => {
+    const updateUrl = () => setDaemonWsUrl(getDaemonWsUrl());
+    updateUrl();
+    if (typeof window !== 'undefined') {
+      const handleStorage = (event) => {
+        if (event.key && event.key !== 'soupz_daemon_url') return;
+        updateUrl();
+      };
+      window.addEventListener('storage', handleStorage);
+      return () => window.removeEventListener('storage', handleStorage);
+    }
+    return undefined;
+  }, []);
+
+  useEffect(() => {
+    const nextUrl = getDaemonWsUrl();
+    if (nextUrl !== daemonWsUrl) {
+      setDaemonWsUrl(nextUrl);
+    }
+  }, [daemon?.machine, daemon?.rootPath, daemon?.online]);
 
   return (
     <div className="h-full flex flex-col bg-bg-surface border-t border-border-subtle relative">

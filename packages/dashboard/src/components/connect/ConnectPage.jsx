@@ -277,7 +277,8 @@ export default function ConnectPage({ getParam, navigate }) {
 
   function onPaste(e) {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 9);
+    const raw = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+    const pasted = raw.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 9);
     const next = pasted.split('').concat(Array(9).fill('')).slice(0, 9);
     setDigits(next);
     inputRefs.current[Math.min(pasted.length, 8)]?.focus();
@@ -293,6 +294,11 @@ export default function ConnectPage({ getParam, navigate }) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  const showShareCode = () => {
+    fetchCurrentCode();
+    setConnectMode('share');
+  };
+
   return (
     <div className="min-h-screen bg-bg-base flex flex-col items-center justify-center p-6">
       {/* Logo */}
@@ -307,12 +313,6 @@ export default function ConnectPage({ getParam, navigate }) {
       <div className="w-full max-w-sm bg-bg-surface border border-border-subtle rounded-xl p-5 sm:p-8 shadow-soft">
         {status === 'success' ? (
           <SuccessState machine={machine} />
-        ) : alreadyConnected && connectMode !== 'code' ? (
-          <AlreadyConnectedState
-            hostname={alreadyConnected.hostname}
-            onDashboard={() => navigate('/dashboard')}
-            onNewConnection={() => { setAlreadyConnected(null); setConnectMode('code'); }}
-          />
         ) : connectMode === 'share' ? (
           // Desktop "Share this code" view (auto-opened from npx soupz)
           <ShareCodeView
@@ -320,6 +320,13 @@ export default function ConnectPage({ getParam, navigate }) {
             isComplete={isComplete}
             remainingMs={remainingMs}
             onEnterManually={() => setConnectMode('code')}
+          />
+        ) : alreadyConnected ? (
+          <AlreadyConnectedState
+            hostname={alreadyConnected.hostname}
+            onDashboard={() => navigate('/dashboard')}
+            onNewConnection={() => { setAlreadyConnected(null); setConnectMode('code'); }}
+            onShowCode={showShareCode}
           />
         ) : (
           <>
@@ -487,7 +494,7 @@ function SuccessState({ machine }) {
   );
 }
 
-function AlreadyConnectedState({ hostname, onDashboard, onNewConnection }) {
+function AlreadyConnectedState({ hostname, onDashboard, onNewConnection, onShowCode }) {
   return (
     <div className="text-center py-2">
       <div className="w-12 h-12 rounded-full bg-accent/10 border border-accent/20 flex items-center justify-center mx-auto mb-4">
@@ -502,6 +509,12 @@ function AlreadyConnectedState({ hostname, onDashboard, onNewConnection }) {
         className="w-full flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium font-ui bg-accent hover:bg-accent-hover text-white transition-all mb-3"
       >
         Go to Dashboard <ArrowRight size={14} />
+      </button>
+      <button
+        onClick={onShowCode}
+        className="w-full flex items-center justify-center gap-2 py-2 rounded-md text-xs font-medium font-ui border border-border-subtle text-text-sec hover:text-text-pri hover:border-border-mid transition-all mb-3"
+      >
+        Show current pairing code
       </button>
       <button
         onClick={onNewConnection}
@@ -618,7 +631,7 @@ function QRConnectMode({ code, remainingMs, onManual, isMobileDevice }) {
   );
 }
 
-function DigitInput({ value, onChange, onKeyDown, onPaste, hasError }, ref) {
+const DigitInput = forwardRef(function DigitInput({ value, onChange, onKeyDown, onPaste, hasError }, ref) {
   return (
     <input
       ref={ref}
@@ -643,4 +656,4 @@ function DigitInput({ value, onChange, onKeyDown, onPaste, hasError }, ref) {
       )}
     />
   );
-}
+});

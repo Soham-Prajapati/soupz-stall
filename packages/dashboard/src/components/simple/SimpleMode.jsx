@@ -284,6 +284,14 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
     }
   };
 
+  const [slashCommandOpen, setSlashCommandOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewStatus, setPreviewStatus] = useState('idle');
+  const [slashIndex, setSlashIndex] = useState(0);
+  const bottomRef = useRef(null);
+  const textareaRef = useRef(null);
+
   const derivedHtmlPreview = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const msg = messages[i];
@@ -354,14 +362,7 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
     ];
   }, [filteredCLIAgents]);
 
-  const [slashCommandOpen, setSlashCommandOpen] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState(null);
-  const [previewStatus, setPreviewStatus] = useState('idle');
   const [filteredCommands, setFilteredCommands] = useState(allCommands);
-  const [slashIndex, setSlashIndex] = useState(0);
-  const bottomRef = useRef(null);
-  const textareaRef = useRef(null);
 
   useEffect(() => {
     if (input.startsWith('/')) {

@@ -1,4 +1,11 @@
-import { useState, useRef, useCallback } from 'react';
+import * as React from 'react';
+
+function resolveReact() {
+  if (typeof window !== 'undefined' && window.__SOUPZ_REACT__?.useState) {
+    return window.__SOUPZ_REACT__;
+  }
+  return React;
+}
 
 /**
  * Module-level singleton so the model persists across re-renders and component
@@ -93,6 +100,9 @@ async function ensureModel(onProgress) {
  * }}
  */
 export function useKokoroTTS() {
+  const ReactImpl = resolveReact();
+  const { useState, useRef, useCallback } = ReactImpl;
+
   const [modelLoading, setModelLoading] = useState(false);
   /** Integer 0-100 reflecting download / initialisation progress. */
   const [loadProgress, setLoadProgress] = useState(0);

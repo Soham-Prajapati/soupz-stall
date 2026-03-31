@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense, useMemo } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
 import ErrorBoundary from '../shared/ErrorBoundary';
 import { useThemeVars } from '../../hooks/useThemeVars';
