@@ -42,7 +42,7 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
     terminalIdRef.current = terminalId;
   }, [terminalId]);
 
-  // Initialize XTerm
+  // Initialize XTerm (only re-run when switching variant)
   useEffect(() => {
     const term = new Terminal({
       cursorBlinking: true,
@@ -55,26 +55,30 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    
+
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
     if (terminalRef.current) {
       term.open(terminalRef.current);
-      fitAddon.fit();
+      try {
+        fitAddon.fit();
+      } catch { /* ignore */ }
     }
 
-    // Handle input
     term.onData(data => {
-      if (wsRef.current?.readyState === 1 && terminalId) {
-        wsRef.current.send(JSON.stringify({ type: 'input', terminalId, data }));
+      if (wsRef.current?.readyState === 1 && terminalIdRef.current) {
+        wsRef.current.send(JSON.stringify({ type: 'input', terminalId: terminalIdRef.current, data }));
       }
     });
 
     return () => {
       term.dispose();
+      xtermRef.current = null;
+      fitAddonRef.current = null;
     };
-  }, [buildTermTheme, isMobileVariant]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variant]);
 
   useEffect(() => {
     const term = xtermRef.current;
@@ -85,9 +89,7 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
       term.setOption('fontSize', isMobileVariant ? 14 : 13);
       try {
         term.refresh(0, term.rows - 1);
-      } catch {
-        // term may be mid-disposal; ignore
-      }
+      } catch { /* ignore */ }
     }
   }, [buildTermTheme, isMobileVariant]);
 
@@ -307,9 +309,10 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
           {terminalTabs.length === 0 && (
             <span className="text-[11px] text-text-faint">No terminals yet</span>
           )}
-          {terminalTabs.map(id => (
+          {terminalTabs.map((id, index) => (
             <button
               key={id}
+              type="button"
               onClick={() => activateTab(id)}
               className={cn(
                 'px-2 py-1 rounded text-[11px] font-mono transition-colors border relative flex items-center gap-1',
@@ -318,17 +321,26 @@ export default function TerminalPanel({ daemon, onClose, maximized, onMaximize, 
                   : 'border-transparent text-text-faint hover:text-text-pri hover:border-border-subtle'
               )}
             >
-              <span>{`TTY ${id}`}</span>
-              <button
+              <span>{`Terminal ${index + 1}`}</span>
+              <span
+                role="button"
+                tabIndex={0}
                 className="text-text-faint hover:text-text-pri transition-colors"
                 onClick={(e) => { e.stopPropagation(); handleKillTab(id); }}
-                title="Close terminal"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleKillTab(id);
+                  }
+                }}
+                aria-label="Close terminal"
               >
                 <X size={10} />
-              </button>
+              </span>
             </button>
           ))}
-          <button className="text-text-faint hover:text-text-pri transition-colors mt-0.5" title="New Terminal" onClick={spawnNewTerminal}>
+          <button className="text-text-faint hover:text-text-pri transition-colors mt-0.5" title="New Terminal" type="button" onClick={spawnNewTerminal}>
             <Plus size={14} />
           </button>
         </div>

@@ -9,6 +9,7 @@ import SimpleMode from './components/simple/SimpleMode.jsx';
 import StatusBar from './components/shared/StatusBar.jsx';
 import CoreConsole from './components/core/CoreConsole.jsx';
 import ErrorBoundary from './components/shared/ErrorBoundary.jsx';
+import PairingCodeModal from './components/shared/PairingCodeModal.jsx';
 
 // Lazy-load routes and heavy components not needed on first paint
 const ConnectPage = lazy(() => import('./components/connect/ConnectPage.jsx'));
@@ -166,6 +167,7 @@ export default function App() {
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [pairingModalOpen, setPairingModalOpen] = useState(false);
   const [workspaceRoot, setWorkspaceRoot] = useState(null);
   const storedWorkspaceRoot = typeof window !== 'undefined' ? (localStorage.getItem('soupz_workspace_root') || '') : '';
   const activeWorkspaceRoot = workspaceRoot || storedWorkspaceRoot || '';
@@ -619,7 +621,12 @@ export default function App() {
         </div>
 
         {/* Workspace status */}
-        <WorkspaceStatus online={workspaceOnline} machine={workspaceMachine} navigate={navigate} />
+        <WorkspaceStatus
+          online={workspaceOnline}
+          machine={workspaceMachine}
+          navigate={navigate}
+          onShowShare={() => setPairingModalOpen(true)}
+        />
 
         {/* Admin Link (Authorized only) */}
         {(user?.id === 'local' || user?.user_metadata?.user_name === 'Soham-Prajapati' || user?.user_metadata?.preferred_username === 'Soham-Prajapati') && (
@@ -693,6 +700,7 @@ export default function App() {
                   changedPaths={changedFiles}
                   onEditorStateChange={setEditorState}
                   theme={theme}
+                  onOpenCommandPalette={() => setCmdPaletteOpen(true)}
                 />
               </Suspense>
             </ErrorBoundary>
@@ -738,6 +746,13 @@ export default function App() {
         </ErrorBoundary>
       )}
 
+      {pairingModalOpen && (
+        <PairingCodeModal
+          machineName={workspaceMachine}
+          onClose={() => setPairingModalOpen(false)}
+        />
+      )}
+
       {/* VS Code-style Status Bar */}
       <StatusBar
         workspaceOnline={workspaceOnline}
@@ -774,15 +789,21 @@ function ModeBtn({ active, onClick, icon, label }) {
   );
 }
 
-function WorkspaceStatus({ online, machine, navigate }) {
+function WorkspaceStatus({ online, machine, navigate, onShowShare }) {
   return (
     <button
-      onClick={() => !online && navigate('/connect')}
-      title={online ? `Connected to ${machine || 'your machine'}` : 'Click to connect your machine'}
+      type="button"
+      onClick={() => {
+        if (online) onShowShare?.();
+        else navigate('/connect');
+      }}
+      title={online
+        ? `Click to show pairing code for ${machine || 'your machine'}`
+        : 'Click to connect your machine'}
       className={cn(
         'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-ui transition-all',
         online
-          ? 'text-success bg-success/5 border border-success/15 cursor-default'
+          ? 'text-success bg-success/5 border border-success/15 hover:border-success/30 hover:text-success/90 cursor-pointer'
           : 'text-text-faint bg-bg-elevated border border-border-subtle hover:border-border-mid hover:text-text-sec cursor-pointer',
       )}
     >

@@ -67,7 +67,7 @@ async function tryPairAgainstBase(baseUrl, code, timeoutMs = 2000) {
 
 // ── Apple-style countdown ring ───────────────────────────────────────────────
 
-function CountdownRing({ remainingMs, totalMs = CODE_TTL_MS, size = 120 }) {
+export function CountdownRing({ remainingMs, totalMs = CODE_TTL_MS, size = 120 }) {
   const radius = (size - 8) / 2;
   const circumference = 2 * Math.PI * radius;
   const progress = Math.max(0, Math.min(1, remainingMs / totalMs));
@@ -526,7 +526,7 @@ function AlreadyConnectedState({ hostname, onDashboard, onNewConnection, onShowC
   );
 }
 
-function ShareCodeView({ code, isComplete, remainingMs, onEnterManually }) {
+export function ShareCodeView({ code, isComplete, remainingMs, onEnterManually }) {
   const connectUrl = isComplete ? `${window.location.origin}/connect?code=${code}` : null;
 
   return (
@@ -565,12 +565,14 @@ function ShareCodeView({ code, isComplete, remainingMs, onEnterManually }) {
         </p>
       </div>
 
-      <button
-        onClick={onEnterManually}
-        className="text-text-sec hover:text-text-pri text-xs transition-colors flex items-center gap-1.5"
-      >
-        <ArrowLeft size={11} /> Enter code manually instead
-      </button>
+      {onEnterManually && (
+        <button
+          onClick={onEnterManually}
+          className="text-text-sec hover:text-text-pri text-xs transition-colors flex items-center gap-1.5"
+        >
+          <ArrowLeft size={11} /> Enter code manually instead
+        </button>
+      )}
     </div>
   );
 }

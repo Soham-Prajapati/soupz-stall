@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense, useMemo } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
 import ErrorBoundary from '../shared/ErrorBoundary';
 import { useThemeVars } from '../../hooks/useThemeVars';
@@ -68,7 +68,8 @@ async function syncMonacoTheme(themeVars = {}) {
 import {
   Files, GitBranch, Settings, ChevronLeft, ChevronRight,
   Play, Loader2, PanelRightClose, PanelRightOpen, X, Package,
-  Terminal, Search, Trophy, Code2, Bot, Columns, MessageSquare
+  Terminal, Search, Trophy, Code2, Bot, Columns, MessageSquare,
+  Save
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS } from '../../lib/agents';
@@ -99,7 +100,7 @@ function getLang(filename) {
   return LANG_MAP[ext] || 'plaintext';
 }
 
-export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateChange, theme }) {
+export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateChange, theme, onOpenCommandPalette = () => {} }) {
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
   const themeVars = useThemeVars(['--bg-base', '--bg-elevated', '--text-pri', '--text-sec', '--accent', '--border-subtle', '--border-mid', '--border-strong']);
   const flattenedPaths = useMemo(() => flattenFilePaths(fileTree || []), [fileTree]);
@@ -228,15 +229,25 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
     });
   }
 
-  function handleEditorChange(value) {
-    if (!activeFile) return;
-    setFileContents(prev => ({ ...prev, [activeFile.path]: value }));
-    
-    // Autosave
+  const queueAutosave = useCallback((path, value) => {
+    if (!path) return;
+    const text = typeof value === 'string' ? value : (value ?? '');
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
-      daemon?.writeFile?.(activeFile.path, value);
+      daemon?.writeFile?.(path, text);
     }, 1000);
+  }, [daemon]);
+
+  const updateFileContents = useCallback((path, value) => {
+    if (!path) return;
+    const text = typeof value === 'string' ? value : (value ?? '');
+    setFileContents(prev => ({ ...prev, [path]: text }));
+    queueAutosave(path, text);
+  }, [queueAutosave]);
+
+  function handleEditorChange(value) {
+    if (!activeFile) return;
+    updateFileContents(activeFile.path, value);
   }
 
   function handleEditorMount(editor, monaco) {
@@ -248,11 +259,25 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       saveFile();
     });
+    // Override Monaco command palette shortcuts to open Soupz palette instead
+    const paletteShortcuts = [
+      monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyP,
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK,
+      monaco.KeyCode.F1,
+    ];
+    paletteShortcuts.forEach(binding => {
+      editor.addCommand(binding, () => {
+        onOpenCommandPalette?.();
+      });
+    });
   }
 
-  async function saveFile() {
-    if (!activeFile) return;
-    await daemon?.writeFile?.(activeFile.path, fileContents[activeFile.path]);
+  async function saveFile(targetPath) {
+    const path = targetPath
+      || (activePane === 'right' && activeFileRight ? activeFileRight.path : null)
+      || activeFile?.path;
+    if (!path) return;
+    await daemon?.writeFile?.(path, fileContents[path] ?? '');
   }
 
   async function runFile() {
@@ -612,6 +637,18 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             <Columns size={15} />
           </button>
 
+          {/* Save */}
+          <button
+            onClick={() => saveFile()}
+            disabled={!activeFile && !(splitMode && activeFileRight)}
+            className="text-text-faint hover:text-text-sec transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title={activePane === 'right' && activeFileRight
+              ? `Save ${activeFileRight.name}`
+              : activeFile ? `Save ${activeFile.name}` : 'Open a file to save'}
+          >
+            <Save size={15} />
+          </button>
+
           {/* Run Active File */}
           <button
             onClick={handleRunActiveFile}
@@ -692,9 +729,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                   value={String(fileContents[activeFile.path] || '')}
                   language={getLang(activeFile.name)}
                   theme="soupz-dynamic"
-                  onChange={(value) => {
-                    setFileContents(prev => ({ ...prev, [activeFile.path]: value }));
-                  }}
+                  onChange={(value) => updateFileContents(activeFile.path, value)}
                   onMount={handleEditorMount}
                   options={{
                     fontSize: 13,
@@ -734,19 +769,23 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                     value={String(fileContents[activeFileRight.path] || '')}
                     language={getLang(activeFileRight.name)}
                     theme="soupz-dynamic"
-                    onChange={(value) => {
-                      setFileContents(prev => ({ ...prev, [activeFileRight.path]: value }));
-                      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-                      saveTimeoutRef.current = setTimeout(() => {
-                        daemon?.writeFile?.(activeFileRight.path, value);
-                      }, 1000);
-                    }}
+                    onChange={(value) => updateFileContents(activeFileRight.path, value)}
                     onMount={(editor, monaco) => {
-                      // Cmd/Ctrl+S to save
+                      // Cmd/Ctrl+S to save right pane
                       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-                        if (activeFileRight) {
-                          daemon?.writeFile?.(activeFileRight.path, editor.getValue());
+                        if (activeFileRight?.path) {
+                          saveFile(activeFileRight.path);
                         }
+                      });
+                      // Mirror palette overrides on secondary editor
+                      [
+                        monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyP,
+                        monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK,
+                        monaco.KeyCode.F1,
+                      ].forEach(binding => {
+                        editor.addCommand(binding, () => {
+                          onOpenCommandPalette?.();
+                        });
                       });
                     }}
                     options={{
