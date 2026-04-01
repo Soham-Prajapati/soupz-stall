@@ -265,6 +265,10 @@ describe('Daemon Integration', () => {
         // Should have at least git
         expect(body.git).toBeDefined();
         expect(body.git.installed).toBe(true);
+        // Codex readiness should always be reported, even if unavailable
+        expect(body.codex).toBeDefined();
+        expect(typeof body.codex.installed).toBe('boolean');
+        expect(typeof body.codex.ready).toBe('boolean');
       }
       // If 404, endpoint might not exist yet -- that's ok
       expect([200, 404]).toContain(res.status);

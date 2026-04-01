@@ -261,15 +261,17 @@ app.get('/api/fs/dirs', requireAuth, async (req, res) => {
 
 // GET /api/usage — Fetch real-time usage metrics from CLI agents (authenticated)
 app.get('/api/usage', requireAuth, (req, res) => {
-    const agents = ['gemini', 'copilot', 'claude', 'kiro'];
+    const agents = ['gemini', 'codex', 'copilot', 'claude', 'kiro'];
     const usage = {};
 
     for (const agent of agents) {
         try {
             let cmd = '';
             if (agent === 'gemini') cmd = 'gemini --version';
+            else if (agent === 'codex') cmd = 'gh copilot --version';
             else if (agent === 'copilot') cmd = 'gh copilot --version';
             else if (agent === 'claude') cmd = 'claude --version';
+            else if (agent === 'kiro') cmd = 'kiro-cli --version';
 
             if (cmd) {
                 const out = execSync(cmd, { timeout: 2000 }).toString().trim();

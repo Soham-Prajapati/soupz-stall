@@ -1,11 +1,12 @@
 # Documentation Index
 
-Updated: March 26, 2026
+Updated: April 1, 2026
 
 This folder has both current and historical documentation. Start with the files below in order.
 
 ## Canonical Docs (Current)
 
+- System architecture: [architecture/SYSTEM_ARCHITECTURE.md](architecture/SYSTEM_ARCHITECTURE.md)
 - Runtime behavior: [CURRENT_SYSTEM.md](CURRENT_SYSTEM.md)
 - Setup and troubleshooting: [SETUP.md](SETUP.md)
 - Runtime changelog: [RUNTIME_CHANGELOG.md](RUNTIME_CHANGELOG.md)
@@ -14,6 +15,8 @@ This folder has both current and historical documentation. Start with the files 
 
 - Root overview: [../PROJECT_OVERVIEW.md](../PROJECT_OVERVIEW.md)
 - Root README: [../README.md](../README.md)
+- Model grading guide: [guides/MODEL_SELECTION_AND_GRADING.md](guides/MODEL_SELECTION_AND_GRADING.md)
+- Owner checklist: [guides/OWNER_ACTION_CHECKLIST.md](guides/OWNER_ACTION_CHECKLIST.md)
 - Team runtime snapshot: [../CLAUDE.md](../CLAUDE.md)
 - Logic progression log: [../LOGIC_PENDING_TODO.md](../LOGIC_PENDING_TODO.md)
 

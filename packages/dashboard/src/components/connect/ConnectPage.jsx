@@ -527,7 +527,7 @@ function AlreadyConnectedState({ hostname, onDashboard, onNewConnection, onShowC
 }
 
 export function ShareCodeView({ code, isComplete, remainingMs, onEnterManually }) {
-  const connectUrl = isComplete ? `${window.location.origin}/connect?code=${code}` : null;
+  const connectUrl = isComplete ? `${window.location.origin}/code?code=${code}` : null;
 
   return (
     <div className="flex flex-col items-center gap-5 py-2">
@@ -578,7 +578,7 @@ export function ShareCodeView({ code, isComplete, remainingMs, onEnterManually }
 }
 
 function QRConnectMode({ code, remainingMs, onManual, isMobileDevice }) {
-  const connectUrl = code.length === 8 ? `${window.location.origin}/connect?code=${code}` : null;
+  const connectUrl = code.length === 9 ? `${window.location.origin}/code?code=${code}` : null;
 
   if (isMobileDevice) {
     return (

@@ -100,10 +100,40 @@ function getLang(filename) {
   return LANG_MAP[ext] || 'plaintext';
 }
 
+function normalizeChangedPath(entry = '') {
+  const raw = String(entry || '').trimEnd();
+  if (!raw) return '';
+  const maybePorcelainPath = raw.length >= 4 ? raw.slice(3).trim() : '';
+  const path = maybePorcelainPath || raw;
+  if (path.includes('->')) {
+    const parts = path.split('->');
+    return parts[parts.length - 1].trim();
+  }
+  return path.trim();
+}
+
+function fileNodeFromPath(filePath = '') {
+  const normalizedPath = normalizeChangedPath(filePath);
+  if (!normalizedPath) return null;
+  const segments = normalizedPath.split('/').filter(Boolean);
+  return {
+    path: normalizedPath,
+    name: segments[segments.length - 1] || normalizedPath,
+  };
+}
+
 export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateChange, theme, onOpenCommandPalette = () => {} }) {
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
   const themeVars = useThemeVars(['--bg-base', '--bg-elevated', '--text-pri', '--text-sec', '--accent', '--border-subtle', '--border-mid', '--border-strong']);
   const flattenedPaths = useMemo(() => flattenFilePaths(fileTree || []), [fileTree]);
+  const changedPathSet = useMemo(() => {
+    const set = new Set();
+    (Array.isArray(changedPaths) ? changedPaths : []).forEach((entry) => {
+      const normalized = normalizeChangedPath(entry);
+      if (normalized) set.add(normalized);
+    });
+    return set;
+  }, [changedPaths]);
 
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     !(typeof window !== 'undefined' && window.innerWidth < 768) && (localStorage.getItem(SIDEBAR_KEY) !== 'false')
@@ -349,7 +379,17 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           {mobileTab === 'git' && (
             <ErrorBoundary name="Git Panel">
               <Suspense fallback={<PanelLoader />}>
-                <div className="h-full overflow-y-auto"><GitPanel daemon={daemon} /></div>
+                <div className="h-full overflow-y-auto">
+                  <GitPanel
+                    daemon={daemon}
+                    onOpenFile={(filePath) => {
+                      const node = fileNodeFromPath(filePath);
+                      if (!node) return;
+                      openFile(node);
+                      setMobileTab('editor');
+                    }}
+                  />
+                </div>
               </Suspense>
             </ErrorBoundary>
           )}
@@ -413,16 +453,19 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
 
   return (
     <div className="flex h-full bg-bg-base overflow-hidden">
-      {/* Activity bar */}
-      <div className="w-12 bg-bg-surface border-r border-border-subtle flex flex-col items-center py-2 gap-1 shrink-0 z-10">
+      {/* Activity rail */}
+      <div className="w-24 bg-bg-surface border-r border-border-subtle flex flex-col py-2 gap-1 shrink-0 z-10">
+        <div className="px-2 pb-2 pt-1 border-b border-border-subtle">
+          <p className="text-[10px] font-ui uppercase tracking-wider text-text-faint">Workspace</p>
+        </div>
         {[
-          { id: 'files',      Icon: Files,     title: 'Explorer' },
-          { id: 'search',     Icon: Search,    title: 'Search' },
-          { id: 'git',        Icon: GitBranch, title: 'Source Control' },
-          { id: 'agents',     Icon: Bot,       title: 'Agent Tasks' },
-          { id: 'stats',      Icon: Trophy,    title: 'Stats & Leaderboard' },
-          { id: 'settings',   Icon: Settings,  title: 'Settings' },
-        ].map(({ id, Icon, title }) => (
+          { id: 'files',      Icon: Files,     title: 'Explorer', label: 'Files' },
+          { id: 'search',     Icon: Search,    title: 'Search', label: 'Search' },
+          { id: 'git',        Icon: GitBranch, title: 'Source Control', label: 'Source' },
+          { id: 'agents',     Icon: Bot,       title: 'Agent Tasks', label: 'Agents' },
+          { id: 'stats',      Icon: Trophy,    title: 'Stats & Leaderboard', label: 'Stats' },
+          { id: 'settings',   Icon: Settings,  title: 'Settings', label: 'Settings' },
+        ].map(({ id, Icon, title, label }) => (
           <button
             key={id}
             onClick={() => {
@@ -435,13 +478,14 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             }}
             title={title}
             className={cn(
-              'w-9 h-9 rounded-md flex items-center justify-center transition-all',
+              'mx-2 rounded-lg px-2 py-2 flex flex-col items-center gap-1 transition-all border',
               activeActivity === id && sidebarOpen
-                ? 'bg-bg-elevated text-text-pri border border-border-subtle'
-                : 'text-text-faint hover:text-text-sec hover:bg-bg-elevated',
+                ? 'bg-accent/12 text-accent border-accent/30'
+                : 'text-text-faint border-transparent hover:text-text-sec hover:bg-bg-elevated hover:border-border-subtle',
             )}
           >
-            <Icon size={18} />
+            <Icon size={16} />
+            <span className="text-[10px] font-ui leading-none">{label}</span>
           </button>
         ))}
       </div>
@@ -449,10 +493,13 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
       {/* Sidebar — resizable */}
       {sidebarOpen && (
         <div style={{ width: sidebarWidth }} className="bg-bg-surface border-r border-border-subtle flex flex-col shrink-0 overflow-hidden">
-          <div className="px-3 py-2 border-b border-border-subtle shrink-0">
-            <span className="text-text-faint text-[11px] font-ui uppercase tracking-wider font-medium">
-              {activeActivity === 'files' ? 'Explorer' : activeActivity === 'search' ? 'Search' : activeActivity === 'git' ? 'Source Control' : activeActivity === 'agents' ? 'Agent Tasks' : activeActivity === 'extensions' ? 'Extensions' : activeActivity === 'stats' ? 'Stats & Leaderboard' : 'Settings'}
-            </span>
+          <div className="px-4 py-3 border-b border-border-subtle shrink-0">
+            <p className="text-text-pri text-sm font-ui font-semibold">
+              {activeActivity === 'files' ? 'Explorer' : activeActivity === 'search' ? 'Search' : activeActivity === 'git' ? 'Source Control' : activeActivity === 'agents' ? 'Agent Tasks' : activeActivity === 'extensions' ? 'Extensions' : activeActivity === 'stats' ? 'Insights' : 'Settings'}
+            </p>
+            <p className="text-text-faint text-[11px] font-ui mt-0.5">
+              {activeActivity === 'files' ? 'Browse and edit project files' : activeActivity === 'search' ? 'Find symbols, text, and files quickly' : activeActivity === 'git' ? 'Review and ship repository changes' : activeActivity === 'agents' ? 'Track worker activity and status' : activeActivity === 'extensions' ? 'Manage capability packs' : activeActivity === 'stats' ? 'Usage and progress snapshots' : 'Editor and agent preferences'}
+            </p>
           </div>
           <div className="flex-1 overflow-y-auto min-h-0">
             {activeActivity === 'files' && (
@@ -502,7 +549,14 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             {activeActivity === 'git' && (
               <ErrorBoundary name="Git Panel">
                 <Suspense fallback={<PanelLoader />}>
-                  <GitPanel daemon={daemon} />
+                  <GitPanel
+                    daemon={daemon}
+                    onOpenFile={(filePath) => {
+                      const node = fileNodeFromPath(filePath);
+                      if (!node) return;
+                      openFile(node);
+                    }}
+                  />
                 </Suspense>
               </ErrorBoundary>
             )}
@@ -608,7 +662,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                     : 'text-text-faint hover:text-text-sec hover:bg-bg-elevated/50',
                 )}
               >
-                {changedPaths?.includes(f.path) && <span className="w-1 h-1 rounded-full bg-warning" />}
+                {changedPathSet.has(f.path) && <span className="w-1 h-1 rounded-full bg-warning" />}
                 <span>{f.name}</span>
                 <span
                   onClick={e => { e.stopPropagation(); closeFile(f.path); }}

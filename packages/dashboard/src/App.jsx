@@ -10,12 +10,15 @@ import StatusBar from './components/shared/StatusBar.jsx';
 import CoreConsole from './components/core/CoreConsole.jsx';
 import ErrorBoundary from './components/shared/ErrorBoundary.jsx';
 import PairingCodeModal from './components/shared/PairingCodeModal.jsx';
+import KeyboardShortcuts from './components/shared/KeyboardShortcuts.jsx';
+import NotificationToast, { pushToast } from './components/shared/NotificationToast.jsx';
 
 // Lazy-load routes and heavy components not needed on first paint
 const ConnectPage = lazy(() => import('./components/connect/ConnectPage.jsx'));
 const ProMode = lazy(() => import('./components/pro/ProMode.jsx'));
 const BuilderMode = lazy(() => import('./components/builder/BuilderMode.jsx'));
 const LandingPage = lazy(() => import('./components/landing/LandingPage.jsx'));
+const DocsPage = lazy(() => import('./components/docs/DocsPage.jsx'));
 const ProfilePage = lazy(() => import('./components/profile/ProfilePage.jsx'));
 const AdminPage = lazy(() => import('./components/admin/AdminPage.jsx'));
 const CommandPalette = lazy(() => import('./components/shared/CommandPalette.jsx'));
@@ -24,7 +27,7 @@ const SetupWizard = lazy(() => import('./components/shared/SetupWizard.jsx'));
 const OnboardingOverlay = lazy(() => import('./components/shared/OnboardingOverlay.jsx'));
 import { supabase, isSupabaseConfigured } from './lib/supabase.js';
 import {
-  checkDaemonHealth, subscribeToDaemon, sendAgentPrompt,
+  checkDaemonHealth, subscribeToDaemon, sendAgentPrompt, subscribeDaemonMessages,
   getFileTree, readFile, writeFile, getGitStatus, getGitDiff,
   gitStage, gitCommit, gitPush, checkSystemCLIs,
   listTerminals, killTerminalById, getOrderDetail,
@@ -77,6 +80,71 @@ function applyTheme(theme) {
   const normalized = normalizeTheme(theme || 'dark');
   document.documentElement.setAttribute('data-theme', normalized);
   return normalized;
+}
+
+function normalizeChangedPath(path = '') {
+  const raw = String(path || '').trim();
+  if (!raw) return '';
+  if (raw.includes('->')) {
+    const parts = raw.split('->');
+    return parts[parts.length - 1].trim();
+  }
+  return raw;
+}
+
+function toPorcelainLine(statusCode, filePath) {
+  const normalizedPath = normalizeChangedPath(filePath);
+  if (!normalizedPath) return null;
+  const code = String(statusCode || 'M').trim().toUpperCase();
+  if (code === '??') return `?? ${normalizedPath}`;
+  const one = code[0] || 'M';
+  return `${one}  ${normalizedPath}`;
+}
+
+function normalizeChangedEntries(input) {
+  const list = Array.isArray(input) ? input : [];
+  const priority = { U: 4, '?': 4, A: 3, D: 3, M: 2, R: 2, C: 2 };
+  const map = new Map();
+
+  list.forEach((entry) => {
+    if (entry == null) return;
+
+    let status = 'M';
+    let filePath = '';
+
+    if (typeof entry === 'string') {
+      const raw = entry.trimEnd();
+      if (!raw) return;
+      const candidateStatus = raw.slice(0, 2).trim();
+      const candidatePath = raw.length >= 4 ? raw.slice(3).trim() : '';
+      if (candidatePath) {
+        status = candidateStatus || 'M';
+        filePath = candidatePath;
+      } else {
+        filePath = raw.trim();
+      }
+    } else if (typeof entry === 'object') {
+      status = (entry.type || entry.status || 'M').toString();
+      filePath = (entry.path || '').toString();
+    }
+
+    const normalizedPath = normalizeChangedPath(filePath);
+    if (!normalizedPath) return;
+
+    const normalizedStatus = status === '??' ? '??' : (String(status).trim().charAt(0).toUpperCase() || 'M');
+    const statusKey = normalizedStatus === '??' ? '?' : normalizedStatus;
+    const nextScore = priority[statusKey] || 1;
+    const previous = map.get(normalizedPath);
+    const previousScore = previous ? (priority[previous.statusKey] || 1) : 0;
+
+    if (!previous || nextScore >= previousScore) {
+      map.set(normalizedPath, { statusCode: normalizedStatus, statusKey });
+    }
+  });
+
+  return Array.from(map.entries())
+    .map(([path, meta]) => toPorcelainLine(meta.statusCode, path))
+    .filter(Boolean);
 }
 
 const initialRouteState = () => ({
@@ -143,19 +211,38 @@ export default function App() {
   const [workspaceOnline, setWorkspaceOnline] = useState(false);
   const [workspaceMachine, setWorkspaceMachine] = useState(null);
   const [activeFleet, setActiveFleet] = useState([]); // Track background workers
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
-  // ... (inside checkDaemonHealth loop)
   useEffect(() => {
-    // ...
-    const handleWsMessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'fleet_update') {
-          setActiveFleet(msg.active);
-        }
-      } catch {}
+    const unsubscribe = subscribeDaemonMessages((msg) => {
+      if (msg?.type === 'fleet_update') {
+        setActiveFleet(Array.isArray(msg.active) ? msg.active : []);
+      }
+    });
+
+    const onOrderUpdate = (event) => {
+      const detail = event?.detail;
+      if (!detail?.status || !detail?.id) return;
+      if (detail.status === 'completed') {
+        pushToast({
+          type: 'success',
+          title: 'Order completed',
+          message: `Run ${detail.id.slice(0, 8)} finished successfully.`,
+        });
+      } else if (detail.status === 'failed') {
+        pushToast({
+          type: 'error',
+          title: 'Order failed',
+          message: detail.error || `Run ${detail.id.slice(0, 8)} failed.`,
+        });
+      }
     };
-    // ...
+
+    window.addEventListener('soupz_order_update', onOrderUpdate);
+    return () => {
+      unsubscribe?.();
+      window.removeEventListener('soupz_order_update', onOrderUpdate);
+    };
   }, []);
   const [themeOpen, setThemeOpen] = useState(false);
 
@@ -176,6 +263,31 @@ export default function App() {
     const host = localStorage.getItem('soupz_hostname') || 'local';
     return `${host}::${activeWorkspaceRoot || 'global'}`;
   }, [activeWorkspaceRoot, workspaceMachine]);
+  const previousOnlineRef = useRef(null);
+
+  useEffect(() => {
+    const previous = previousOnlineRef.current;
+    if (previous === null) {
+      previousOnlineRef.current = workspaceOnline;
+      return;
+    }
+    if (previous !== workspaceOnline) {
+      if (workspaceOnline) {
+        pushToast({
+          type: 'success',
+          title: 'Daemon connected',
+          message: workspaceMachine ? `Connected to ${workspaceMachine}.` : 'Connected to local daemon.',
+        });
+      } else {
+        pushToast({
+          type: 'warning',
+          title: 'Daemon disconnected',
+          message: 'Trying to reconnect. Run npx soupz if the daemon is down.',
+        });
+      }
+      previousOnlineRef.current = workspaceOnline;
+    }
+  }, [workspaceOnline, workspaceMachine]);
 
   useEffect(() => {
     localStorage.setItem(MODE_KEY, mode);
@@ -263,16 +375,37 @@ export default function App() {
 
   useEffect(() => {
     function handleKey(e) {
-      // Cmd+1: Chat mode, Cmd+2: IDE mode, Cmd+3: Builder mode
-      if ((e.metaKey || e.ctrlKey) && e.key === '1') { e.preventDefault(); setMode('simple'); }
-      if ((e.metaKey || e.ctrlKey) && e.key === '2') { e.preventDefault(); setMode('pro'); }
-      if ((e.metaKey || e.ctrlKey) && e.key === '3') { e.preventDefault(); setMode('builder'); }
+      const key = String(e.key || '').toLowerCase();
+
+      // Browser-safe mode switching: Alt+1/2/3.
+      // Cross-platform fallback: Cmd/Ctrl+Shift+1/2/3 (avoids browser tab switch conflicts).
+      const toSimple =
+        (e.altKey && !e.metaKey && !e.ctrlKey && key === '1')
+        || ((e.metaKey || e.ctrlKey) && e.shiftKey && key === '1');
+      if (toSimple) { e.preventDefault(); setMode('simple'); return; }
+
+      const toPro =
+        (e.altKey && !e.metaKey && !e.ctrlKey && key === '2')
+        || ((e.metaKey || e.ctrlKey) && e.shiftKey && key === '2');
+      if (toPro) { e.preventDefault(); setMode('pro'); return; }
+
+      const toBuilder =
+        (e.altKey && !e.metaKey && !e.ctrlKey && key === '3')
+        || ((e.metaKey || e.ctrlKey) && e.shiftKey && key === '3');
+      if (toBuilder) { e.preventDefault(); setMode('builder'); return; }
+
       // Cmd+Shift+P: Command Palette
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'p') { e.preventDefault(); setCmdPaletteOpen(v => !v); }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && key === 'p') { e.preventDefault(); setCmdPaletteOpen(v => !v); }
+      // Cmd+Shift+K and Cmd+/: Keyboard shortcuts overlay
+      if ((e.metaKey || e.ctrlKey) && ((e.shiftKey && key === 'k') || key === '/')) {
+        e.preventDefault();
+        setShortcutsOpen(v => !v);
+        return;
+      }
       // Cmd+K: also opens palette (common shortcut)
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && !e.shiftKey) { e.preventDefault(); setCmdPaletteOpen(v => !v); }
+      if ((e.metaKey || e.ctrlKey) && key === 'k' && !e.shiftKey) { e.preventDefault(); setCmdPaletteOpen(v => !v); return; }
       // Cmd+O: Open folder on connected machine
-      if ((e.metaKey || e.ctrlKey) && e.key === 'o' && !e.shiftKey) { e.preventDefault(); setFolderPickerOpen(v => !v); }
+      if ((e.metaKey || e.ctrlKey) && key === 'o' && !e.shiftKey) { e.preventDefault(); setFolderPickerOpen(v => !v); }
     }
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
@@ -286,7 +419,7 @@ export default function App() {
       if (treeData?.tree) {
         const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
         setFileTree(children);
-        setChangedFiles(treeData.changedFiles || []);
+        setChangedFiles(normalizeChangedEntries(treeData.porcelain || treeData.changedFiles));
       }
     } catch { /* failed to load */ }
     // Switch to IDE mode to show the files
@@ -373,7 +506,7 @@ export default function App() {
           if (treeData?.tree) {
             const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
             setFileTree(children);
-            setChangedFiles(treeData.changedFiles || []);
+            setChangedFiles(normalizeChangedEntries(treeData.porcelain || treeData.changedFiles));
           }
         } catch (err) {
           console.error('Failed to auto-fetch file tree:', err);
@@ -394,14 +527,11 @@ export default function App() {
   function handleWorkspaceResponse(response) {
     if (response.type === 'FILE_TREE') {
       setFileTree(response.payload?.tree);
-      setChangedFiles(response.payload?.changedFiles || []);
+      setChangedFiles(normalizeChangedEntries(response.payload?.porcelain || response.payload?.changedFiles));
     }
     if (response.type === 'FILE_CHANGED') {
       const path = response.path;
-      setChangedFiles(prev => {
-        if (prev.includes(path)) return prev;
-        return [...prev, `M  ${path}`]; // Add mock git status for dot
-      });
+      setChangedFiles(prev => normalizeChangedEntries([...prev, { path, type: 'M' }]));
     }
   }
 
@@ -419,9 +549,7 @@ export default function App() {
         if (treeData?.tree) {
           const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
           setFileTree(children);
-          // If porcelain exists, use it for file tree coloring
-          if (treeData.porcelain) setChangedFiles(treeData.porcelain);
-          else if (treeData.changedFiles) setChangedFiles(treeData.changedFiles);
+          setChangedFiles(normalizeChangedEntries(treeData.porcelain || treeData.changedFiles));
         }
       } catch (err) {
         console.error('Failed to auto-fetch file tree:', err);
@@ -477,14 +605,14 @@ export default function App() {
 
   // AUTH GUARD: If not logged in and using Supabase, block internal routes
   const isAuthRequired = isSupabaseConfigured();
-  const isInternalRoute = path !== '/' && path !== '/connect' && path !== '/auth' && path !== '/core';
+  const isInternalRoute = path !== '/' && path !== '/docs' && path !== '/connect' && path !== '/code' && path !== '/auth' && path !== '/core';
   
   if (isAuthRequired && !user && !authLoading && isInternalRoute) {
     return <AuthScreen supabase={supabase} onAuth={() => navigate('/dashboard')} />;
   }
 
-  // /connect route
-  if (path === '/connect') {
+  // /connect and /code routes
+  if (path === '/connect' || path === '/code') {
     return (
       <ErrorBoundary name="Connect Page">
         <Suspense fallback={routeLoader}><ConnectPage getParam={getParam} navigate={navigate} /></Suspense>
@@ -502,6 +630,15 @@ export default function App() {
     return (
       <ErrorBoundary name="Landing Page">
         <Suspense fallback={routeLoader}><LandingPage navigate={navigate} theme={theme} setTheme={setTheme} themes={THEMES} /></Suspense>
+      </ErrorBoundary>
+    );
+  }
+
+  // /docs route
+  if (path === '/docs') {
+    return (
+      <ErrorBoundary name="Docs Page">
+        <Suspense fallback={routeLoader}><DocsPage navigate={navigate} /></Suspense>
       </ErrorBoundary>
     );
   }
@@ -554,17 +691,20 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col bg-bg-base overflow-hidden">
       {/* Nav */}
-      <nav className="h-11 bg-bg-surface border-b border-border-subtle flex items-center px-3 gap-3 shrink-0 z-10">
+      <nav className="h-14 bg-bg-surface/95 border-b border-border-subtle flex items-center px-4 gap-3 shrink-0 z-10 backdrop-blur-sm">
         {/* Logo */}
-        <div className="flex items-center gap-2 mr-2">
-          <div className="w-6 h-6 rounded-md bg-accent flex items-center justify-center shrink-0">
-            <Terminal size={12} className="text-white" />
+        <div className="flex items-center gap-2.5 mr-1 shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center shrink-0">
+            <Terminal size={14} className="text-accent" />
           </div>
-          <span className="text-text-pri font-ui font-semibold text-sm tracking-tight hidden sm:block">soupz</span>
+          <div className="hidden sm:flex flex-col leading-tight">
+            <span className="text-text-pri font-ui font-semibold text-sm tracking-tight">Soupz</span>
+            <span className="text-text-faint font-ui text-[10px] uppercase tracking-wider">Command Studio</span>
+          </div>
         </div>
 
         {/* Mode toggle */}
-        <div className="flex items-center gap-0.5 bg-bg-base rounded-md p-0.5 border border-border-subtle">
+        <div className="flex items-center gap-1 bg-bg-base rounded-xl p-1 border border-border-subtle">
           <ModeBtn active={mode === 'simple'} onClick={() => setMode('simple')} icon={<Layers size={12} />} label="Chat" />
           <ModeBtn active={mode === 'builder'} onClick={() => setMode('builder')} icon={<Sparkles size={12} />} label="Build" />
           <ModeBtn active={mode === 'pro'}    onClick={() => setMode('pro')}    icon={<Code2 size={12} />}  label="Code" />
@@ -576,7 +716,7 @@ export default function App() {
         {/* Command Palette trigger */}
         <button
           onClick={() => setCmdPaletteOpen(true)}
-          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-text-faint hover:text-text-sec hover:bg-bg-elevated transition-all border border-transparent hover:border-border-subtle"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-text-faint hover:text-text-sec hover:bg-bg-elevated transition-all border border-border-subtle/70"
           title="Command Palette (Cmd+Shift+P)"
         >
           <Search size={13} />
@@ -590,7 +730,7 @@ export default function App() {
         <div className="relative">
           <button
             onClick={() => setThemeOpen(o => !o)}
-            className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-text-faint hover:text-text-sec hover:bg-bg-elevated transition-all"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-text-faint hover:text-text-sec hover:bg-bg-elevated transition-all border border-border-subtle/70"
             title="Change theme"
           >
             <CurrentThemeIcon size={13} />
@@ -768,6 +908,9 @@ export default function App() {
       <Suspense fallback={null}>
         <OnboardingOverlay />
       </Suspense>
+
+      <KeyboardShortcuts open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <NotificationToast />
     </div>
   );
 }
@@ -777,10 +920,10 @@ function ModeBtn({ active, onClick, icon, label }) {
     <button
       onClick={onClick}
       className={cn(
-        'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-ui font-medium transition-all',
+        'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-ui font-medium transition-all',
         active
-          ? 'bg-bg-elevated text-text-pri border border-border-subtle'
-          : 'text-text-faint hover:text-text-sec',
+          ? 'bg-accent/12 text-accent border border-accent/25'
+          : 'text-text-faint hover:text-text-sec hover:bg-bg-elevated/60',
       )}
     >
       {icon}
@@ -795,7 +938,7 @@ function WorkspaceStatus({ online, machine, navigate, onShowShare }) {
       type="button"
       onClick={() => {
         if (online) onShowShare?.();
-        else navigate('/connect');
+        else navigate('/code');
       }}
       title={online
         ? `Click to show pairing code for ${machine || 'your machine'}`
@@ -834,7 +977,7 @@ function WorkspaceOfflineBanner({ navigate }) {
           View demo
         </button>
         <button
-          onClick={() => navigate('/connect')}
+          onClick={() => navigate('/code')}
           className="text-accent hover:text-accent-hover transition-colors"
         >
           Connect

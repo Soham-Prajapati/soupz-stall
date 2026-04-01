@@ -127,7 +127,7 @@ function buildConnectUrl(pairingCode, remoteBaseUrl) {
     const base = ctx.webappBaseUrl.replace(/\/$/, '');
     const params = new URLSearchParams({ code: pairingCode });
     if (remoteBaseUrl) params.set('remote', remoteBaseUrl);
-    return `${base}/connect?${params.toString()}`;
+    return `${base}/code?${params.toString()}`;
 }
 
 /** Auto-refresh: generate a new code and display it, repeat every 5 minutes */

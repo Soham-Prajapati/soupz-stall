@@ -2,10 +2,13 @@ import { mkdir, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
 import os from 'os';
+import { gzipSync } from 'zlib';
 import { REPO_ROOT } from './shared.js';
 
 const DEFAULT_RELATIVE_DIR = process.env.SOUPZ_ARCHIVE_DIR || '.soupz/output';
 const FALLBACK_RELATIVE_DIR = '_soupz_output';
+const ARCHIVE_COMPRESS_MIN_BYTES = Math.max(4096, Number.parseInt(process.env.SOUPZ_ARCHIVE_COMPRESS_MIN_BYTES || '32768', 10) || 32768);
+const ARCHIVE_KEEP_PLAIN = process.env.SOUPZ_ARCHIVE_KEEP_PLAIN === '1';
 
 function sanitizeSegment(input) {
   return String(input || '')
@@ -58,6 +61,23 @@ function buildSummary(order) {
   };
 }
 
+function buildArchivePayloads(name, content, { compress = false } = {}) {
+  const raw = Buffer.from(String(content || ''), 'utf8');
+  if (!compress || raw.length < ARCHIVE_COMPRESS_MIN_BYTES) {
+    return [{ name, data: raw }];
+  }
+
+  const zipped = gzipSync(raw, { level: 9 });
+  if (ARCHIVE_KEEP_PLAIN) {
+    return [
+      { name, data: raw },
+      { name: `${name}.gz`, data: zipped },
+    ];
+  }
+
+  return [{ name: `${name}.gz`, data: zipped }];
+}
+
 export async function archiveOrderResult(order) {
   if (!order || !order.finishedAt) return;
   try {
@@ -74,23 +94,23 @@ export async function archiveOrderResult(order) {
     await mkdir(folderPath, { recursive: true });
 
     const files = [];
-    files.push({ name: 'summary.json', content: JSON.stringify(buildSummary(order), null, 2) });
+    files.push(...buildArchivePayloads('summary.json', JSON.stringify(buildSummary(order), null, 2)));
     if (order.prompt) {
-      files.push({ name: 'prompt.md', content: `# Prompt\n\n${order.prompt}\n` });
+      files.push(...buildArchivePayloads('prompt.md', `# Prompt\n\n${order.prompt}\n`));
     }
     if (order.stdout) {
-      files.push({ name: 'stdout.txt', content: order.stdout });
+      files.push(...buildArchivePayloads('stdout.txt', order.stdout, { compress: true }));
     }
     if (order.stderr) {
-      files.push({ name: 'stderr.txt', content: order.stderr });
+      files.push(...buildArchivePayloads('stderr.txt', order.stderr, { compress: true }));
     }
     if (Array.isArray(order.events) && order.events.length > 0) {
       const ndjson = order.events.map((evt) => JSON.stringify(evt)).join('\n');
-      files.push({ name: 'events.ndjson', content: `${ndjson}\n` });
+      files.push(...buildArchivePayloads('events.ndjson', `${ndjson}\n`, { compress: true }));
     }
 
-    await Promise.all(files.map(({ name, content }) =>
-      writeFile(join(folderPath, name), content, 'utf8')));
+    await Promise.all(files.map(({ name, data }) =>
+      writeFile(join(folderPath, name), data)));
   } catch (err) {
     console.warn(`[archive] Failed to persist run for order ${order?.id || 'unknown'}: ${err.message}`);
   }

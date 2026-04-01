@@ -12,7 +12,7 @@ npx soupz-cockpit    # alias: npx soupz
 ```
 
 ### 2. Pair
-Open your browser to `soupz.vercel.app`. Scan the QR code from your terminal, or enter the 9-character pairing code.
+Open your browser to `https://soupz.vercel.app/code`. Scan the QR code from your terminal, or enter the 9-character pairing code.
 
 ### 3. Build
 - **Chat Mode**: Send prompts to your AI agents, get real-time responses
@@ -48,9 +48,11 @@ Open your browser to `soupz.vercel.app`. Scan the QR code from your terminal, or
 ## Documentation
 
 - [Setup & Troubleshooting](docs/SETUP.md)
-- [System Architecture](docs/CURRENT_SYSTEM.md)
+- [System Architecture](docs/architecture/SYSTEM_ARCHITECTURE.md)
 - [Runtime Changelog](docs/RUNTIME_CHANGELOG.md)
 - [Project Overview](PROJECT_OVERVIEW.md)
+- [Model Selection and Grading](docs/guides/MODEL_SELECTION_AND_GRADING.md)
+- [Owner Action Checklist](docs/guides/OWNER_ACTION_CHECKLIST.md)
 
 ## License
 

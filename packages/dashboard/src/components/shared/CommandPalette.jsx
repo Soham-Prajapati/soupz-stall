@@ -18,6 +18,7 @@ const ACTIONS = [
   { id: 'voice-input',      label: 'Start Voice Input',       icon: Mic,             shortcut: '',         group: 'Chat' },
   { id: 'tts-toggle',       label: 'Toggle TTS Engine',       icon: Volume2,         shortcut: '',         group: 'Chat' },
   { id: 'agent-gemini',     label: 'Switch to Gemini',        icon: Sparkles,        shortcut: '',         group: 'Agents' },
+  { id: 'agent-codex',      label: 'Switch to Codex',         icon: Code2,           shortcut: '',         group: 'Agents' },
   { id: 'agent-claude',     label: 'Switch to Claude Code',   icon: BrainCircuit,    shortcut: '',         group: 'Agents' },
   { id: 'agent-copilot',    label: 'Switch to Copilot',       icon: Github,          shortcut: '',         group: 'Agents' },
   { id: 'agent-ollama',     label: 'Switch to Ollama',        icon: Cpu,             shortcut: '',         group: 'Agents' },
@@ -88,7 +89,7 @@ export default function CommandPalette({ open, onClose, onAction }) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
+    <div className="fixed inset-0 z-[140] flex items-start justify-center pt-[15vh]">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 

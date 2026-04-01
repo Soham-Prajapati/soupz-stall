@@ -5,6 +5,17 @@ const modelCache = new Map();
 const CACHE_TTL = 24 * 60 * 60 * 1000;
 
 const PROBE_STRATEGIES = {
+    codex: {
+        probe: () => {
+            const result = execSync(
+                'gh copilot -- -p "list all available models. respond with ONLY a comma-separated list of model IDs, nothing else" --model gpt-5.1-codex-mini --allow-all-tools 2>/dev/null',
+                { timeout: 30000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+            );
+            const match = result.match(/[\w.-]+(?:,\s*[\w.-]+)+/);
+            return match ? match[0].split(',').map(m => m.trim()).filter(Boolean) : [];
+        },
+        fallback: ['gpt-4.1', 'gpt-5-mini', 'gpt-5.1-codex-mini'],
+    },
     copilot: {
         probe: () => {
             const result = execSync(

@@ -20,7 +20,7 @@ routing_keywords:
 auth_command: ""
 logout_command: ""
 status_command: "ollama list"
-build_args: ["run", "llama3.1", "{prompt}"]
+build_args: ["run", "qwen2.5:1.5b", "{prompt}"]
 grade: 45
 usage_count: 0
 ---

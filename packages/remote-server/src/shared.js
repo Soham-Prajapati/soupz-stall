@@ -118,6 +118,13 @@ export const wsConnectionsPerIp = new Map(); // ip -> count
 
 export const WEB_AGENT_ALIASES = new Map([
     ['soupz-workflow', 'soupz-soupz'],
+    ['codex-cli', 'codex'],
+    ['openai-codex', 'codex'],
+    ['gqt', 'codex'],
+    ['gpt', 'codex'],
+    ['code-kito', 'kiro'],
+    ['code-kito-cli', 'kiro'],
+    ['kito', 'kiro'],
 ]);
 
 // In-memory order tracking for web dashboard workflow
@@ -172,17 +179,29 @@ export const ORDER_STREAM_CHUNK_MAX = Math.max(512, Number.parseInt(process.env.
 // Agent binary map for checking availability at order time
 export const AGENT_BINARY_MAP = {
     'gemini': 'gemini',
+    'codex': 'gh',
     'claude-code': 'claude',
     'copilot': 'gh',
     'kiro': 'kiro-cli',
     'ollama': 'ollama',
 };
+export const OLLAMA_REQUIRED_MODEL = (process.env.SOUPZ_OLLAMA_REQUIRED_MODEL || 'qwen2.5:1.5b').trim();
+const OLLAMA_RUNTIME_CACHE = { at: 0, status: null };
+const CODEX_MODEL_HINTS = String(
+    process.env.SOUPZ_CODEX_MODEL_HINTS ||
+    'gpt-5.3-codex,gpt-5.1-codex,gpt-5.1-codex-mini,codex'
+)
+    .split(',')
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+const CODEX_RUNTIME_CACHE = { at: 0, status: null };
 
 export const AUTO_ENABLE_KIRO = process.env.SOUPZ_ENABLE_KIRO_AUTO === 'true';
 export const DEFAULT_DEEP_WORKERS = Math.max(1, Number.parseInt(process.env.SOUPZ_DEEP_WORKER_COUNT || '4', 10) || 4);
 export const DEFAULT_SPECIALIST_SEQUENCE = ['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security'];
 export const AGENT_SPECIALIST_ALLOWLIST = {
     'ollama': new Set(['researcher', 'analyst']),
+    'codex': new Set(['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security']),
     'copilot': new Set(['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security']),
     'gemini': new Set(['researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator']),
     'claude-code': new Set(['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security']),
@@ -190,6 +209,7 @@ export const AGENT_SPECIALIST_ALLOWLIST = {
 };
 export const DEFAULT_SPECIALIST_BY_AGENT = {
     'ollama': 'researcher',
+    'codex': 'developer',
     'copilot': 'developer',
     'gemini': 'analyst',
     'claude-code': 'architect',
@@ -197,7 +217,7 @@ export const DEFAULT_SPECIALIST_BY_AGENT = {
 };
 
 // Ordered fallback chain — try free agents first
-export const AGENT_FALLBACK_CHAIN = ['gemini', 'copilot', 'ollama', 'claude-code'];
+export const AGENT_FALLBACK_CHAIN = ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'];
 export const MAX_DEEP_WORKERS = Math.max(
     DEFAULT_DEEP_WORKERS,
     Number.parseInt(process.env.SOUPZ_DEEP_WORKER_MAX || '64', 10) || 64,
@@ -690,17 +710,22 @@ export function resolveRunAgent(requestedAgent, allowedAgents = null) {
 
     // If requested agent is installed, use it
     if (requestedAgent !== 'auto' && isAllowed(requestedAgent) && isAgentInstalled(requestedAgent)) {
-        return { agent: requestedAgent, fallback: false };
+        const requestedState = getAgentRuntimeReadiness(requestedAgent);
+        if (requestedState.ready) {
+            return { agent: requestedAgent, fallback: false };
+        }
     }
     // Otherwise, walk the fallback chain
     for (const candidate of AGENT_FALLBACK_CHAIN) {
-        if (isAllowed(candidate) && isAgentInstalled(candidate)) {
+        if (!isAllowed(candidate) || !isAgentInstalled(candidate)) continue;
+        const state = getAgentRuntimeReadiness(candidate);
+        if (state.ready) {
             return { agent: candidate, fallback: requestedAgent !== 'auto', originalRequest: requestedAgent };
         }
     }
     // Last resort — try the configured web agent
     const envAgent = (process.env.SOUPZ_WEB_AGENT || 'gemini').trim();
-    if (isAllowed(envAgent)) {
+    if (isAllowed(envAgent) && getAgentRuntimeReadiness(envAgent).ready) {
         return { agent: envAgent, fallback: true, originalRequest: requestedAgent };
     }
 
@@ -713,7 +738,7 @@ export function resolveRunAgent(requestedAgent, allowedAgents = null) {
 
 export function getInstalledAgentsInPriorityOrder() {
     // Keep stronger coding-capable agents ahead of local tiny models for mixed-worker deep runs.
-    const ordered = ['gemini', 'copilot', 'claude-code', 'ollama', 'kiro'];
+    const ordered = ['gemini', 'codex', 'copilot', 'claude-code', 'ollama', 'kiro'];
     return ordered.filter((id) => isAgentInstalled(id));
 }
 
@@ -826,6 +851,7 @@ export function inferExecutionRole(agentId, prompt = '') {
     }
 
     const defaults = {
+        codex: 'developer',
         copilot: 'developer',
         gemini: 'analyst',
         ollama: 'researcher',
@@ -939,6 +965,41 @@ export function nestedFocusSummary(specialist) {
     return map[specialist] || 'validate and improve this worker lane with concrete, actionable findings';
 }
 
+export function getCodexModelCapabilityStatus() {
+    const now = Date.now();
+    if (CODEX_RUNTIME_CACHE.status && (now - CODEX_RUNTIME_CACHE.at) < 30000) {
+        return CODEX_RUNTIME_CACHE.status;
+    }
+
+    try {
+        const raw = execSync('gh copilot models 2>/dev/null', {
+            timeout: 2500,
+            encoding: 'utf8',
+        }).trim().toLowerCase();
+
+        if (!raw) {
+            const state = { ready: true, reason: 'codex_models_probe_empty' };
+            CODEX_RUNTIME_CACHE.at = now;
+            CODEX_RUNTIME_CACHE.status = state;
+            return state;
+        }
+
+        const hasCodexModel = CODEX_MODEL_HINTS.some((token) => raw.includes(token));
+        const state = hasCodexModel
+            ? { ready: true, reason: 'codex_models_available' }
+            : { ready: false, reason: 'codex_model_unavailable', requiredHints: CODEX_MODEL_HINTS.slice(0, 6) };
+
+        CODEX_RUNTIME_CACHE.at = now;
+        CODEX_RUNTIME_CACHE.status = state;
+        return state;
+    } catch {
+        const state = { ready: true, reason: 'codex_models_probe_unavailable' };
+        CODEX_RUNTIME_CACHE.at = now;
+        CODEX_RUNTIME_CACHE.status = state;
+        return state;
+    }
+}
+
 export function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
     if (!isAgentInstalled(agentId)) {
         return { ready: false, reason: 'not_installed' };
@@ -965,16 +1026,67 @@ export function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
         }
     }
 
-    if (agentId === 'copilot') {
+    if (agentId === 'copilot' || agentId === 'codex') {
         try {
             execSync('gh auth status', { timeout: 2000, stdio: 'pipe' });
         } catch {
             return { ready: false, reason: 'gh_not_logged_in' };
         }
+
+        try {
+            const exts = execSync('gh extension list 2>/dev/null', { timeout: 2000, encoding: 'utf8' }).toString();
+            if (!exts.includes('copilot')) {
+                return { ready: false, reason: 'copilot_extension_missing' };
+            }
+        } catch {
+            return { ready: false, reason: 'copilot_extension_missing' };
+        }
+
+        if (agentId === 'codex') {
+            const codexState = getCodexModelCapabilityStatus();
+            if (!codexState.ready) {
+                return codexState;
+            }
+            if (codexState.reason && codexState.reason !== 'ready') {
+                return codexState;
+            }
+        }
     }
 
     if (agentId === 'kiro' && !AUTO_ENABLE_KIRO) {
         return { ready: false, reason: 'disabled_by_default' };
+    }
+
+    if (agentId === 'ollama') {
+        const now = Date.now();
+        if (OLLAMA_RUNTIME_CACHE.status && (now - OLLAMA_RUNTIME_CACHE.at) < 30000) {
+            return OLLAMA_RUNTIME_CACHE.status;
+        }
+
+        try {
+            const raw = execSync('curl -s --max-time 1 http://localhost:11434/api/tags 2>/dev/null', {
+                timeout: 2000,
+                encoding: 'utf8',
+            }).trim();
+            const parsed = JSON.parse(raw || '{}');
+            const models = Array.isArray(parsed.models)
+                ? parsed.models.map((m) => String(m?.name || '').trim()).filter(Boolean)
+                : [];
+
+            const hasRequiredModel = models.some((name) => name === OLLAMA_REQUIRED_MODEL || name.startsWith(`${OLLAMA_REQUIRED_MODEL}:`));
+            const state = hasRequiredModel
+                ? { ready: true, reason: 'ready', requiredModel: OLLAMA_REQUIRED_MODEL }
+                : { ready: false, reason: 'ollama_model_missing', requiredModel: OLLAMA_REQUIRED_MODEL, availableModels: models.slice(0, 15) };
+
+            OLLAMA_RUNTIME_CACHE.at = now;
+            OLLAMA_RUNTIME_CACHE.status = state;
+            return state;
+        } catch {
+            const state = { ready: false, reason: 'ollama_not_running', requiredModel: OLLAMA_REQUIRED_MODEL };
+            OLLAMA_RUNTIME_CACHE.at = now;
+            OLLAMA_RUNTIME_CACHE.status = state;
+            return state;
+        }
     }
 
     return { ready: true, reason: 'ready' };
@@ -1013,15 +1125,36 @@ export async function resolveAutoRunAgent(prompt, cwd = REPO_ROOT, allowedAgents
     }
 
     try {
-        const picked = await selectAgent(prompt, ready);
+        const explained = await selectAgent(prompt, ready, { withJustification: true });
+        const picked = explained?.agent;
         if (picked && ready.includes(picked)) {
-            return { agent: picked, method: 'classifier', available: installed, ready, skipped };
+            return {
+                agent: picked,
+                method: explained?.method || 'reasoning-scorecard',
+                available: installed,
+                ready,
+                skipped,
+                justification: explained?.justification || null,
+                confidence: explained?.confidence ?? null,
+            };
         }
     } catch {
         // Fall through to deterministic fallback.
     }
 
-    return { agent: ready[0], method: 'priority-fallback', available: installed, ready, skipped };
+    return {
+        agent: ready[0],
+        method: 'priority-fallback',
+        available: installed,
+        ready,
+        skipped,
+        justification: {
+            selected: ready[0],
+            reason: 'Classifier unavailable; selected first runtime-ready agent by stable priority order.',
+            candidates: ready.map((agentId, idx) => ({ agent: agentId, score: Math.max(0, 100 - (idx * 10)) })),
+            signals: [],
+        },
+    };
 }
 
 export function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WORKERS, cwd = REPO_ROOT, deepPolicy = {}, allowedAgents = null) {
@@ -1324,77 +1457,133 @@ export function getSystemHealth() {
     };
 }
 
-// ─── Agent classifier ─────────────────────────────────────────────────────────
+// ─── Agent classifier (deterministic + explainable) ─────────────────────────
 
-// Routing priority:
-// 1. Try GitHub Copilot locally for classification
-// 2. Try Ollama locally for classification
-// 3. Keyword matching
-// 4. Default to 'gemini'
+const ROUTING_SIGNALS = {
+    code: ['code', 'function', 'bug', 'fix', 'debug', 'implement', 'typescript', 'javascript', 'python', 'module', 'feature'],
+    architecture: ['architecture', 'system design', 'tradeoff', 'boundary', 'scalable', 'design pattern', 'refactor'],
+    research: ['research', 'analyze', 'benchmark', 'compare', 'insight', 'study', 'market', 'summarize'],
+    github: ['github', 'pull request', 'pr', 'issue', 'workflow', 'action', 'merge', 'branch', 'commit'],
+    devops: ['devops', 'infra', 'deploy', 'docker', 'kubernetes', 'k8s', 'terraform', 'pipeline', 'ci', 'cd', 'aws', 'gcp', 'azure'],
+    privacy: ['local', 'offline', 'privacy', 'on-device', 'airgapped', 'no cloud'],
+    product: ['ux', 'ui', 'design', 'user journey', 'persona', 'prototype', 'content', 'copy'],
+    security: ['security', 'auth', 'authorization', 'threat', 'vulnerability', 'compliance', 'privacy policy'],
+};
 
-export async function selectAgent(prompt, availableAgents) {
-    // 1. Try GitHub Copilot (most capable classification)
-    try {
-        const classifyPrompt = `Task classifier. Reply with ONLY the agent id from the list, no explanation.
-Given this task: "${prompt.slice(0, 300)}"
-Pick the best agent from this list: ${availableAgents.join(', ')}
-Reply with ONLY the agent id.`;
+const AGENT_SIGNAL_WEIGHTS = {
+    codex:       { code: 1.35, architecture: 1.2, research: 0.8, github: 1.0, devops: 0.85, privacy: 0.5, product: 0.7, security: 1.0 },
+    gemini:      { code: 0.95, architecture: 1.0, research: 1.4, github: 0.75, devops: 0.8, privacy: 0.55, product: 1.15, security: 0.95 },
+    copilot:     { code: 1.1, architecture: 0.95, research: 0.75, github: 1.4, devops: 1.0, privacy: 0.45, product: 0.7, security: 0.85 },
+    'claude-code': { code: 1.25, architecture: 1.35, research: 0.95, github: 0.85, devops: 0.95, privacy: 0.5, product: 1.0, security: 1.35 },
+    kiro:        { code: 0.85, architecture: 1.0, research: 0.75, github: 0.65, devops: 1.45, privacy: 0.5, product: 0.6, security: 0.9 },
+    ollama:      { code: 0.8, architecture: 0.8, research: 0.75, github: 0.55, devops: 0.7, privacy: 1.5, product: 0.65, security: 0.8 },
+};
 
-        const out = execSync(
-            `gh copilot suggest -t shell ${JSON.stringify(classifyPrompt)} 2>/dev/null`,
-            { timeout: 5000, encoding: 'utf8' }
-        ).trim();
+function normalizeText(text = '') {
+    return String(text || '').toLowerCase();
+}
 
-        // Look for any of the available agent IDs in the output
-        const lowerOut = out.toLowerCase();
-        
-        // Priority for claude-code if output contains 'claude'
-        if (availableAgents.includes('claude-code') && lowerOut.includes('claude')) {
-            return 'claude-code';
+function scorePromptSignals(prompt = '') {
+    const lower = normalizeText(prompt);
+    const signals = [];
+    for (const [signal, keywords] of Object.entries(ROUTING_SIGNALS)) {
+        const matched = keywords.filter((kw) => lower.includes(kw));
+        if (matched.length > 0) {
+            signals.push({ signal, hits: matched.length, keywords: matched.slice(0, 6) });
         }
+    }
+    return signals;
+}
 
-        for (const agent of availableAgents) {
-            const lowerAgent = agent.toLowerCase();
-            if (lowerOut.includes(lowerAgent)) {
-                return agent;
+function buildAgentScorecard(prompt = '', availableAgents = []) {
+    const signalScores = scorePromptSignals(prompt);
+    const signalMap = new Map(signalScores.map((item) => [item.signal, item.hits]));
+    const lowerPrompt = normalizeText(prompt);
+    const isComplexPrompt = /\b(complex|end-to-end|full stack|production|architecture|orchestration|multi-service|distributed)\b/.test(lowerPrompt);
+    const isBasicAuditPrompt = /\b(test|qa|check|checklist|report|summary|track|monitor|log|lint output|error report)\b/.test(lowerPrompt);
+    const candidates = [];
+
+    for (const agent of availableAgents) {
+        const weights = AGENT_SIGNAL_WEIGHTS[agent] || {};
+        let score = 0;
+        const reasons = [];
+
+        for (const [signal, hits] of signalMap.entries()) {
+            const weight = Number(weights[signal] || 0.5);
+            const contribution = hits * weight;
+            score += contribution;
+            if (contribution > 0) {
+                reasons.push(`${signal} x${hits} @ ${weight.toFixed(2)}`);
             }
         }
-    } catch { /* Copilot unavailable or failed */ }
 
-    // 2. Try Ollama locally
-    try {
-        const res = await fetch('http://localhost:11434/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: 'qwen2.5:0.5b',
-                prompt: `Given this task: "${prompt}", which agent should handle it? Options: ${availableAgents.join(', ')}. Reply with ONLY the agent id, nothing else.`,
-                stream: false,
-            }),
-            signal: AbortSignal.timeout(5000),
-        });
-        const data = await res.json();
-        const picked = data.response?.trim().toLowerCase();
-        if (availableAgents.includes(picked)) return picked;
-    } catch { /* Ollama not running */ }
-
-    // 3. Keyword matching (fastest fallback)
-    const keywords = {
-        'claude-code': ['code', 'function', 'bug', 'refactor', 'implement', 'fix', 'typescript', 'javascript'],
-        'gemini': ['analyze', 'research', 'explain', 'document', 'summarize'],
-        'copilot': ['github', 'pull request', 'issue', 'workflow', 'action'],
-        'ollama': [], // local-only tasks
-    };
-    for (const [agent, words] of Object.entries(keywords)) {
-        if (words.some(w => prompt.toLowerCase().includes(w))) {
-            if (availableAgents.includes(agent)) return agent;
+        const complexityBoost = isComplexPrompt ? 0.35 : 0;
+        if (complexityBoost > 0 && (agent === 'codex' || agent === 'claude-code' || agent === 'gemini')) {
+            score += complexityBoost;
+            reasons.push(`complexity bonus ${complexityBoost.toFixed(2)}`);
         }
+
+        if (isComplexPrompt && agent === 'ollama') {
+            score -= 0.6;
+            reasons.push('complexity penalty -0.60');
+        }
+
+        if (isBasicAuditPrompt && agent === 'ollama') {
+            score += 0.45;
+            reasons.push('low-cost audit bonus 0.45');
+        }
+
+        candidates.push({
+            agent,
+            score: Number(score.toFixed(3)),
+            reasons,
+        });
     }
 
-    // 4. Default: Return best available in priority order
-    const priority = ['claude-code', 'gemini', 'copilot', 'ollama'];
-    for (const p of priority) {
-        if (availableAgents.includes(p)) return p;
+    candidates.sort((a, b) => b.score - a.score);
+    return { signalScores, candidates };
+}
+
+export function explainAgentSelection(prompt = '', availableAgents = []) {
+    const agents = Array.isArray(availableAgents) ? availableAgents.filter(Boolean) : [];
+    if (agents.length === 0) {
+        return {
+            agent: 'gemini',
+            confidence: 0,
+            method: 'reasoning-scorecard-v2',
+            justification: {
+                selected: 'gemini',
+                reason: 'No available agents supplied; using safe default.',
+                candidates: [],
+                signals: [],
+            },
+        };
     }
-    return availableAgents[0] || 'gemini';
+
+    const { signalScores, candidates } = buildAgentScorecard(prompt, agents);
+    const selected = candidates[0]?.agent || agents[0];
+    const top = candidates[0]?.score || 0;
+    const second = candidates[1]?.score || 0;
+    const margin = Math.max(0, top - second);
+    const confidence = Math.max(0.2, Math.min(0.98, 0.5 + (margin * 0.15)));
+
+    return {
+        agent: selected,
+        confidence: Number(confidence.toFixed(2)),
+        method: 'reasoning-scorecard-v2',
+        justification: {
+            selected,
+            reason: candidates.length > 1
+                ? `Selected ${selected} with highest score (${top.toFixed(2)}) over ${candidates[1].agent} (${second.toFixed(2)}).`
+                : `Selected ${selected} as the only available agent.`,
+            candidates: candidates.map((c) => ({ agent: c.agent, score: c.score, reasons: c.reasons.slice(0, 4) })),
+            signals: signalScores,
+        },
+    };
+}
+
+export async function selectAgent(prompt, availableAgents, options = {}) {
+    const explained = explainAgentSelection(prompt, availableAgents);
+    if (options?.withJustification) return explained;
+    return explained.agent;
 }

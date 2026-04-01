@@ -55,7 +55,14 @@ export default function AdminPage({ user, navigate }) {
           .limit(500);
 
         const agentCounts = {};
-        const AGENT_COLORS = { gemini: '#4285F4', copilot: '#6E40C9', ollama: '#888888', 'claude-code': '#D97706', kiro: '#10B981' };
+        const AGENT_COLORS = {
+          gemini: '#4285F4',
+          codex: '#10B981',
+          copilot: '#6E40C9',
+          ollama: '#888888',
+          'claude-code': '#D97706',
+          kiro: '#F59E0B',
+        };
         (agentData || []).forEach(row => {
           const agent = row.run_agent || 'unknown';
           agentCounts[agent] = (agentCounts[agent] || 0) + 1;

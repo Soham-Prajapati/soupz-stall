@@ -8,6 +8,22 @@ import { getLearnedWeight } from './learning.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const tierTracking = new Map(); // agentId -> { requestsToday, lastRateLimit, cooldownUntil }
+const AGENT_USAGE_LIMIT_MODE = {
+  gemini: 'free-tier-quota',
+  codex: 'plan-quota',
+  copilot: 'plan-quota',
+  'claude-code': 'subscription',
+  kiro: 'subscription',
+  ollama: 'local-unlimited',
+};
+
+function hasUnlimitedUsage(agentId) {
+  return AGENT_USAGE_LIMIT_MODE[agentId] === 'local-unlimited';
+}
+
+export function getAgentUsageLimitMode(agentId) {
+  return AGENT_USAGE_LIMIT_MODE[agentId] || 'unknown';
+}
 
 /**
  * Report that an agent has been rate-limited.
@@ -15,6 +31,7 @@ const tierTracking = new Map(); // agentId -> { requestsToday, lastRateLimit, co
  * @param {string} agentId
  */
 export function reportRateLimit(agentId) {
+  if (hasUnlimitedUsage(agentId)) return;
   const entry = tierTracking.get(agentId) || { requestsToday: 0, lastRateLimit: 0, cooldownUntil: 0 };
   entry.lastRateLimit = Date.now();
   entry.cooldownUntil = Date.now() + 5 * 60 * 1000; // 5 min cooldown
@@ -27,6 +44,7 @@ export function reportRateLimit(agentId) {
  * @returns {boolean}
  */
 export function isAgentCoolingDown(agentId) {
+  if (hasUnlimitedUsage(agentId)) return false;
   const entry = tierTracking.get(agentId);
   if (!entry) return false;
   const now = Date.now();
@@ -57,6 +75,10 @@ const AGENT_ROUTING_KEYWORDS = {
     'github', 'pull request', 'pr', 'issue', 'commit', 'diff', 'merge',
     'branch', 'workflow', 'actions', 'ci', 'cd', 'pipeline',
     'complete', 'autocomplete', 'snippet', 'boilerplate', 'scaffold',
+  ],
+  'codex': [
+    'codex', 'refactor', 'bug', 'fix', 'debug', 'test', 'typescript', 'javascript',
+    'implementation', 'module', 'architecture', 'code review', 'codebase',
   ],
   'kiro': [
     'aws', 'cloud', 'lambda', 's3', 'ec2', 'deploy', 'infra',
@@ -240,17 +262,17 @@ export function detectIntent(prompt) {
 // ---------------------------------------------------------------------------
 
 // Default fallback agent ordering (by general capability breadth)
-const DEFAULT_AGENT_ORDER = ['gemini', 'copilot', 'ollama', 'claude-code', 'kiro'];
+const DEFAULT_AGENT_ORDER = ['gemini', 'codex', 'copilot', 'ollama', 'claude-code', 'kiro'];
 
 // Category → preferred CLI agents (ordered by preference, first available wins)
 const CATEGORY_PREFERRED_AGENTS = {
-  code:     ['gemini', 'copilot', 'ollama', 'claude-code'],
-  design:   ['gemini', 'copilot', 'ollama', 'claude-code'],
-  research: ['gemini', 'copilot', 'ollama', 'claude-code'],
-  strategy: ['gemini', 'copilot', 'ollama', 'claude-code'],
-  content:  ['gemini', 'copilot', 'ollama', 'claude-code'],
-  business: ['gemini', 'copilot', 'ollama', 'claude-code'],
-  general:  ['gemini', 'copilot', 'ollama', 'claude-code'],
+  code:     ['codex', 'gemini', 'copilot', 'ollama', 'claude-code'],
+  design:   ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'],
+  research: ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'],
+  strategy: ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'],
+  content:  ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'],
+  business: ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'],
+  general:  ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'],
 };
 
 // Legacy single-agent mapping (for backwards compat)
@@ -262,6 +284,7 @@ const CATEGORY_PREFERRED_AGENT = Object.fromEntries(
 const AGENT_CAPABILITIES = {
   'claude-code': { strengths: ['code', 'design', 'architecture', 'refactoring', 'security'], weaknesses: [], tier: 'premium', reliable: true, optional: true, description: 'Premium agent - enhances Soupz but not required' },
   'gemini':      { strengths: ['research', 'multimodal', 'content', 'analysis', 'search'], weaknesses: [], tier: 'free', reliable: true },
+  'codex':       { strengths: ['code', 'reasoning', 'refactoring', 'debugging', 'architecture'], weaknesses: [], tier: 'freemium', reliable: true },
   'copilot':     { strengths: ['github', 'code-completion', 'pr-reviews', 'scaffolding'], weaknesses: ['architecture'], tier: 'freemium', reliable: true },
   'kiro':        { strengths: ['aws', 'cloud', 'serverless', 'devops'], weaknesses: ['general-code', 'non-aws'], tier: 'premium', reliable: false },
   'ollama':      { strengths: ['privacy', 'offline', 'local'], weaknesses: ['complex-reasoning', 'large-context'], tier: 'free', reliable: true },
@@ -474,7 +497,7 @@ export async function selectAgentWithOllama(prompt, availableAgents) {
 const DAEMON_URL = 'http://localhost:7533';
 
 /**
- * Use daemon's /api/classify endpoint (tries Copilot -> Gemini -> Ollama -> local).
+ * Use daemon's /api/classify endpoint (deterministic reasoned classification).
  * @param {string} prompt
  * @param {string[] | Record<string,boolean>} availableAgents
  * @returns {Promise<{ cliAgent: string, specialist: string, method: string } | null>}
@@ -494,7 +517,13 @@ export async function selectAgentWithDaemon(prompt, availableAgents) {
     });
     if (res.ok) {
       const data = await res.json();
-      return { cliAgent: data.cliAgent, specialist: data.specialist, method: data.method };
+      return {
+        cliAgent: data.cliAgent,
+        specialist: data.specialist,
+        method: data.method,
+        confidence: data.confidence,
+        justification: data.justification,
+      };
     }
   } catch { /* fall through */ }
 
@@ -509,7 +538,7 @@ export async function selectAgentWithDaemon(prompt, availableAgents) {
  * @returns {Promise<{ cliAgent: string, specialist: string, method: string }>}
  */
 export async function getAutoSelection(prompt, availableAgents, useOllama) {
-  // 1. Try daemon classify (Copilot -> Gemini -> Ollama cascade)
+  // 1. Try daemon classify (deterministic scorecard with runtime-ready filtering)
   const daemonResult = await selectAgentWithDaemon(prompt, availableAgents);
   if (daemonResult) return daemonResult;
 

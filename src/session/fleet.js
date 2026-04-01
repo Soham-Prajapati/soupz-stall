@@ -19,7 +19,7 @@ Determine:
    - "direct": A simple, straightforward task.
    - "subagent": A task with independent parts that can be done in parallel.
    - "team": A task requiring collaborative discussion, architectural planning, or complex multi-persona thinking (e.g. "design a system", "act as a team lead", "orchestrate this project").
-2. "primaryAgent": Best agent for this (prefer 'copilot' for logic, 'gemini' for frontend).
+2. "primaryAgent": Best agent for this (prefer 'gemini' for research/UI, 'codex' for deep code reasoning, 'copilot' for GitHub workflow tasks).
 
 Respond ONLY with a JSON object: {"strategy": "direct|subagent|team", "primaryAgent": "agentId"}
 
@@ -111,15 +111,31 @@ Request: "${prompt.slice(0, 1000)}"`;
 
     pickAgentForTask(taskText, available, forceZeroCost = true) {
         const lower = (taskText || '').toLowerCase();
-        const geminiSignals = /\b(ui|design|frontend|front-end|css|html|layout|visual|creative|style|color|animation|svg|image|icon|logo|illustration|landing|page|component|react|tailwind|responsive)\b/i;
-        const copilotSignals = /\b(backend|back-end|api|database|db|server|auth|login|security|test|debug|fix|bug|deploy|docker|ci|cd|node|express|route|endpoint|middleware|schema|migration|infrastructure|devops|config)\b/i;
-        const geminiScore = (lower.match(geminiSignals) || []).length;
-        const copilotScore = (lower.match(copilotSignals) || []).length;
-        const gemini = available.find(a => a.id === 'gemini');
-        const copilot = available.find(a => a.id === 'copilot');
-        let picked = copilot || available[0];
-        if (geminiScore > copilotScore && gemini) picked = gemini;
-        if (copilotScore > geminiScore && copilot) picked = copilot;
+        const geminiSignals = /\b(ui|design|frontend|front-end|css|html|layout|visual|creative|style|color|animation|svg|image|icon|logo|illustration|landing|page|component|react|tailwind|responsive|research|analysis|compare|summarize)\b/i;
+        const codexSignals = /\b(refactor|architecture|module|implementation|typescript|javascript|python|bug|fix|debug|test|code review|codebase)\b/i;
+        const copilotSignals = /\b(github|pull request|pr|issue|merge|commit|branch|workflow|actions|terminal|shell|cli|command|docker|ci|cd|pipeline)\b/i;
+        const ollamaSignals = /\b(local|offline|privacy|on-device|airgapped|no cloud)\b/i;
+
+        const score = (re) => ((lower.match(re) || []).length);
+        const scores = {
+            gemini: score(geminiSignals),
+            codex: score(codexSignals),
+            copilot: score(copilotSignals),
+            ollama: score(ollamaSignals),
+        };
+
+        const byId = (id) => available.find(a => a.id === id);
+        const candidates = Object.entries(scores)
+            .map(([id, taskScore]) => ({ id, taskScore, agent: byId(id) }))
+            .filter((entry) => entry.agent)
+            .sort((a, b) => b.taskScore - a.taskScore);
+
+        let picked = candidates[0]?.agent || byId('gemini') || byId('codex') || byId('copilot') || available[0];
+
+        if ((scores.gemini === 0 && scores.codex === 0 && scores.copilot === 0 && scores.ollama === 0) && byId('gemini')) {
+            picked = byId('gemini');
+        }
+
         if (forceZeroCost && picked.id === 'copilot') picked._forceModel = COPILOT_FAST_MODEL;
         return picked;
     },

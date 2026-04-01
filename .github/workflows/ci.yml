@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - release/**
+  push:
+    branches:
+      - main
+      - release/**
+      - hotfix/**
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+      - run: npm ci
+      - run: cd packages/dashboard && npm ci && npm run build
+      - run: node --check packages/remote-server/src/index.js
+      - run: node --check bin/soupz.js
+      - run: npm test
+      - name: Verify critical docs wiring
+        run: |
+          test -f docs/architecture/SYSTEM_ARCHITECTURE.md
+          test -f packages/dashboard/public/docs/architecture.md
+          grep -q "docs/architecture/SYSTEM_ARCHITECTURE.md" README.md
+          grep -q "docs/architecture/SYSTEM_ARCHITECTURE.md" PROJECT_OVERVIEW.md
+          grep -q "architecture/SYSTEM_ARCHITECTURE.md" docs/README.md
+
+  standalone-smoke:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+      - run: npm ci
+      - name: Backend standalone boot check
+        run: |
+          node packages/remote-server/src/index.js > /tmp/soupz-backend.log 2>&1 &
+          BACK_PID=$!
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:7070/health > /dev/null; then
+              echo "Backend healthy"
+              kill "$BACK_PID"
+              wait "$BACK_PID" || true
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend failed to become healthy"
+          cat /tmp/soupz-backend.log || true
+          kill "$BACK_PID" || true
+          wait "$BACK_PID" || true
+          exit 1
+      - name: Frontend standalone boot check
+        run: |
+          cd packages/dashboard
+          npm ci
+          npm run dev -- --host 127.0.0.1 --port 7534 > /tmp/soupz-frontend.log 2>&1 &
+          FRONT_PID=$!
+          for i in {1..25}; do
+            if curl -I -fsS http://127.0.0.1:7534 > /dev/null; then
+              echo "Frontend healthy"
+              kill "$FRONT_PID"
+              wait "$FRONT_PID" || true
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Frontend failed to become healthy"
+          cat /tmp/soupz-frontend.log || true
+          kill "$FRONT_PID" || true
+          wait "$FRONT_PID" || true
+          exit 1

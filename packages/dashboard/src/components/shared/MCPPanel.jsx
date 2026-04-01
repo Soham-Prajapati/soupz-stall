@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Plus, Trash2, Plug, ChevronDown, ChevronUp, Zap, Database, Check } from 'lucide-react';
+import { Plus, Trash2, Plug, ChevronDown, ChevronUp, Zap, Database } from 'lucide-react';
 
 const MCP_KEY = 'soupz_mcp_servers';
-const WORKSPACE_CONFIG_KEY = 'soupz_workspace_config';
 
 // Preset MCP servers for quick-add (verified package names)
 const MCP_PRESETS = [
@@ -52,13 +51,13 @@ function saveMCP(servers) {
   localStorage.setItem(MCP_KEY, JSON.stringify(servers));
 }
 
-function readWorkspaceConfig() {
-  try { return JSON.parse(localStorage.getItem(WORKSPACE_CONFIG_KEY) || '{}'); } catch { return {}; }
-}
+const ENV_TEMPLATE = `# Daemon (server-side)
+SUPABASE_URL=https://<project>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 
-function saveWorkspaceConfig(config) {
-  localStorage.setItem(WORKSPACE_CONFIG_KEY, JSON.stringify(config));
-}
+# Dashboard (client-side)
+VITE_SUPABASE_URL=https://<project>.supabase.co
+VITE_SUPABASE_ANON_KEY=<anon-key>`;
 
 const EMPTY_FORM = { name: '', url: '', description: '' };
 
@@ -69,11 +68,8 @@ export default function MCPPanel() {
   const [collapsed, setCollapsed] = useState(true);
   const [showPresets, setShowPresets] = useState(false);
 
-  // Database config state
-  const [workspaceConfig, setWorkspaceConfig] = useState(readWorkspaceConfig);
-  const [dbEditing, setDbEditing] = useState(false);
-  const [dbForm, setDbForm] = useState({ supabaseUrl: '', anonKey: '' });
   const [dbCollapsed, setDbCollapsed] = useState(true);
+  const [envCopied, setEnvCopied] = useState(false);
 
   function addServer() {
     if (!form.name.trim() || !form.url.trim()) return;
@@ -117,39 +113,14 @@ export default function MCPPanel() {
     return /^https?:\/\/|localhost|127\.0\.0\.1|^npx\s|^npm\s|^(node|python|ruby|go|cargo|java)/.test(url.trim());
   }
 
-  function saveDatabase() {
-    if (!dbForm.supabaseUrl.trim() || !dbForm.anonKey.trim()) return;
-    const config = { supabaseUrl: dbForm.supabaseUrl.trim(), anonKey: dbForm.anonKey.trim() };
-    setWorkspaceConfig(config);
-    saveWorkspaceConfig(config);
-    setDbEditing(false);
-    setDbForm({ supabaseUrl: '', anonKey: '' });
-  }
-
-  function clearDatabase() {
-    setWorkspaceConfig({});
-    saveWorkspaceConfig({});
-  }
-
-  function startEditingDatabase() {
-    setDbForm({
-      supabaseUrl: workspaceConfig.supabaseUrl || '',
-      anonKey: workspaceConfig.anonKey || ''
-    });
-    setDbEditing(true);
-  }
-
-  function cancelEditingDatabase() {
-    setDbEditing(false);
-    setDbForm({ supabaseUrl: '', anonKey: '' });
-  }
-
-  function handleDbKeyDown(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      saveDatabase();
+  async function copyEnvTemplate() {
+    try {
+      await navigator.clipboard.writeText(ENV_TEMPLATE);
+      setEnvCopied(true);
+      setTimeout(() => setEnvCopied(false), 2000);
+    } catch {
+      setEnvCopied(false);
     }
-    if (e.key === 'Escape') cancelEditingDatabase();
   }
 
   return (
@@ -161,13 +132,7 @@ export default function MCPPanel() {
       >
         <div className="flex items-center gap-2">
           <Database size={13} className="text-accent" />
-          <span className="text-xs font-ui font-medium text-text-sec">Connect Database</span>
-          {Object.keys(workspaceConfig).length > 0 && (
-            <span className="flex items-center gap-1 text-[10px] bg-success/10 text-success px-1.5 py-0.5 rounded font-mono">
-              <Check size={10} />
-              Connected
-            </span>
-          )}
+          <span className="text-xs font-ui font-medium text-text-sec">Database Setup (Env Only)</span>
         </div>
         {dbCollapsed
           ? <ChevronDown size={12} className="text-text-faint" />
@@ -178,82 +143,29 @@ export default function MCPPanel() {
       {!dbCollapsed && (
         <div className="px-4 py-4 space-y-3 border-b border-border-subtle">
           <p className="text-[11px] text-text-faint font-ui leading-relaxed">
-            Connect your Supabase project to enable database access in agents.
+            Supabase keys should not be entered in browser settings. Configure them in your <span className="font-mono">.env</span> file and restart the daemon/web app.
           </p>
 
-          {Object.keys(workspaceConfig).length > 0 && (
-            <div className="bg-success/5 border border-success/10 rounded-md px-2.5 py-1.5">
-              <p className="text-[11px] text-success/70 font-ui">
-                Database connected — configuration saved to workspace
-              </p>
-              <p className="text-[10px] text-text-faint mt-1 font-mono truncate">
-                {workspaceConfig.supabaseUrl}
-              </p>
-            </div>
-          )}
+          <pre className="bg-bg-base border border-border-subtle rounded-md p-2.5 text-[10px] leading-relaxed text-text-sec font-mono overflow-x-auto">
+{ENV_TEMPLATE}
+          </pre>
 
-          {dbEditing ? (
-            <div className="space-y-2">
-              <input
-                autoFocus
-                value={dbForm.supabaseUrl}
-                onChange={e => setDbForm(f => ({ ...f, supabaseUrl: e.target.value }))}
-                onKeyDown={handleDbKeyDown}
-                placeholder="Supabase URL (e.g. https://xxxxx.supabase.co)"
-                className="w-full bg-bg-base border border-border-subtle rounded-md px-2.5 py-1.5 text-xs font-ui text-text-pri placeholder:text-text-faint focus:outline-none focus:border-accent transition-colors"
-              />
-              <input
-                value={dbForm.anonKey}
-                onChange={e => setDbForm(f => ({ ...f, anonKey: e.target.value }))}
-                onKeyDown={handleDbKeyDown}
-                placeholder="Anon Key (public key from Supabase)"
-                className="w-full bg-bg-base border border-border-subtle rounded-md px-2.5 py-1.5 text-xs font-mono text-text-pri placeholder:text-text-faint focus:outline-none focus:border-accent transition-colors"
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={saveDatabase}
-                  disabled={!dbForm.supabaseUrl.trim() || !dbForm.anonKey.trim()}
-                  className="flex-1 py-1.5 rounded-md bg-accent text-white text-xs font-ui font-medium hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                >
-                  Save Database
-                </button>
-                <button
-                  onClick={cancelEditingDatabase}
-                  className="px-3 py-1.5 rounded-md border border-border-subtle text-text-faint text-xs font-ui hover:text-text-sec transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              {Object.keys(workspaceConfig).length > 0 ? (
-                <>
-                  <button
-                    onClick={startEditingDatabase}
-                    className="flex-1 py-1.5 rounded-md border border-border-subtle text-text-sec text-xs font-ui hover:border-accent hover:text-accent transition-all"
-                  >
-                    Edit Connection
-                  </button>
-                  <button
-                    onClick={clearDatabase}
-                    className="flex-1 py-1.5 rounded-md border border-danger/20 text-danger/70 text-xs font-ui hover:text-danger hover:border-danger/40 transition-all"
-                  >
-                    Disconnect
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={startEditingDatabase}
-                  className="w-full py-1.5 rounded-md border border-dashed border-border-mid text-text-faint text-xs font-ui hover:text-text-sec hover:border-border-strong transition-all"
-                >
-                  Add Supabase Credentials
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* T1 will implement POST /api/workspace/config */}
+          <div className="flex gap-2">
+            <button
+              onClick={copyEnvTemplate}
+              className="flex-1 py-1.5 rounded-md border border-border-subtle text-text-sec text-xs font-ui hover:border-accent hover:text-accent transition-all"
+            >
+              {envCopied ? 'Copied' : 'Copy .env Template'}
+            </button>
+            <a
+              href="/docs/quickstart.md"
+              target="_blank"
+              rel="noreferrer"
+              className="flex-1 text-center py-1.5 rounded-md border border-border-subtle text-text-sec text-xs font-ui hover:border-accent hover:text-accent transition-all"
+            >
+              Open Setup Doc
+            </a>
+          </div>
         </div>
       )}
 

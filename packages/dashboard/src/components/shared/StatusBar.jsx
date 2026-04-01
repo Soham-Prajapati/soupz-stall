@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   GitBranch, AlertCircle, AlertTriangle, Bell, Bot,
   Wifi, WifiOff, MessageSquare, Flame, Zap, Check,
-  BrainCircuit, Sparkles, Github, Cpu, X, ChevronUp,
+  BrainCircuit, Sparkles, Github, Cpu, X, ChevronUp, Code2,
   Radio, Clock, Terminal, RotateCcw, Circle,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
@@ -16,6 +16,7 @@ const AGENT_KEY   = 'soupz_agent';
 
 const AGENT_ICONS = {
   gemini: Sparkles,
+  codex: Code2,
   'claude-code': BrainCircuit,
   copilot: Github,
   kiro: Zap,

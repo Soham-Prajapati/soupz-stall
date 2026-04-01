@@ -49,6 +49,7 @@ import {
     inferExecutionRole,
     inferSpecialistsFromPrompt,
     estimateDeepWorkerCount,
+    getAgentRuntimeReadiness,
 } from './shared.js';
 import { startDeepOrchestratedOrder } from './deep-mode.js';
 import { archiveOrderResult } from './run-archive.js';
@@ -60,15 +61,15 @@ export function startSingleAgentOrder(order, runAgent, mcpServers) {
     const args = [CLI_ENTRY, 'ask', runAgent, order.prompt];
 
     // Map agent ID to CLI binary name for availability check
-    const AGENT_BINARY_MAP = { 'gemini': 'gemini', 'copilot': 'gh', 'claude-code': 'claude', 'kiro': 'kiro', 'ollama': 'ollama' };
+    const AGENT_BINARY_MAP = { 'gemini': 'gemini', 'codex': 'gh', 'copilot': 'gh', 'claude-code': 'claude', 'kiro': 'kiro', 'ollama': 'ollama' };
     const agentBinary = AGENT_BINARY_MAP[runAgent] || runAgent;
 
     // Before spawning, verify binary is available
     try {
         execSync(`which ${agentBinary}`, { timeout: 2000, stdio: 'ignore' });
     } catch {
-        const fallbackOrder = ['gemini', 'copilot', 'ollama', 'claude-code'];
-        const nextAgent = fallbackOrder.find(a => a !== runAgent);
+        const fallbackOrder = ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'];
+        const nextAgent = fallbackOrder.find((a) => a !== runAgent && getAgentRuntimeReadiness(a, order.cwd || REPO_ROOT).ready);
         if (nextAgent) {
             pushOrderEvent(order, 'agent.binary_missing', { agent: runAgent, fallback: nextAgent });
             startSingleAgentOrder(order, nextAgent, mcpServers);
@@ -163,8 +164,8 @@ export function startSingleAgentOrder(order, runAgent, mcpServers) {
         if (code !== 0 && duration < 2000 && !order._instantCrashRetried) {
             order._instantCrashRetried = true;
             pushOrderEvent(order, 'agent.instant_crash', { agent: runAgent, duration, exitCode: code });
-            const fallbackOrder = ['gemini', 'copilot', 'ollama'];
-            const nextAgent = fallbackOrder.find(a => a !== runAgent);
+            const fallbackOrder = ['gemini', 'codex', 'copilot', 'ollama'];
+            const nextAgent = fallbackOrder.find((a) => a !== runAgent && getAgentRuntimeReadiness(a, order.cwd || REPO_ROOT).ready);
             if (nextAgent) { startSingleAgentOrder(order, nextAgent, mcpServers); return; }
         }
         if (code === 0) {
@@ -319,6 +320,8 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         runAgent = auto.agent;
         routeMeta = {
             method: auto.method,
+            confidence: auto.confidence ?? null,
+            justification: auto.justification || null,
             available: auto.available || [],
             ready: auto.ready || [],
             skipped: auto.skipped || [],
@@ -330,6 +333,15 @@ app.post('/api/orders', requireAuth, async (req, res) => {
             method: resolved.fallback ? 'explicit-fallback' : 'explicit',
             fallback: resolved.fallback || false,
             originalRequest: resolved.originalRequest || null,
+            confidence: 1,
+            justification: {
+                selected: runAgent,
+                reason: resolved.fallback
+                    ? `Requested agent ${requestedAgent} unavailable; using ${runAgent} via fallback chain.`
+                    : `Requested agent ${requestedAgent} explicitly selected by user.`,
+                candidates: [],
+                signals: [],
+            },
             available: getInstalledAgentsInPriorityOrder(),
             ready: getReadyAgentsInPriorityOrder(orderCwd, allowedAgents).ready,
         };
@@ -394,6 +406,8 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         requested: requestedAgent,
         resolved: agent,
         routeMethod: routeMeta.method,
+        routeConfidence: routeMeta.confidence,
+        routeJustification: routeMeta.justification,
         fallback: routeMeta.fallback || false,
         originalRequest: routeMeta.originalRequest || null,
         available: routeMeta.available || [],

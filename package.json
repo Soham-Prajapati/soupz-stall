@@ -18,6 +18,7 @@
         "dev:web:pnpm": "SOUPZ_PM=pnpm node --max-old-space-size=4096 scripts/dev-web-stack.js",
         "dev:web:npm": "SOUPZ_PM=npm node --max-old-space-size=4096 scripts/dev-web-stack.js",
         "test": "vitest run",
+        "smoke:pairing": "node scripts/pairing-smoke-check.mjs",
         "postinstall": "node --max-old-space-size=4096 src/auto-import.js && (cd packages/remote-server && npm install --silent 2>/dev/null) || true"
     },
     "devDependencies": {

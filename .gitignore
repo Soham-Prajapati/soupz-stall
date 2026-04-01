@@ -44,7 +44,13 @@ _bmad
 _bmad-output
 .soupz/
 _soupz_output/
-.github
+.soupz-runs/
+**/.soupz-runs/
+.soupz/benchmarks/
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/ci.yml
 .vercel
 .DS_Store
 .claude

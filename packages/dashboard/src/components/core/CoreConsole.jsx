@@ -5,6 +5,7 @@ import { cancelOrder, checkAgentAvailability } from '../../lib/daemon';
 const CORE_AGENTS = [
   { id: 'auto', label: 'Auto (Smart Route)' },
   { id: 'gemini', label: 'Gemini' },
+  { id: 'codex', label: 'Codex' },
   { id: 'copilot', label: 'Copilot' },
   { id: 'ollama', label: 'Ollama' },
   { id: 'claude-code', label: 'Claude Code' },

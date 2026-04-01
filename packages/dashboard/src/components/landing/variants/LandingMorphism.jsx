@@ -369,6 +369,20 @@ export default function LandingMorphism({ navigate }) {
 
           <div className="flex items-center gap-6">
             <button
+              onClick={() => navigate?.('/docs')}
+              className="hidden md:inline-flex text-sm font-medium text-text-sec hover:text-text-pri transition-colors"
+            >
+              Documentation
+            </button>
+            <a
+              href="/docs/contributing.md"
+              target="_blank"
+              rel="noreferrer"
+              className="hidden md:inline-flex text-sm font-medium text-text-sec hover:text-text-pri transition-colors"
+            >
+              Contribute
+            </a>
+            <button
               onClick={() => navigate?.('/dashboard')}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white text-black hover:scale-105 active:scale-95 text-sm font-semibold transition-transform"
             >

@@ -25,11 +25,14 @@ This starts both:
 - **Daemon** on port 7533 (handles agent spawning, file operations, git, terminal)
 - **Vite dev server** on port 7534 (web app)
 
-The daemon generates a 9-character pairing code. Enter this code at `soupz.vercel.app/connect` to pair your browser.
+The daemon generates a 9-character pairing code. Enter this code at `soupz.vercel.app/code` to pair your browser.
 
 Notes:
 - `npm run dev:web` now has resilient startup behavior. If bootstrap token creation fails, it continues in local no-token mode instead of exiting.
 - Pair validation compatibility checks include both `/pair/validate` and `/api/pair`.
+- Free Cloudflare tunnels are enabled by default when `cloudflared` is installed. This prints a public `/code` URL for phone testing outside your local network.
+- Set `SOUPZ_ENABLE_FREE_TUNNELS=0` to disable tunnel startup.
+- Cloudflare is optional for hosted dashboard usage. It is only needed when your phone is on a different network and must reach your local daemon or local dev server directly without manual port forwarding.
 
 ### Individual processes
 
@@ -147,6 +150,9 @@ VITE_SUPABASE_ANON_KEY=<your-anon-key>
 # Daemon port (optional, defaults to 7533)
 SOUPZ_REMOTE_PORT=7533
 
+# Optional: free tunnel startup (default is 1)
+SOUPZ_ENABLE_FREE_TUNNELS=1
+
 # Optional: Speech-to-text API
 SARVAM_API_KEY=<your-sarvam-key>
 
@@ -168,7 +174,7 @@ PATH_GEMINI_CLI=/path/to/gemini-cli
 
 4. Note the 9-character pairing code displayed in the terminal
 
-5. From another device or browser, visit `soupz.vercel.app/connect` and enter the code
+5. From another device or browser, visit `soupz.vercel.app/code` and enter the code
 
 6. You're paired! Start chatting with AI agents
 
@@ -228,7 +234,16 @@ cd packages/remote-server && npm install
 ### Pairing code was accepted but now appears invalid
 - This can happen if a one-time code was consumed already.
 - Generate/refresh pairing state by restarting `npm run dev:web`.
-- Re-open `soupz.vercel.app/connect` and use the latest code shown in terminal.
+- Re-open `soupz.vercel.app/code` and use the latest code shown in terminal.
+
+### Free tunnel URL not shown
+- Install Cloudflare Tunnel: `brew install cloudflared`
+- Ensure tunnel startup is enabled: `SOUPZ_ENABLE_FREE_TUNNELS=1 npm run dev:web`
+- If you intentionally want local-only behavior, disable with `SOUPZ_ENABLE_FREE_TUNNELS=0`
+- After startup, use the printed `https://<subdomain>.trycloudflare.com/code` URL for mobile pairing
+
+Compatibility note:
+- `soupz.vercel.app/connect` still works as a legacy alias.
 
 ### OAuth login fails
 - Verify redirect URIs match exactly in Google Cloud Console / GitHub settings

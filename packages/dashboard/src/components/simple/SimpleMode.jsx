@@ -36,7 +36,7 @@ const ICON_MAP = {
   auto: Cpu, designer: Palette, dev: Code2, researcher: Search,
   strategist: TrendingUp, devops: Server, finance: DollarSign,
   'ai-engineer': Bot, gemini: Sparkles, 'claude-code': BrainCircuit,
-  copilot: Github, kiro: Zap,
+  codex: Code2, copilot: Github, kiro: Zap,
 };
 
 function getIcon(id) {
@@ -577,8 +577,8 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
       onDrop={handleDrop}
     >
       {/* Header */}
-      <div className="h-10 px-2 sm:px-4 border-b border-border-subtle flex flex-wrap items-center justify-between gap-2 shrink-0 bg-bg-surface z-20">
-        <div className="flex items-center gap-1 sm:gap-2 min-w-0">
+      <div className="h-10 px-2 sm:px-4 border-b border-border-subtle flex items-center justify-between gap-2 shrink-0 bg-bg-surface z-20">
+        <div className="flex items-center gap-1 sm:gap-2 min-w-0 flex-1 overflow-x-auto custom-scrollbar pr-1">
           {/* Agent Selector */}
           <div className="relative min-w-0">
             <button onClick={() => setAgentOpen(!agentOpen)} className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors min-w-0">
@@ -588,8 +588,8 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
             </button>
             {agentOpen && (
               <>
-                <div className="fixed inset-0 z-[60]" onClick={() => setAgentOpen(false)} />
-                <div className="absolute left-0 top-full mt-1 z-[70] bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden min-w-[220px] animate-fade-in">
+                <div className="fixed inset-0 z-[120]" onClick={() => setAgentOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 z-[130] bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden min-w-[220px] animate-fade-in">
                   {agentId === 'auto' && (
                     <div className="border-b border-border-subtle bg-bg-elevated/50">
                       <p className="px-3 py-1.5 text-[9px] font-bold text-text-faint uppercase tracking-widest">Filter Agents</p>
@@ -667,8 +667,8 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
             </button>
             {modeOpen && (
               <>
-                <div className="fixed inset-0 z-[60]" onClick={() => setModeOpen(false)} />
-                <div className="absolute left-0 top-full mt-1 z-[70] bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[160px] animate-fade-in">
+                <div className="fixed inset-0 z-[120]" onClick={() => setModeOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 z-[130] bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[160px] animate-fade-in">
                   {BUILD_MODES.map(m => (
                     <button
                       key={m.id}
@@ -702,8 +702,8 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
             </button>
             {tierOpen && (
               <>
-                <div className="fixed inset-0 z-30" onClick={() => setTierOpen(false)} />
-                <div className="absolute left-0 top-full mt-1 z-[100] bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[150px] animate-fade-in">
+                <div className="fixed inset-0 z-[120]" onClick={() => setTierOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 z-[130] bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[150px] animate-fade-in">
                   {MODEL_TIERS.map(t => (
                     <button
                       key={t.id}
@@ -851,7 +851,7 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
 
       {/* Slash Command Dropdown */}
       {slashCommandOpen && filteredCommands.length > 0 && (
-        <div className="mx-4 mb-2 bg-bg-elevated border border-border-subtle rounded-md shadow-2xl overflow-hidden z-50 animate-fade-up">
+        <div className="mx-4 mb-2 bg-bg-elevated border border-border-subtle rounded-md shadow-2xl overflow-hidden z-[120] animate-fade-up">
           <div className="px-3 py-1.5 border-b border-border-subtle bg-bg-elevated/50 flex items-center justify-between">
             <span className="text-[10px] font-bold text-text-faint uppercase tracking-widest">Commands & Agents</span>
             <span className="text-[9px] text-text-faint">↑↓ to navigate · Enter to select</span>
@@ -888,7 +888,7 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
       )}
 
       {mentionOpen && mentionMatches.length > 0 && (
-        <div className="mx-4 mb-2 bg-bg-elevated border border-border-subtle rounded-md shadow-2xl overflow-hidden z-40 animate-fade-up">
+        <div className="mx-4 mb-2 bg-bg-elevated border border-border-subtle rounded-md shadow-2xl overflow-hidden z-[120] animate-fade-up">
           <div className="px-3 py-1.5 border-b border-border-subtle bg-bg-elevated/50 flex items-center justify-between">
             <span className="text-[10px] font-bold text-text-faint uppercase tracking-widest">Files</span>
             <span className="text-[9px] text-text-faint">Type to filter · Enter to insert</span>

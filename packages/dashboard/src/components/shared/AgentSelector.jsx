@@ -18,6 +18,7 @@ const ICON_MAP = {
   finance: DollarSign,
   'ai-engineer': Bot,
   gemini: Sparkles,
+  codex: Code2,
   'claude-code': BrainCircuit,
   copilot: Github,
   kiro: Zap,

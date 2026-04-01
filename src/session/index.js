@@ -303,9 +303,23 @@ export class Session {
         const available = this.registry.headless().filter(a => a.available);
         if (available.length === 0) return null;
         const lower = prompt.toLowerCase();
-        const geminiSignals = /\b(ui|design|frontend|css|html|visual|style|color|animation|svg|image|icon|logo|illustration|landing|page|component|react|tailwind)\b/i;
-        if (geminiSignals.test(lower) && available.find(a => a.id === 'gemini')) return 'gemini';
-        return available.find(a => a.id === 'copilot') ? 'copilot' : available[0].id;
+        const has = (id) => !!available.find(a => a.id === id);
+
+        const ollamaSignals = /\b(local|offline|privacy|on-device|no cloud|airgapped)\b/i;
+        const geminiSignals = /\b(ui|design|frontend|css|html|visual|style|color|animation|svg|image|icon|logo|illustration|landing|page|component|react|tailwind|research|analyze|compare|summarize)\b/i;
+        const codexSignals = /\b(refactor|architecture|module|implementation|bug|fix|debug|typescript|javascript|python|codebase)\b/i;
+        const copilotSignals = /\b(github|pull request|pr|issue|merge|commit|branch|workflow|actions|terminal|shell|cli|command|devops)\b/i;
+
+        if (ollamaSignals.test(lower) && has('ollama')) return 'ollama';
+        if (geminiSignals.test(lower) && has('gemini')) return 'gemini';
+        if (codexSignals.test(lower) && has('codex')) return 'codex';
+        if (copilotSignals.test(lower) && has('copilot')) return 'copilot';
+
+        if (has('gemini')) return 'gemini';
+        if (has('codex')) return 'codex';
+        if (has('copilot')) return 'copilot';
+        if (has('ollama')) return 'ollama';
+        return available[0].id;
     }
 
     pickDiverseTools(count) {

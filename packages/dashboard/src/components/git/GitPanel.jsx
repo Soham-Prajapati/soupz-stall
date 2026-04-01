@@ -14,7 +14,31 @@ const STATUS_META = {
   '?': { label: 'NEW', className: 'border-success/40 text-success bg-success/10' },
 };
 
-export default function GitPanel({ daemon }) {
+function normalizeGitPath(path = '') {
+  const cleaned = String(path || '').trim();
+  if (!cleaned) return '';
+  if (cleaned.includes('->')) {
+    const parts = cleaned.split('->');
+    return parts[parts.length - 1].trim();
+  }
+  return cleaned;
+}
+
+function dedupeFiles(files = []) {
+  const map = new Map();
+  files.forEach((item) => {
+    const normalizedPath = normalizeGitPath(item?.path);
+    if (!normalizedPath) return;
+    map.set(normalizedPath, {
+      ...item,
+      path: normalizedPath,
+      type: item?.type || item?.status || 'M',
+    });
+  });
+  return Array.from(map.values());
+}
+
+export default function GitPanel({ daemon, onOpenFile }) {
   const [status, setStatus]     = useState(null);
   const [diff, setDiff]         = useState('');
   const [message, setMessage]   = useState('');
@@ -41,7 +65,10 @@ export default function GitPanel({ daemon }) {
     const collect = (list = []) => {
       list.forEach(item => {
         if (!item?.path) return;
-        map.set(item.path, item.type || item.status || 'M');
+        const normalizedPath = normalizeGitPath(item.path);
+        if (!normalizedPath) return;
+        const statusType = item.type || item.status || 'M';
+        map.set(normalizedPath, statusType);
       });
     };
     if (status?.staged) collect(status.staged);
@@ -50,14 +77,25 @@ export default function GitPanel({ daemon }) {
     return map;
   }, [status]);
 
+  const stagedFiles = useMemo(() => dedupeFiles(status?.staged || []), [status?.staged]);
+  const unstagedFiles = useMemo(() => dedupeFiles(status?.unstaged || []), [status?.unstaged]);
+
+  const totalChangedFiles = useMemo(() => {
+    const seen = new Set();
+    stagedFiles.forEach(file => seen.add(file.path));
+    unstagedFiles.forEach(file => seen.add(file.path));
+    return seen.size;
+  }, [stagedFiles, unstagedFiles]);
+
   const diffFiles = useMemo(() => {
     if (!diffSections.length) return [];
     return diffSections.map(section => {
       const cleanPath = section.file?.replace(/^a\//, '').replace(/^b\//, '') || section.file;
-      const statusCode = fileStatusMap.get(cleanPath) || fileStatusMap.get(section.file) || null;
+      const normalizedPath = normalizeGitPath(cleanPath);
+      const statusCode = fileStatusMap.get(normalizedPath) || fileStatusMap.get(cleanPath) || fileStatusMap.get(section.file) || null;
       return {
         ...section,
-        file: cleanPath,
+        file: normalizedPath || cleanPath,
         status: statusCode,
       };
     });
@@ -104,8 +142,8 @@ export default function GitPanel({ daemon }) {
   }
 
   async function stageAll() {
-    if (!status?.unstaged?.length) return;
-    const paths = status.unstaged.map(f => f.path);
+    if (!unstagedFiles.length) return;
+    const paths = unstagedFiles.map(f => f.path);
     await daemon?.gitStage?.(paths);
     refresh();
   }
@@ -175,8 +213,6 @@ export default function GitPanel({ daemon }) {
     refresh();
   }
 
-  const unstagedFiles = status?.unstaged || [];
-  const stagedFiles   = status?.staged   || [];
   const hasChanges    = (stagedFiles?.length || 0) > 0 || (unstagedFiles?.length || 0) > 0;
 
   return (
@@ -190,6 +226,7 @@ export default function GitPanel({ daemon }) {
             className="flex items-center gap-1 text-text-pri font-medium text-xs hover:text-accent transition-colors"
           >
             {branch}
+            <span className="text-[10px] text-text-faint">({totalChangedFiles})</span>
             <ChevronDown size={11} className={cn('transition-transform', branchDropdown && 'rotate-180')} />
           </button>
           {branchDropdown && (
@@ -225,6 +262,7 @@ export default function GitPanel({ daemon }) {
           label="Staged"
           files={stagedFiles}
           icon={<Check size={11} className="text-success" />}
+          onFileOpen={onOpenFile}
           onStageAll={null}
           emptyLabel="No staged changes"
         />
@@ -234,6 +272,7 @@ export default function GitPanel({ daemon }) {
           label="Changes"
           files={unstagedFiles}
           icon={<Minus size={11} className="text-warning" />}
+          onFileOpen={onOpenFile}
           onStageAll={unstagedFiles.length ? stageAll : null}
           emptyLabel="Working tree clean"
         />
@@ -355,7 +394,7 @@ export default function GitPanel({ daemon }) {
   );
 }
 
-function FileSection({ label, files, icon, onStageAll, emptyLabel }) {
+function FileSection({ label, files, icon, onStageAll, emptyLabel, onFileOpen }) {
   const [open, setOpen] = useState(true);
 
   return (
@@ -383,7 +422,12 @@ function FileSection({ label, files, icon, onStageAll, emptyLabel }) {
           <p className="px-7 pb-2 text-text-faint text-xs">{emptyLabel}</p>
         ) : (
           files.map(f => (
-            <div key={f.path} className="flex items-center gap-2 px-4 sm:px-7 py-2.5 sm:py-1 hover:bg-bg-elevated group/file min-h-[44px] sm:min-h-0 min-w-0">
+            <button
+              key={f.path}
+              type="button"
+              onClick={() => onFileOpen?.(f.path)}
+              className="w-full flex items-center gap-2 px-4 sm:px-7 py-2.5 sm:py-1 hover:bg-bg-elevated group/file min-h-[44px] sm:min-h-0 min-w-0 text-left"
+            >
               {icon}
               <span className="flex-1 truncate text-text-sec font-mono text-xs min-w-0">{f.path}</span>
               <span className={cn(
@@ -392,7 +436,7 @@ function FileSection({ label, files, icon, onStageAll, emptyLabel }) {
               )}>
                 {f.type}
               </span>
-            </div>
+            </button>
           ))
         )
       )}

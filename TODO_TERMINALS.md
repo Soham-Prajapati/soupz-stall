@@ -596,3 +596,100 @@ These WILL change. T1-15 adds dynamic model discovery at runtime.
 - Fallback: gpt-4.1 (always available, free)
 
 This means: even without standalone Claude Code, users get Claude-level reasoning through Copilot's model access. Soupz automatically uses the best models available.
+
+---
+
+## TERMINAL BATCH 6 (FOUR-DAY SHIP MODE): Parallel Sessions
+
+Purpose: run these in parallel sessions (`Session 1..6`) within a strict four-day stabilization window before demo day.
+
+### Session 1 — Pairing + Connectivity Reliability
+- [ ] Migrate all public pairing surfaces to `/code` (keep `/connect` alias).
+- [ ] Add pairing diagnostics panel (`why pairing failed`, `last endpoint attempted`, `network hint`).
+- [ ] Add tunnel readiness checks and clear failure messages when remote pairing is unavailable.
+- [ ] Add automated smoke test: generate code -> validate -> auth WS -> create one order.
+
+### Session 2 — Mobile UI Stack and Overflow Guardrails
+- [ ] Audit and fix z-index layering collisions (modals, dropdowns, toasts, command palette, terminal).
+- [ ] Add mobile overflow constraints for chat header, git panel, and side drawers.
+- [ ] Add visual regression snapshots for 360px, 390px, 430px widths.
+- [ ] Ship a shared overlay stacking convention doc and constants.
+
+### Session 3 — Documentation and Demo Readiness
+- [ ] Keep architecture docs runtime-accurate (API map, lifecycle, failure paths, guardrails).
+- [ ] Create one canonical docs index and remove duplicate/outdated pointers.
+- [ ] Add troubleshooting matrix by provider (Gemini/Codex/Copilot/Claude/Ollama/Kiro).
+- [ ] Add "demo script" page with deterministic steps and fallback plans.
+
+### Session 4 — CI/CD and Safe Release Workflow
+- [ ] Enforce PR-only deploy path (no direct deploy from broken local branch state).
+- [ ] Add CI checks for dashboard build + daemon syntax + tests + critical docs link check.
+- [ ] Add release branch convention: `release/*` and hotfix flow.
+- [ ] Add Vercel pre-deploy smoke command and rollback note.
+
+### Session 5 — Product UX/Value Validation
+- [ ] Remove low-value settings that confuse users (especially secret entry in browser UI).
+- [ ] Build usage instrumentation for first-run friction points.
+- [ ] Add onboarding checklist focused on user outcomes, not feature count.
+- [ ] Gather external feedback loop plan (Discord, issues triage, review mining automation).
+
+### Session 6 — Hackathon PS Throughput Benchmark
+- [ ] Standardize problem-statement formatting pipeline (`hack_ps.md` in normalized structure).
+- [ ] Add benchmark flow: raw PS -> plan -> build -> pitch package output.
+- [ ] Track quality metrics vs manual single-agent baseline.
+- [ ] Publish claim policy: when to say 5x/10x and what evidence is required.
+
+---
+
+## TERMINAL BATCH 7 (DEADLINE MODE): Consumer Reliability and Transparency
+
+Purpose: replace generic 5-task plans with explicit, audit-ready parallel streams.
+
+### Low-RAM Mode (Use 3 Sessions Max)
+- Session A: Routing + Pairing Reliability
+  - Batch 7 Session 1 + Session 3
+- Session B: Model Governance + Ollama + Supabase
+  - Batch 7 Session 2 + Session 4 + Session 5
+- Session C: Docs + Packaging + Final Gates
+  - Batch 7 Session 6 + build/test/standalone checks
+
+This mode keeps concurrency practical on laptops while preserving delivery order.
+
+### Session 1 — Routing Transparency and Bias Control
+- [x] Replace provider-priority classifier paths with deterministic scorecard routing.
+- [x] Expose route confidence + scorecard evidence in API payloads and order events.
+- [x] Add `/api/routing/explain` endpoint and document response contract.
+- [ ] Verify explicit user agent override still bypasses auto routing.
+- [x] Keep Codex and Copilot as separate routing identities even when they share transport tooling.
+- [x] Include Codex-vs-Copilot readiness reasons in `/api/agents` and `/api/system/check-clis`.
+
+### Session 2 — Model Governance and Benchmarks
+- [x] Create prompt pack (`benchmarks/model-eval-prompts.json`) covering architecture/debug/devops/security/UI/product.
+- [x] Add benchmark runner script for multi-agent output capture.
+- [x] Add manual grading rubric (correctness/feasibility/transparency/completeness/readiness).
+- [x] Publish claim policy requiring benchmark evidence before any 5x/10x claims.
+- [x] Clarify usage-limit semantics in dashboard metadata (Gemini quota, Ollama unlimited local).
+
+### Session 3 — Pairing and Tunnel Reliability
+- [x] Default free tunnel startup to enabled state (`SOUPZ_ENABLE_FREE_TUNNELS=1` default behavior).
+- [x] Add explicit diagnostics when tunnel bootstrap fails (binary missing, timeout, endpoint mismatch).
+- [x] Verify generated links always use hosted `/code?code=...&remote=...` pattern.
+- [x] Add end-to-end pairing smoke check (pair -> validate -> authenticated WS -> first order).
+
+### Session 4 — Ollama Reliability and Local Cost Controls
+- [x] Guard runtime readiness so Ollama is selected only when daemon is running and required model is installed.
+- [x] Change heavy default model pulls to smaller baseline model for first-run reliability.
+- [x] Ensure crash fallback chain skips runtime-unready agents.
+- [x] Add setup doc for required local model list and startup command.
+
+### Session 5 — Supabase Integrity and Cleanup
+- [x] Audit all core tables for foreign keys and RLS gaps.
+- [x] Publish cleanup SQL playbook for test-data flush (dry run + delete + verification).
+- [x] Add data retention checks for `soupz_orders`, `soupz_commands`, `soupz_responses`.
+- [x] Verify profile/settings schema supports sync without orphaned records.
+
+### Session 6 — Docs, Packaging, and Owner Ops
+- [x] Update README + project overview with canonical architecture and model-governance docs.
+- [x] Add owner checklist for account auth, model prep, smoke tests, and launch gates.
+- [x] Ensure run artifacts (`.soupz-runs`, benchmark outputs) are ignored in git.
+- [x] Publish daily execution checklist for final 4-day stabilization sprint (`docs/guides/FOUR_DAY_STABILIZATION_CHECKLIST.md`).

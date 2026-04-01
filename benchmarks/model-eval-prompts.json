@@ -1,0 +1,62 @@
+[
+  {
+    "id": "p01_architecture",
+    "category": "architecture",
+    "title": "Design a production architecture",
+    "prompt": "Design a production-ready architecture for a mobile-first AI coding cockpit with local daemon, hosted dashboard, pairing, and multi-agent routing. Include failure paths, rollback plan, and observability."
+  },
+  {
+    "id": "p02_debug",
+    "category": "debugging",
+    "title": "Fix an intermittent bug",
+    "prompt": "Users report intermittent pairing failure after scanning QR. Give root-cause hypotheses, a deterministic debug plan, and specific code-level fixes with validation steps."
+  },
+  {
+    "id": "p03_refactor",
+    "category": "code-quality",
+    "title": "Refactor a large module",
+    "prompt": "Refactor a 3000-line orchestration file into maintainable modules without behavior regressions. Provide target file boundaries, API contracts, and migration sequence."
+  },
+  {
+    "id": "p04_devops",
+    "category": "devops",
+    "title": "Harden CI/CD",
+    "prompt": "Create a release-safe CI/CD workflow for a monorepo with dashboard and daemon, including pre-deploy smoke tests, docs link checks, and rollback guidance."
+  },
+  {
+    "id": "p05_security",
+    "category": "security",
+    "title": "Security hardening",
+    "prompt": "Perform a threat model for websocket auth, pairing codes, and command execution. Return top 10 risks with concrete mitigations and priority order."
+  },
+  {
+    "id": "p06_product",
+    "category": "product",
+    "title": "Hackathon to product plan",
+    "prompt": "Turn a hackathon prototype into a market-ready product in 7 days. Provide parallel streams, owner checklists, quality gates, and launch risk controls."
+  },
+  {
+    "id": "p07_data",
+    "category": "data",
+    "title": "Supabase schema review",
+    "prompt": "Review a Supabase schema for missing foreign keys and data retention gaps. Propose SQL migrations to improve referential integrity and cleanup strategy."
+  },
+  {
+    "id": "p08_ui",
+    "category": "frontend",
+    "title": "Mobile layout fixes",
+    "prompt": "Fix mobile z-index and overflow regressions across header menus, command palette, toasts, and modals. Provide CSS layering conventions and regression test cases."
+  },
+  {
+    "id": "p09_reasoning",
+    "category": "routing",
+    "title": "Explain model selection",
+    "prompt": "Given a complex prompt, justify exactly why agent A should be selected over agents B and C. Include scoring dimensions and confidence margins."
+  },
+  {
+    "id": "p10_end_to_end",
+    "category": "delivery",
+    "title": "PS to shipped output",
+    "prompt": "Given a web hackathon problem statement, create an end-to-end output: architecture, MVP scope, implementation tasks, pitch narrative, and validation plan."
+  }
+]

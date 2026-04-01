@@ -43,6 +43,21 @@ describe('Copilot agent definition', () => {
   });
 });
 
+// --- Codex Agent Definition ---
+describe('Codex agent definition', () => {
+  it('codex exists in CLI_AGENTS', () => {
+    const codex = agents.CLI_AGENTS.find(a => a.id === 'codex');
+    expect(codex).toBeDefined();
+  });
+
+  it('codex has freemium tier and freeModel', () => {
+    const codex = agents.CLI_AGENTS.find(a => a.id === 'codex');
+    expect(codex.tier).toBe('freemium');
+    expect(typeof codex.freeModel).toBe('string');
+    expect(codex.freeModel.length).toBeGreaterThan(0);
+  });
+});
+
 // --- All CLI Agent Definitions ---
 describe('CLI agent definitions', () => {
   it('all agents have id, name, tier', () => {
@@ -122,6 +137,14 @@ describe('Model selection for task types', () => {
     expect(result).toBeDefined();
     expect(result.cliAgent).toBe('gemini');
   });
+
+  it('can route coding/refactor prompts to codex when available', () => {
+    const result = routing.selectAgentLocally(
+      'refactor this TypeScript module and fix the bug',
+      { codex: true, gemini: true, copilot: true }
+    );
+    expect(['codex', 'claude-code']).toContain(result.cliAgent);
+  });
 });
 
 // --- Agent Fallback Chain ---
@@ -144,7 +167,7 @@ describe('Agent fallback chain', () => {
   });
 
   it('handles all agents available', () => {
-    const all = { gemini: true, copilot: true, ollama: true, 'claude-code': true, kiro: true };
+    const all = { gemini: true, codex: true, copilot: true, ollama: true, 'claude-code': true, kiro: true };
     const result = routing.selectAgentLocally('fix the login bug', all);
     expect(result).toBeDefined();
     expect(agents.CLI_AGENTS.map(a => a.id)).toContain(result.cliAgent);
@@ -192,6 +215,13 @@ describe('Agent install guides', () => {
       // Should have entries for known agents
       const keys = Object.keys(agents.AGENT_INSTALL_GUIDES);
       expect(keys.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('includes codex install guide', () => {
+    if (agents.AGENT_INSTALL_GUIDES) {
+      expect(agents.AGENT_INSTALL_GUIDES.codex).toBeDefined();
+      expect(typeof agents.AGENT_INSTALL_GUIDES.codex.cmd).toBe('string');
     }
   });
 });

@@ -22,6 +22,23 @@ let wsInstance = null;
 let wsToken    = null;
 let wsUrl      = null;
 const wsChunkHandlers = new Map(); // orderId → (chunk, done) => void
+const wsMessageSubscribers = new Set();
+
+function emitWsMessage(msg) {
+  for (const handler of wsMessageSubscribers) {
+    try {
+      handler?.(msg);
+    } catch {
+      // Ignore subscriber errors so one bad listener does not break streaming.
+    }
+  }
+}
+
+export function subscribeDaemonMessages(handler) {
+  if (typeof handler !== 'function') return () => {};
+  wsMessageSubscribers.add(handler);
+  return () => wsMessageSubscribers.delete(handler);
+}
 
 function getStoredToken() {
   return localStorage.getItem('soupz_daemon_token')
@@ -51,6 +68,12 @@ export function connectDaemonWS(token) {
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
+      emitWsMessage(msg);
+
+      if (typeof window !== 'undefined' && msg.type === 'order_update') {
+        window.dispatchEvent(new CustomEvent('soupz_order_update', { detail: msg.data || null }));
+      }
+
       if (msg.type === 'agent_chunk') {
         const handler = wsChunkHandlers.get(msg.orderId) || wsChunkHandlers.get('*');
         handler?.(msg.chunk, false);

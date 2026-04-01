@@ -24,6 +24,16 @@ function sanitizeGitInput(input) {
     return input.replace(/[;&|`$(){}[\]<>!#~]/g, '').trim();
 }
 
+function normalizePorcelainPath(path = '') {
+    const cleaned = String(path || '').trim();
+    if (!cleaned) return '';
+    if (cleaned.includes('->')) {
+        const parts = cleaned.split('->');
+        return parts[parts.length - 1].trim();
+    }
+    return cleaned;
+}
+
 // ─── Branch endpoints ─────────────────────────────────────────────────────────
 
 app.get('/api/git/branch', requireAuth, (req, res) => {
@@ -81,24 +91,39 @@ app.get('/api/changes', requireAuth, (req, res) => {
     try {
         const out = execSync('git status --porcelain', { cwd, timeout: 4000 }).toString();
         const lines = out.split('\n').map((l) => l.trimEnd()).filter(Boolean);
-        const staged = [];
-        const unstaged = [];
+        const staged = new Map();
+        const unstaged = new Map();
+        const files = new Map();
+
+        const upsert = (map, path, type) => {
+            if (!path) return;
+            map.set(path, { path, type: type || 'M' });
+        };
 
         lines.forEach((line) => {
             const statusCode = line.slice(0, 2);
-            const path = line.slice(3).trim();
+            const path = normalizePorcelainPath(line.slice(3).trim());
             const indexStatus = statusCode[0];
             const workTreeStatus = statusCode[1];
 
             if (indexStatus !== ' ' && indexStatus !== '?') {
-                staged.push({ path, type: indexStatus });
+                upsert(staged, path, indexStatus);
             }
             if (workTreeStatus !== ' ' && workTreeStatus !== '?') {
-                unstaged.push({ path, type: workTreeStatus });
+                upsert(unstaged, path, workTreeStatus);
             }
             if (statusCode === '??') {
-                unstaged.push({ path, type: 'U' });
+                upsert(unstaged, path, 'U');
             }
+
+            const unifiedType = statusCode === '??'
+                ? 'U'
+                : (workTreeStatus !== ' ' && workTreeStatus !== '?')
+                    ? workTreeStatus
+                    : (indexStatus !== ' ' && indexStatus !== '?')
+                        ? indexStatus
+                        : 'M';
+            upsert(files, path, unifiedType);
         });
 
         let branch = 'main';
@@ -107,7 +132,13 @@ app.get('/api/changes', requireAuth, (req, res) => {
         } catch { /* fallback to main */ }
 
         const porcelain = lines;
-        res.json({ staged, unstaged, branch, porcelain });
+        res.json({
+            staged: Array.from(staged.values()),
+            unstaged: Array.from(unstaged.values()),
+            files: Array.from(files.values()),
+            branch,
+            porcelain,
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

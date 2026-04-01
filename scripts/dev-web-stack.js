@@ -19,7 +19,8 @@ const DASHBOARD_PORT = process.env.SOUPZ_DASHBOARD_PORT || '5173';
 const REPO_ROOT = join(__dirname, '..');
 const DASHBOARD_DIR = join(REPO_ROOT, 'packages/dashboard');
 const REMOTE_ENTRY = join(REPO_ROOT, 'packages/remote-server/src/index.js');
-const ENABLE_FREE_TUNNELS = (process.env.SOUPZ_ENABLE_FREE_TUNNELS || '').trim() === '1';
+const tunnelFlagRaw = (process.env.SOUPZ_ENABLE_FREE_TUNNELS || '1').trim().toLowerCase();
+const ENABLE_FREE_TUNNELS = !['0', 'false', 'off', 'no'].includes(tunnelFlagRaw);
 const TUNNEL_TIMEOUT_MS = 30000;
 
 function hasCmd(cmd) {
@@ -203,7 +204,7 @@ async function startFreeTunnels(webPort) {
   log(`Web tunnel:    ${webTunnelUrl}`);
   log('');
   log('Phone testing URL (fresh local build):');
-  log(`${webTunnelUrl}/connect`);
+  log(`${webTunnelUrl}/code`);
   log('');
 
   return { daemonTunnelUrl, webTunnelUrl };
@@ -333,7 +334,7 @@ process.on('SIGTERM', shutdown);
       }
       await startFreeTunnels(webPort);
     } else {
-      log('Free tunnel setup disabled. Set SOUPZ_ENABLE_FREE_TUNNELS=1 to auto-start cloudflared.');
+      log('Free tunnel setup disabled by SOUPZ_ENABLE_FREE_TUNNELS. Set it to 1 (default) to auto-start cloudflared.');
     }
     log('Dev stack running. Press Ctrl+C to stop both backend and dashboard.');
   } catch (err) {

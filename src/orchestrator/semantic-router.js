@@ -13,8 +13,8 @@ export class SemanticRouter extends EventEmitter {
         this.ollamaUrl = process.env.OLLAMA_HOST || 'http://localhost:11434';
         this.ollamaModel = process.env.OLLAMA_ROUTER_MODEL || 'qwen2.5:1.5b';
         this.ollamaAvailable = null;
-        // Copilot routing is primary (smarter), Ollama is fast fallback
-        this.routerMode = process.env.SOUPZ_ROUTER || 'copilot'; // copilot | ollama | auto
+        // Auto mode keeps routing provider-neutral: API provider -> Copilot -> Ollama.
+        this.routerMode = process.env.SOUPZ_ROUTER || 'auto'; // auto | copilot | ollama
         
         this.semanticPatterns = {
             design: /\b(pretty|beautiful|ui|ux|interface|layout|design|wireframe|mockup|visual|aesthetic|user.?flow|screen|component|svg|icon|logo|brand|color|palette|typography|award|prototype|landing.?page|css|animation|gsap)\b/i,
@@ -137,17 +137,24 @@ Answer:`;
         });
     }
 
-    /** Try AI routing: Copilot first (smarter), Ollama fallback (faster), rules last */
+    /** Try AI routing with neutral priority: API provider first, then Copilot, then Ollama. */
     async _smartRoute(prompt, candidates) {
         const mode = this.routerMode;
 
-        // Copilot-first mode (default): smarter picks, worth the 5-10s
+        // In auto mode, use API providers first (often Gemini/OpenAI/Anthropic) before CLI-specific routers.
+        if (mode === 'auto') {
+            const apiProvider = getBestApiProvider('fast');
+            if (apiProvider) {
+                const apiResult = await this._aiRouteViaApi(prompt, candidates, apiProvider);
+                if (apiResult) return apiResult;
+            }
+        }
+
         if (mode === 'copilot' || mode === 'auto') {
             const copilotResult = await this._aiRouteCopilot(prompt, candidates);
             if (copilotResult) return copilotResult;
         }
 
-        // Ollama fallback (fast, local)
         if (mode === 'ollama' || mode === 'auto') {
             const ollamaReady = await this._checkOllama();
             if (ollamaReady) {
@@ -165,7 +172,7 @@ Answer:`;
             }
         }
 
-        // Last resort: use API key provider for routing (if available)
+        // Last resort fallback for non-auto modes.
         const apiProvider = getBestApiProvider('fast');
         if (apiProvider) {
             const apiResult = await this._aiRouteViaApi(prompt, candidates, apiProvider);

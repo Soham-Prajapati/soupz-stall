@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, CheckCircle2, Download, Loader2, X, Terminal, Server, Cpu } from 'lucide-react';
 import { checkSystemCLIs, manageSystemCLI } from '../../lib/daemon';
 import { cn } from '../../lib/cn';
+import { pushToast } from './NotificationToast.jsx';
 
 export default function SetupWizard({ isOpen, onClose }) {
   const [clis, setClis] = useState([]);
@@ -17,8 +18,8 @@ export default function SetupWizard({ isOpen, onClose }) {
       setClis(data || []);
       setError(null);
       
-      // If all installed, mark as completed
-      if (data && data.length > 0 && data.every(c => c.installed)) {
+      // If all required CLIs are ready, mark setup complete.
+      if (data && data.length > 0 && data.every(c => c.installed && (typeof c.ready === 'boolean' ? c.ready : true))) {
         localStorage.setItem('soupz_setup_completed', 'true');
       }
     } catch (err) {
@@ -43,18 +44,21 @@ export default function SetupWizard({ isOpen, onClose }) {
       setInstalling(name);
       const res = await manageSystemCLI(name, 'install');
       if (res.success) {
+        pushToast({ type: 'success', title: 'Install complete', message: `${name} is installed.` });
         await fetchCLIs();
       } else {
         setError(res.error || res.output || `Failed to install ${name}`);
+        pushToast({ type: 'error', title: `Install failed: ${name}`, message: res.error || res.output || 'Unknown error' });
       }
     } catch (err) {
       setError(`Error installing ${name}: ${err.message}`);
+      pushToast({ type: 'error', title: `Install failed: ${name}`, message: err.message });
     } finally {
       setInstalling(null);
     }
   };
 
-  const allInstalled = clis.length > 0 && clis.every(c => c.installed);
+  const allInstalled = clis.length > 0 && clis.every(c => c.installed && (typeof c.ready === 'boolean' ? c.ready : true));
 
   if (!isOpen) return null;
 
@@ -104,11 +108,15 @@ export default function SetupWizard({ isOpen, onClose }) {
               ) : (
                 <>
                   {clis.map((cli) => (
+                    (() => {
+                      const isReady = cli.installed && (typeof cli.ready === 'boolean' ? cli.ready : true);
+                      const canInstall = cli.installable !== false;
+                      return (
                     <div
                       key={cli.name}
                       className={cn(
                         "p-4 rounded-xl border transition-all duration-200",
-                        cli.installed 
+                        isReady
                           ? "bg-zinc-800/30 border-zinc-700/50" 
                           : "bg-orange-500/5 border-orange-500/20"
                       )}
@@ -124,25 +132,32 @@ export default function SetupWizard({ isOpen, onClose }) {
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-white capitalize">{cli.name}</span>
-                              {cli.installed && (
+                              {isReady && (
                                 <span className="px-2 py-0.5 bg-green-500/10 text-green-500 text-[10px] font-bold uppercase tracking-wider rounded-full border border-green-500/20">
                                   Ready
                                 </span>
                               )}
+                              {cli.installed && !isReady && (
+                                <span className="px-2 py-0.5 bg-yellow-500/10 text-yellow-400 text-[10px] font-bold uppercase tracking-wider rounded-full border border-yellow-500/20">
+                                  Needs setup
+                                </span>
+                              )}
                             </div>
                             <p className="text-xs text-zinc-500 mt-0.5">
-                              {cli.installed && cli.version
+                              {cli.installed && !isReady
+                                ? (cli.hint || 'Installed but not ready. Authentication or extension setup may be required.')
+                                : cli.installed && cli.version
                                 ? `Version ${cli.version}`
                                 : cli.installed
                                   ? 'Installed'
-                                  : `Required for ${cli.name === 'git' ? 'source control' : 'agent operations'}`}
+                                  : (cli.hint || `Required for ${cli.name === 'git' ? 'source control' : 'agent operations'}`)}
                             </p>
                           </div>
                         </div>
 
-                        {cli.installed ? (
+                        {isReady ? (
                           <CheckCircle2 className="w-6 h-6 text-green-500" />
-                        ) : (
+                        ) : canInstall ? (
                           <button
                             onClick={() => handleInstall(cli.name)}
                             disabled={!!installing}
@@ -165,9 +180,15 @@ export default function SetupWizard({ isOpen, onClose }) {
                               </>
                             )}
                           </button>
+                        ) : (
+                          <span className="text-[11px] text-zinc-400 px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/50">
+                            Install manually
+                          </span>
                         )}
                       </div>
                     </div>
+                      );
+                    })()
                   ))}
 
                   {clis.length === 0 && !loading && (
