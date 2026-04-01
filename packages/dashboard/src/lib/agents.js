@@ -89,7 +89,7 @@ export const SPECIALISTS = [
   { id: 'qa',              name: 'QA',            icon: TestTube2,     color: '#84CC16', desc: 'Testing, coverage, e2e',           category: 'dev',      temperature: 0.3, maxTokens: 8192 },
   { id: 'designer',        name: 'Designer',      icon: Palette,       color: '#8B5CF6', desc: 'UI/UX, brand, visual design',      category: 'design',   temperature: 0.7, maxTokens: 4096 },
   { id: 'ux-designer',     name: 'UX',            icon: LayoutTemplate,color: '#EC4899', desc: 'User research, flows, wireframes', category: 'design',   temperature: 0.7, maxTokens: 4096 },
-  { id: 'design-thinking-coach', name: 'Maya (Design)', icon: BrainCircuit, color: '#EC4899', desc: 'Human-centered design expert', category: 'design',   temperature: 0.7, maxTokens: 4096 },
+  { id: 'design-thinking-coach', name: 'Nidhi (Design)', icon: BrainCircuit, color: '#EC4899', desc: 'Human-centered design expert', category: 'design',   temperature: 0.7, maxTokens: 4096 },
   { id: 'brand-chef',      name: 'Brand',         icon: Pen,           color: '#F43F5E', desc: 'Brand identity & voice',           category: 'design',   temperature: 0.7, maxTokens: 4096 },
   { id: 'ui-builder',      name: 'UI Builder',    icon: Layers,        color: '#7C3AED', desc: 'Components, design systems',       category: 'design',   temperature: 0.7, maxTokens: 4096 },
   { id: 'svgart',          name: 'SVG Artist',    icon: Palette,       color: '#8B5CF6', desc: 'SVG & CSS art generator',          category: 'design',   temperature: 0.8, maxTokens: 4096 },

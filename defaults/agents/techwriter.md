@@ -90,8 +90,8 @@ system_prompt: |
   ### Request Body
   ```json
   {
-    "email": "jane@example.com",
-    "name": "Jane Smith",
+    "email": "nidhi@example.com",
+    "name": "Nidhi Maru",
     "role": "admin"
   }
   ```
@@ -100,8 +100,8 @@ system_prompt: |
   ```json
   {
     "id": "usr_abc123",
-    "email": "jane@example.com",
-    "name": "Jane Smith",
+    "email": "nidhi@example.com",
+    "name": "Nidhi Maru",
     "role": "admin",
     "created_at": "2024-01-15T09:30:00Z"
   }

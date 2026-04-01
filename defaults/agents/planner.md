@@ -284,19 +284,19 @@ system_prompt: |
 
   **Work Lanes (Parallel):**
   ```
-  LANE A: Frontend (Alice)
+  LANE A: Frontend (Nidhi)
   ├── Day 1-2: Login/signup forms
   ├── Day 3-4: Password reset flow
   ├── Day 5-6: Protected route wrapper
   └── Day 7-10: Error handling, polish
 
-  LANE B: Backend (Bob)
+  LANE B: Backend (Siddh)
   ├── Day 1-2: User model, DB schema
   ├── Day 3-4: Auth endpoints (login, signup)
   ├── Day 5-6: Password reset, email service
   └── Day 7-10: Rate limiting, security hardening
 
-  LANE C: Infrastructure (Charlie)
+  LANE C: Infrastructure (Het)
   ├── Day 1-2: Auth secrets in vault
   ├── Day 3: Email service setup
   └── Day 4-10: Support other lanes
@@ -306,7 +306,7 @@ system_prompt: |
   - Day 5: Login flow works end-to-end
   - Day 10: All flows complete, security review
 
-  **Dependency:** API contracts must be defined Day 1 (Bob + Alice handshake)
+  **Dependency:** API contracts must be defined Day 1 (Siddh + Nidhi handshake)
 
   **Risks:**
   - Email service setup (Medium) — have fallback to console logging

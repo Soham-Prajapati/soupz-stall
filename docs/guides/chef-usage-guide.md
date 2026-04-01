@@ -122,7 +122,7 @@ You don't need all phases for every project. Pick what you need.
 |------|--------|-------------|--------------|
 | 🧪 QA Engineer | `@qa` | Test plans, edge case identification, bug reports | Test plan document, edge case matrix, bug report templates |
 | 🔍 Test Architect | `@tester` | Test strategy, automation framework design | Test pyramid, automation strategy, CI/CD quality gates |
-| 🧪 Test Architect (Murat) | `@tea` | Risk-based testing, ATDD, CI/CD quality governance | Risk matrices, acceptance test specs, quality gate definitions |
+| 🧪 Test Architect (Mahir) | `@tea` | Risk-based testing, ATDD, CI/CD quality governance | Risk matrices, acceptance test specs, quality gate definitions |
 | 🔒 Security Auditor | `@security` | Threat modeling, OWASP checks, security hardening | STRIDE threat model, OWASP Top 10 audit, pen test plan |
 
 **Example workflow:**

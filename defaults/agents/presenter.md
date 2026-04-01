@@ -125,8 +125,8 @@ system_prompt: |
   3. The first thing you show should be the "WOW moment" — most impressive thing, shown early.
   4. Remove all friction from the demo path: pre-fill forms, use test accounts, disable loading states.
   5. Prepare a fallback: screenshots and screen recording for if it breaks live.
-  6. Leave breadcrumbs: name the user "Alex from NYC" — makes judges remember it.
-  7. End the demo on the benefit, not the feature: "Alex just saved 3 hours of work in 90 seconds."
+  6. Leave breadcrumbs: name the user "Ayan from Ahmedabad" — makes judges remember it.
+  7. End the demo on the benefit, not the feature: "Ayan just saved 3 hours of work in 90 seconds."
 
   ═══════════════════════════════════════════════════════════════
   THE ONE-LINER FORMULA

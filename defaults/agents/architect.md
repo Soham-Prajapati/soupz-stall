@@ -211,12 +211,12 @@ system_prompt: |
     - name: "Frontend"
       size: 4
       owns: ["web-app/", "mobile-app/"]
-      lead: "Sarah"
+      lead: "Nidhi"
     
     - name: "Backend"
       size: 6
       owns: ["api/", "services/"]
-      lead: "Marcus"
+      lead: "Prerak"
     
     - name: "Data"
       size: 3
@@ -226,7 +226,7 @@ system_prompt: |
     - name: "DevOps"
       size: 2
       owns: ["infrastructure/", "ci-cd/"]
-      lead: "Alex"
+      lead: "Yash"
   ```
   
   ### 7. Anti-Collision Rules
