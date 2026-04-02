@@ -5,7 +5,6 @@ import {
   Shield, Sparkles, CheckCircle, Lock, Users
 } from 'lucide-react';
 import AuthScreen from './components/auth/AuthScreen.jsx';
-import SimpleMode from './components/simple/SimpleMode.jsx';
 import StatusBar from './components/shared/StatusBar.jsx';
 import CoreConsole from './components/core/CoreConsole.jsx';
 import ErrorBoundary from './components/shared/ErrorBoundary.jsx';
@@ -15,16 +14,17 @@ import NotificationToast, { pushToast } from './components/shared/NotificationTo
 
 // Lazy-load routes and heavy components not needed on first paint
 const ConnectPage = lazy(() => import('./components/connect/ConnectPage.jsx'));
-const ProMode = lazy(() => import('./components/pro/ProMode.jsx'));
-const BuilderMode = lazy(() => import('./components/builder/BuilderMode.jsx'));
 const LandingPage = lazy(() => import('./components/landing/LandingPage.jsx'));
 const DocsPage = lazy(() => import('./components/docs/DocsPage.jsx'));
 const ProfilePage = lazy(() => import('./components/profile/ProfilePage.jsx'));
 const AdminPage = lazy(() => import('./components/admin/AdminPage.jsx'));
+const DashboardChatPage = lazy(() => import('./pages/DashboardChatPage.jsx'));
+const DashboardBuildPage = lazy(() => import('./pages/DashboardBuildPage.jsx'));
+const DashboardProPage = lazy(() => import('./pages/DashboardProPage.jsx'));
 const CommandPalette = lazy(() => import('./components/shared/CommandPalette.jsx'));
 const FolderPicker = lazy(() => import('./components/shared/FolderPicker.jsx'));
 const SetupWizard = lazy(() => import('./components/shared/SetupWizard.jsx'));
-const OnboardingOverlay = lazy(() => import('./components/shared/OnboardingOverlay.jsx'));
+const OnboardingChecklist = lazy(() => import('./components/shared/OnboardingChecklist.jsx'));
 import { supabase, isSupabaseConfigured } from './lib/supabase.js';
 import {
   checkDaemonHealth, subscribeToDaemon, sendAgentPrompt, subscribeDaemonMessages,
@@ -742,6 +742,9 @@ export default function App() {
       const { runFile } = await import('./lib/daemon.js');
       return runFile(path, user?.id, activeWorkspaceRoot);
     },
+    async getDevServerUrl() {
+      return getDevServerUrl();
+    },
     async gitStatus() {
       return getGitStatus(null, user?.id, activeWorkspaceRoot);
     },
@@ -796,7 +799,25 @@ export default function App() {
 
   // /core route (minimal orchestrator demo)
   if (path === '/core') {
-    return <CoreConsole workspace={workspace} />;
+    return (
+      <div className="h-[100dvh] min-h-screen flex flex-col bg-bg-base overflow-hidden">
+        <main className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+          {!workspaceOnline && !!localStorage.getItem('soupz_daemon_token') && (
+            <WorkspaceOfflineBanner navigate={navigate} />
+          )}
+          <CoreConsole workspace={workspace} />
+        </main>
+        <StatusBar
+          workspaceOnline={workspaceOnline}
+          machine={workspaceMachine}
+          mode="core"
+          editorState={null}
+          daemon={workspace}
+          rootPath={activeWorkspaceRoot}
+          devServerUrl={devServerUrl}
+        />
+      </div>
+    );
   }
 
   // Default home site
@@ -998,17 +1019,24 @@ export default function App() {
         )}
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {mode === 'simple' ? (
-            <SimpleMode daemon={workspace} filePaths={flattenedFilePaths} />
-          ) : mode === 'builder' ? (
-            <ErrorBoundary name="Builder Mode">
+            <ErrorBoundary name="Dashboard Chat Page">
               <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
-                <BuilderMode daemon={workspace} />
+                <DashboardChatPage
+                  daemon={workspace}
+                  filePaths={flattenedFilePaths}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          ) : mode === 'builder' ? (
+            <ErrorBoundary name="Dashboard Build Page">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
+                <DashboardBuildPage daemon={workspace} />
               </Suspense>
             </ErrorBoundary>
           ) : (
-            <ErrorBoundary name="Pro Mode">
+            <ErrorBoundary name="Dashboard Pro Page">
               <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
-                <ProMode
+                <DashboardProPage
                   daemon={workspace}
                   fileTree={fileTree}
                   changedPaths={changedFiles}
@@ -1078,9 +1106,9 @@ export default function App() {
         devServerUrl={devServerUrl}
       />
 
-      {/* Onboarding Overlay (only on dashboard) */}
+      {/* Onboarding Checklist (only on dashboard) */}
       <Suspense fallback={null}>
-        <OnboardingOverlay />
+        <OnboardingChecklist workspaceOnline={workspaceOnline} devServerUrl={devServerUrl} />
       </Suspense>
 
       <KeyboardShortcuts open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />

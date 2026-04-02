@@ -69,7 +69,7 @@ import {
   Files, GitBranch, Settings, ChevronLeft, ChevronRight,
   Play, Loader2, PanelRightClose, PanelRightOpen, X, Package,
   Terminal, Search, Trophy, Code2, Bot, Columns, MessageSquare,
-  Save
+  Save, FileText
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS } from '../../lib/agents';
@@ -98,6 +98,109 @@ const LANG_MAP = {
 function getLang(filename) {
   const ext = filename?.split('.').pop()?.toLowerCase();
   return LANG_MAP[ext] || 'plaintext';
+}
+
+function escapeHtml(input = '') {
+  return String(input)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderMarkdownToHtml(markdown = '') {
+  const lines = String(markdown || '').split('\n');
+  const html = [];
+  let inCode = false;
+  let inUl = false;
+  let inOl = false;
+
+  const closeLists = () => {
+    if (inUl) {
+      html.push('</ul>');
+      inUl = false;
+    }
+    if (inOl) {
+      html.push('</ol>');
+      inOl = false;
+    }
+  };
+
+  for (const raw of lines) {
+    const line = raw ?? '';
+    if (line.trimStart().startsWith('```')) {
+      closeLists();
+      if (!inCode) {
+        inCode = true;
+        html.push('<pre><code>');
+      } else {
+        inCode = false;
+        html.push('</code></pre>');
+      }
+      continue;
+    }
+
+    if (inCode) {
+      html.push(`${escapeHtml(line)}\n`);
+      continue;
+    }
+
+    const trimmed = line.trim();
+    if (!trimmed) {
+      closeLists();
+      html.push('<p></p>');
+      continue;
+    }
+
+    const heading3 = trimmed.match(/^###\s+(.+)$/);
+    const heading2 = trimmed.match(/^##\s+(.+)$/);
+    const heading1 = trimmed.match(/^#\s+(.+)$/);
+    if (heading3 || heading2 || heading1) {
+      closeLists();
+      const level = heading3 ? 'h3' : heading2 ? 'h2' : 'h1';
+      const text = escapeHtml((heading3 || heading2 || heading1)[1]);
+      html.push(`<${level}>${text}</${level}>`);
+      continue;
+    }
+
+    const ul = trimmed.match(/^[-*]\s+(.+)$/);
+    if (ul) {
+      if (inOl) {
+        html.push('</ol>');
+        inOl = false;
+      }
+      if (!inUl) {
+        html.push('<ul>');
+        inUl = true;
+      }
+      html.push(`<li>${escapeHtml(ul[1])}</li>`);
+      continue;
+    }
+
+    const ol = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (ol) {
+      if (inUl) {
+        html.push('</ul>');
+        inUl = false;
+      }
+      if (!inOl) {
+        html.push('<ol>');
+        inOl = true;
+      }
+      html.push(`<li>${escapeHtml(ol[1])}</li>`);
+      continue;
+    }
+
+    closeLists();
+    const withInlineCode = escapeHtml(trimmed).replace(/`([^`]+)`/g, '<code>$1</code>');
+    html.push(`<p>${withInlineCode}</p>`);
+  }
+
+  closeLists();
+  if (inCode) html.push('</code></pre>');
+
+  return html.join('\n');
 }
 
 function normalizeChangedPath(entry = '') {
@@ -162,12 +265,26 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
   const [terminalMaximized, setTerminalMaximized] = useState(false);
   const [mobileTab, setMobileTab] = useState('chat');
   const [runToast, setRunToast] = useState(null);
+  const [markdownPreviewOpen, setMarkdownPreviewOpen] = useState(false);
 
   const sidebarPanelWidth = useMemo(() => `min(${sidebarWidth}px, 40vw)`, [sidebarWidth]);
   const chatPanelWidth = useMemo(() => `min(${chatWidth}px, 45vw)`, [chatWidth]);
 
   const editorRef = useRef(null);
   const saveTimeoutRef = useRef(null);
+
+  const activeEditorFile = activePane === 'right' && activeFileRight ? activeFileRight : activeFile;
+  const activeEditorLang = getLang(activeEditorFile?.name || '');
+  const canPreviewMarkdown = activeEditorLang === 'markdown' && !!activeEditorFile?.path;
+
+  const markdownPreviewHtml = useMemo(() => {
+    if (!canPreviewMarkdown) return '';
+    try {
+      return renderMarkdownToHtml(String(fileContents[activeEditorFile.path] || ''));
+    } catch {
+      return '<p>Markdown preview unavailable.</p>';
+    }
+  }, [canPreviewMarkdown, activeEditorFile, fileContents]);
 
   useEffect(() => {
     syncMonacoTheme(themeVars);
@@ -180,18 +297,34 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
   }, [openFiles]);
 
   const handleRunActiveFile = async () => {
-    if (!activeFile?.path || !daemon?.runFile) return;
-    setRunToast({ status: 'running', message: `Running ${activeFile.name}...` });
+    if (!activeEditorFile?.path || !daemon?.runFile) return;
+    setRunning(true);
+    setRunToast({ status: 'running', message: `Running ${activeEditorFile.name}...` });
     try {
-      const result = await daemon.runFile(activeFile.path);
-      const message = result?.command ? `Triggered ${result.command}` : 'Run request sent to daemon';
-      setRunToast({ status: 'done', message });
+      const result = await daemon.runFile(activeEditorFile.path);
+      const exitCode = Number.isFinite(result?.exitCode) ? result.exitCode : (result?.ok ? 0 : 1);
+      const firstStdoutLine = String(result?.stdout || '').trim().split('\n').find(Boolean) || '';
+      const firstStderrLine = String(result?.stderr || '').trim().split('\n').find(Boolean) || '';
+      if (result?.ok) {
+        const detail = firstStdoutLine ? ` ${firstStdoutLine.slice(0, 90)}` : '';
+        setRunToast({ status: 'done', message: `Run finished (exit ${exitCode}).${detail}` });
+      } else {
+        const detail = (firstStderrLine || firstStdoutLine || 'Execution failed').slice(0, 120);
+        setRunToast({ status: 'error', message: `Run failed (exit ${exitCode}). ${detail}` });
+      }
     } catch (err) {
       setRunToast({ status: 'error', message: err?.message || 'Failed to run file' });
     } finally {
+      setRunning(false);
       setTimeout(() => setRunToast(null), 5000);
     }
   };
+
+  useEffect(() => {
+    if (!canPreviewMarkdown && markdownPreviewOpen) {
+      setMarkdownPreviewOpen(false);
+    }
+  }, [canPreviewMarkdown, markdownPreviewOpen]);
 
   // Responsive: update isMobile and close panels on mobile
   useEffect(() => {
@@ -322,13 +455,13 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
 
   const lang = getLang(activeFile?.name || '');
 
-  // Cmd+Shift+F to open search panel
+  // Cmd+Shift+F triggers in-editor find to avoid dual search UI confusion.
   useEffect(() => {
     function handleKeyDown(e) {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'f') {
         e.preventDefault();
-        setActiveActivity('search');
-        setSidebarOpen(true);
+        editorRef.current?.focus();
+        editorRef.current?.getAction?.('actions.find')?.run?.();
       }
     }
     window.addEventListener('keydown', handleKeyDown);
@@ -711,15 +844,28 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           {/* Run Active File */}
           <button
             onClick={handleRunActiveFile}
-            disabled={!activeFile || running}
+            disabled={!activeEditorFile || running}
             className={cn(
               'text-text-faint hover:text-text-sec transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
               runToast?.status === 'error' && 'text-danger'
             )}
-            title={activeFile ? `Run ${activeFile.name}` : 'Open a file to run'}
+            title={activeEditorFile ? `Run ${activeEditorFile.name}` : 'Open a file to run'}
           >
             <Play size={15} />
           </button>
+
+          {canPreviewMarkdown && (
+            <button
+              onClick={() => setMarkdownPreviewOpen(v => !v)}
+              className={cn(
+                'text-text-faint hover:text-text-sec transition-colors',
+                markdownPreviewOpen && 'text-accent'
+              )}
+              title={markdownPreviewOpen ? 'Show markdown source' : 'Show markdown preview'}
+            >
+              <FileText size={15} />
+            </button>
+          )}
 
           {/* Terminal toggle */}
           <button
@@ -783,30 +929,39 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
               loadingFiles.has(activeFile.path) ? (
                 <FileLoadingSkeleton />
               ) : (
-                <Editor
-                  path={activeFile.path}
-                  value={String(fileContents[activeFile.path] || '')}
-                  language={getLang(activeFile.name)}
-                  theme="soupz-dynamic"
-                  onChange={(value) => updateFileContents(activeFile.path, value)}
-                  onMount={handleEditorMount}
-                  options={{
-                    fontSize: 13,
-                    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                    fontLigatures: true,
-                    lineHeight: 1.7,
-                    minimap: { enabled: true, scale: 1, showSlider: 'mouseover' },
-                    scrollBeyondLastLine: false,
-                    padding: { top: 12, bottom: 12 },
-                    renderLineHighlight: 'line',
-                    smoothScrolling: true,
-                    cursorBlinking: 'smooth',
-                    cursorSmoothCaretAnimation: 'on',
-                    roundedSelection: true,
-                    tabSize: 2,
-                    wordWrap: 'off',
-                  }}
-                />
+                markdownPreviewOpen && getLang(activeFile.name) === 'markdown' ? (
+                  <div className="h-full overflow-auto p-6 bg-bg-surface text-text-pri">
+                    <div
+                      className="max-w-none text-sm leading-7 [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:mt-6 [&_h1]:mb-3 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-3 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2 [&_p]:my-3 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1 [&_pre]:my-3 [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border-subtle [&_pre]:bg-bg-elevated [&_pre]:p-3 [&_code]:bg-bg-elevated [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_blockquote]:border-l-2 [&_blockquote]:border-border-mid [&_blockquote]:pl-3 [&_blockquote]:text-text-sec"
+                      dangerouslySetInnerHTML={{ __html: markdownPreviewHtml }}
+                    />
+                  </div>
+                ) : (
+                  <Editor
+                    path={activeFile.path}
+                    value={String(fileContents[activeFile.path] || '')}
+                    language={getLang(activeFile.name)}
+                    theme="soupz-dynamic"
+                    onChange={(value) => updateFileContents(activeFile.path, value)}
+                    onMount={handleEditorMount}
+                    options={{
+                      fontSize: 13,
+                      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                      fontLigatures: true,
+                      lineHeight: 1.7,
+                      minimap: { enabled: true, scale: 1, showSlider: 'mouseover' },
+                      scrollBeyondLastLine: false,
+                      padding: { top: 12, bottom: 12 },
+                      renderLineHighlight: 'line',
+                      smoothScrolling: true,
+                      cursorBlinking: 'smooth',
+                      cursorSmoothCaretAnimation: 'on',
+                      roundedSelection: true,
+                      tabSize: 2,
+                      wordWrap: 'off',
+                    }}
+                  />
+                )
               )
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-text-faint bg-bg-surface/30">

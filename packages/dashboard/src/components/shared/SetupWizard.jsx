@@ -5,6 +5,7 @@ import { checkSystemCLIs, manageSystemCLI } from '../../lib/daemon';
 import { cn } from '../../lib/cn';
 import { pushToast } from './NotificationToast.jsx';
 import { OVERLAY_Z } from '../../lib/overlayZ.js';
+import { trackEvent } from '../../lib/instrumentation.js';
 
 export default function SetupWizard({ isOpen, onClose }) {
   const [clis, setClis] = useState([]);
@@ -32,26 +33,32 @@ export default function SetupWizard({ isOpen, onClose }) {
 
   useEffect(() => {
     if (isOpen) {
+      trackEvent('setup_wizard_opened');
       fetchCLIs();
     }
   }, [isOpen]);
 
   const handleWizardClose = (detail = {}) => {
+    trackEvent('setup_wizard_closed', { reason: detail.reason || 'dismissed', completed: detail.completed || false });
     onClose?.({ ...detail, clis });
   };
 
   const handleInstall = async (name) => {
     try {
+      trackEvent('setup_cli_install_started', { cli: name });
       setInstalling(name);
       const res = await manageSystemCLI(name, 'install');
       if (res.success) {
+        trackEvent('setup_cli_install_completed', { cli: name });
         pushToast({ type: 'success', title: 'Install complete', message: `${name} is installed.` });
         await fetchCLIs();
       } else {
+        trackEvent('setup_cli_install_failed', { cli: name, error: res.error || 'Unknown error' });
         setError(res.error || res.output || `Failed to install ${name}`);
         pushToast({ type: 'error', title: `Install failed: ${name}`, message: res.error || res.output || 'Unknown error' });
       }
     } catch (err) {
+      trackEvent('setup_cli_install_error', { cli: name, error: err.message });
       setError(`Error installing ${name}: ${err.message}`);
       pushToast({ type: 'error', title: `Install failed: ${name}`, message: err.message });
     } finally {

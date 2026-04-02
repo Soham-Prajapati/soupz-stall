@@ -205,6 +205,7 @@ export default function GitPanel({ daemon, onOpenFile, compact = false }) {
         ? message.trim()
         : message.trim() + coAuthor;
       await daemon?.gitCommit?.(fullMsg);
+      window.dispatchEvent(new CustomEvent('soupz_complete_onboarding_item', { detail: { id: 'commit' } }));
       setMessage('');
       refresh();
     } catch { /* no daemon */ }

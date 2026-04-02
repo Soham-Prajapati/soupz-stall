@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, Plug, ChevronDown, ChevronUp, Zap, Database } from 'lucide-react';
+import { Plus, Trash2, Plug, ChevronDown, ChevronUp, Zap } from 'lucide-react';
 
 const MCP_KEY = 'soupz_mcp_servers';
 
@@ -51,14 +51,6 @@ function saveMCP(servers) {
   localStorage.setItem(MCP_KEY, JSON.stringify(servers));
 }
 
-const ENV_TEMPLATE = `# Daemon (server-side)
-SUPABASE_URL=https://<project>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-
-# Dashboard (client-side)
-VITE_SUPABASE_URL=https://<project>.supabase.co
-VITE_SUPABASE_ANON_KEY=<anon-key>`;
-
 const EMPTY_FORM = { name: '', url: '', description: '' };
 
 export default function MCPPanel() {
@@ -67,9 +59,6 @@ export default function MCPPanel() {
   const [form,      setForm]      = useState(EMPTY_FORM);
   const [collapsed, setCollapsed] = useState(true);
   const [showPresets, setShowPresets] = useState(false);
-
-  const [dbCollapsed, setDbCollapsed] = useState(true);
-  const [envCopied, setEnvCopied] = useState(false);
 
   function addServer() {
     if (!form.name.trim() || !form.url.trim()) return;
@@ -113,62 +102,8 @@ export default function MCPPanel() {
     return /^https?:\/\/|localhost|127\.0\.0\.1|^npx\s|^npm\s|^(node|python|ruby|go|cargo|java)/.test(url.trim());
   }
 
-  async function copyEnvTemplate() {
-    try {
-      await navigator.clipboard.writeText(ENV_TEMPLATE);
-      setEnvCopied(true);
-      setTimeout(() => setEnvCopied(false), 2000);
-    } catch {
-      setEnvCopied(false);
-    }
-  }
-
   return (
     <div className="border-t border-border-subtle">
-      {/* Database Config Section */}
-      <button
-        onClick={() => setDbCollapsed(v => !v)}
-        className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-bg-elevated transition-colors border-b border-border-subtle"
-      >
-        <div className="flex items-center gap-2">
-          <Database size={13} className="text-accent" />
-          <span className="text-xs font-ui font-medium text-text-sec">Database Setup (Env Only)</span>
-        </div>
-        {dbCollapsed
-          ? <ChevronDown size={12} className="text-text-faint" />
-          : <ChevronUp   size={12} className="text-text-faint" />
-        }
-      </button>
-
-      {!dbCollapsed && (
-        <div className="px-4 py-4 space-y-3 border-b border-border-subtle">
-          <p className="text-[11px] text-text-faint font-ui leading-relaxed">
-            Supabase keys should not be entered in browser settings. Configure them in your <span className="font-mono">.env</span> file and restart the daemon/web app.
-          </p>
-
-          <pre className="bg-bg-base border border-border-subtle rounded-md p-2.5 text-[10px] leading-relaxed text-text-sec font-mono overflow-x-auto">
-{ENV_TEMPLATE}
-          </pre>
-
-          <div className="flex gap-2">
-            <button
-              onClick={copyEnvTemplate}
-              className="flex-1 py-1.5 rounded-md border border-border-subtle text-text-sec text-xs font-ui hover:border-accent hover:text-accent transition-all"
-            >
-              {envCopied ? 'Copied' : 'Copy .env Template'}
-            </button>
-            <a
-              href="/docs/quickstart.md"
-              target="_blank"
-              rel="noreferrer"
-              className="flex-1 text-center py-1.5 rounded-md border border-border-subtle text-text-sec text-xs font-ui hover:border-accent hover:text-accent transition-all"
-            >
-              Open Setup Doc
-            </a>
-          </div>
-        </div>
-      )}
-
       {/* Header / collapse toggle */}
       <button
         onClick={() => setCollapsed(v => !v)}

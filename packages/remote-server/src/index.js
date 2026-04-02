@@ -1,8 +1,8 @@
 // index.js — lean entry point: CORS, system routes, WebSocket, server bootstrap
 
 import { execSync, spawn, spawnSync } from 'child_process';
-import { resolve, extname } from 'path';
-import { readFile, writeFile, stat } from 'fs/promises';
+import { dirname, extname, join, resolve } from 'path';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import os from 'os';
 import crypto from 'crypto';
@@ -465,26 +465,164 @@ app.post('/api/routing/explain', requireAuth, async (req, res) => {
 
 // ─── File execution ───────────────────────────────────────────────────────────
 
+function runProcess(command, args, { cwd, timeoutMs = 120000, maxOutputBytes = 512000 } = {}) {
+    return new Promise((resolvePromise) => {
+        const startedAt = Date.now();
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+        let timedOut = false;
+
+        const child = spawn(command, args, {
+            cwd,
+            env: process.env,
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        const timer = setTimeout(() => {
+            timedOut = true;
+            try { child.kill('SIGTERM'); } catch {}
+            setTimeout(() => {
+                try { child.kill('SIGKILL'); } catch {}
+            }, 1500).unref?.();
+        }, timeoutMs);
+
+        const append = (target, chunk) => {
+            const text = chunk.toString();
+            if (target.length >= maxOutputBytes) return target;
+            return (target + text).slice(0, maxOutputBytes);
+        };
+
+        child.stdout.on('data', (chunk) => {
+            stdout = append(stdout, chunk);
+        });
+
+        child.stderr.on('data', (chunk) => {
+            stderr = append(stderr, chunk);
+        });
+
+        child.on('error', (err) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolvePromise({
+                exitCode: 1,
+                stdout,
+                stderr: `${stderr}\n${err.message}`.trim(),
+                timedOut,
+                durationMs: Date.now() - startedAt,
+            });
+        });
+
+        child.on('close', (code) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolvePromise({
+                exitCode: code ?? 1,
+                stdout,
+                stderr,
+                timedOut,
+                durationMs: Date.now() - startedAt,
+            });
+        });
+    });
+}
+
 // POST /api/exec — Run a file with the appropriate runtime (authenticated)
-app.post('/api/exec', requireAuth, (req, res) => {
+app.post('/api/exec', requireAuth, async (req, res) => {
     const { path: filePath, root } = req.body;
     if (!filePath) return res.status(400).json({ error: 'Missing path' });
 
-    const cwd = root || REPO_ROOT || process.cwd();
+    const cwd = resolve(root || REPO_ROOT || process.cwd());
     const fullPath = resolve(cwd, filePath);
+
+    if (!fullPath.startsWith(cwd)) {
+        return res.status(403).json({ error: 'Access denied' });
+    }
 
     if (!existsSync(fullPath)) return res.status(404).json({ error: 'File not found' });
 
     const ext = extname(filePath).toLowerCase();
-    let cmd = '';
-    if (ext === '.js') cmd = 'node';
-    else if (ext === '.py') cmd = 'python3';
-    else if (ext === '.sh') cmd = 'bash';
-    else if (ext === '.rb') cmd = 'ruby';
-    else if (ext === '.go') cmd = 'go run';
-    else if (ext === '.rs') cmd = 'cargo run';
 
-    res.json({ ok: true, command: `${cmd} ${filePath}`.trim() });
+    const runResultPayload = (commandString, result, extras = {}) => {
+        const exitCode = Number.isFinite(result?.exitCode) ? result.exitCode : 1;
+        return {
+            ok: exitCode === 0 && !result?.timedOut,
+            command: commandString,
+            exitCode,
+            timedOut: !!result?.timedOut,
+            durationMs: Number.isFinite(result?.durationMs) ? result.durationMs : 0,
+            stdout: result?.stdout || '',
+            stderr: result?.stderr || '',
+            ...extras,
+        };
+    };
+
+    try {
+        if (ext === '.js' || ext === '.mjs' || ext === '.cjs') {
+            const result = await runProcess('node', [fullPath], { cwd: dirname(fullPath) });
+            return res.json(runResultPayload(`node ${filePath}`, result));
+        }
+
+        if (ext === '.py') {
+            const result = await runProcess('python3', [fullPath], { cwd: dirname(fullPath) });
+            return res.json(runResultPayload(`python3 ${filePath}`, result));
+        }
+
+        if (ext === '.sh') {
+            const result = await runProcess('bash', [fullPath], { cwd: dirname(fullPath) });
+            return res.json(runResultPayload(`bash ${filePath}`, result));
+        }
+
+        if (ext === '.rb') {
+            const result = await runProcess('ruby', [fullPath], { cwd: dirname(fullPath) });
+            return res.json(runResultPayload(`ruby ${filePath}`, result));
+        }
+
+        if (ext === '.go') {
+            const result = await runProcess('go', ['run', fullPath], { cwd: dirname(fullPath) });
+            return res.json(runResultPayload(`go run ${filePath}`, result));
+        }
+
+        if (ext === '.c' || ext === '.cpp' || ext === '.cc' || ext === '.cxx') {
+            const tempDir = await mkdtemp(join(os.tmpdir(), 'soupz-run-'));
+            const binName = os.platform() === 'win32' ? 'run.exe' : 'run.out';
+            const binaryPath = join(tempDir, binName);
+            const compiler = ext === '.c' ? 'gcc' : 'g++';
+
+            const compile = await runProcess(compiler, [fullPath, '-o', binaryPath], {
+                cwd: dirname(fullPath),
+                timeoutMs: 180000,
+            });
+
+            if (compile.exitCode !== 0 || compile.timedOut) {
+                await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+                return res.json(runResultPayload(`${compiler} ${filePath} -o ${binName}`, compile, {
+                    phase: 'compile',
+                }));
+            }
+
+            const execute = await runProcess(binaryPath, [], {
+                cwd: dirname(fullPath),
+                timeoutMs: 180000,
+            });
+            await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+
+            return res.json(runResultPayload(`${compiler} ${filePath} -o ${binName} && ${binName}`, execute, {
+                phase: 'execute',
+                compileStdout: compile.stdout,
+                compileStderr: compile.stderr,
+            }));
+        }
+
+        return res.status(400).json({
+            error: `Unsupported file type: ${ext || 'unknown'}`,
+            supported: ['.js', '.mjs', '.cjs', '.py', '.sh', '.rb', '.go', '.c', '.cpp', '.cc', '.cxx'],
+        });
+    } catch (err) {
+        return res.status(500).json({ error: err?.message || 'Failed to execute file' });
+    }
 });
 
 // ─── Local command relay ──────────────────────────────────────────────────────

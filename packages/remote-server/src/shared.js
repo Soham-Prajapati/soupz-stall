@@ -737,6 +737,8 @@ export function pushOrderEvent(order, type, data = {}) {
         'synthesis.started',
         'synthesis.finished',
         'synthesis.fallback.used',
+        'input.requested',
+        'input.received',
         'order.completed',
         'order.failed',
         'order.cancelled',

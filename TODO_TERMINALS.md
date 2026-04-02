@@ -627,28 +627,28 @@ Notes:
 - Added scripted mobile captures via `npm run snapshot:mobile` (`scripts/mobile-viewport-snapshots.mjs`) for `/`, `/code`, `/dashboard` at 360/390/430 widths.
 
 ### Session 3 — Documentation and Demo Readiness
-- [ ] Keep architecture docs runtime-accurate (API map, lifecycle, failure paths, guardrails).
-- [ ] Create one canonical docs index and remove duplicate/outdated pointers.
-- [ ] Add troubleshooting matrix by provider (Gemini/Codex/Copilot/Claude/Ollama/Kiro).
-- [ ] Add "demo script" page with deterministic steps and fallback plans.
+- [x] Keep architecture docs runtime-accurate (API map, lifecycle, failure paths, guardrails).
+- [x] Create one canonical docs index and remove duplicate/outdated pointers.
+- [x] Add troubleshooting matrix by provider (Gemini/Codex/Copilot/Claude/Ollama/Kiro).
+- [x] Add "demo script" page with deterministic steps and fallback plans.
 
 ### Session 4 — CI/CD and Safe Release Workflow
-- [ ] Enforce PR-only deploy path (no direct deploy from broken local branch state).
+- [x] Enforce PR-only deploy path (no direct deploy from broken local branch state).
 - [x] Add CI checks for dashboard build + daemon syntax + tests + critical docs link check.
-- [ ] Add release branch convention: `release/*` and hotfix flow.
-- [ ] Add Vercel pre-deploy smoke command and rollback note.
+- [x] Add release branch convention: `release/*` and hotfix flow.
+- [x] Add Vercel pre-deploy smoke command and rollback note.
 
 ### Session 5 — Product UX/Value Validation
-- [ ] Remove low-value settings that confuse users (especially secret entry in browser UI).
-- [ ] Build usage instrumentation for first-run friction points.
-- [ ] Add onboarding checklist focused on user outcomes, not feature count.
-- [ ] Gather external feedback loop plan (Discord, issues triage, review mining automation).
+- [x] Remove low-value settings that confuse users (especially secret entry in browser UI).
+- [x] Build usage instrumentation for first-run friction points.
+- [x] Add onboarding checklist focused on user outcomes, not feature count.
+- [x] Gather external feedback loop plan (Discord, issues triage, review mining automation).
 
 ### Session 6 — Hackathon PS Throughput Benchmark
-- [ ] Standardize problem-statement formatting pipeline (`hack_ps.md` in normalized structure).
-- [ ] Add benchmark flow: raw PS -> plan -> build -> pitch package output.
-- [ ] Track quality metrics vs manual single-agent baseline.
-- [ ] Publish claim policy: when to say 5x/10x and what evidence is required.
+- [x] Standardize problem-statement formatting pipeline (`hack_ps.md` in normalized structure).
+- [x] Add benchmark flow: raw PS -> plan -> build -> pitch package output.
+- [x] Track quality metrics vs manual single-agent baseline.
+- [x] Publish claim policy: when to say 5x/10x and what evidence is required.
 
 ---
 

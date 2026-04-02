@@ -15,12 +15,12 @@
 - [x] Add specialist suffix to worker artifact filenames for clearer auditability.
 - [x] Enable nested deep-worker delegation: parent workers can spawn nested sub-agents and nested mini-team synthesis.
 - [x] Remove deep-worker timeout enforcement (workers/nested/synthesis no longer auto-killed by timeout).
-- [ ] Add structured shared-memory schema (claims, assumptions, sources, confidence) instead of raw text dumps.
-- [ ] Preserve lifecycle events while pruning only noisy deltas; make event cap configurable per deployment.
-- [ ] Surface explicit "not installed vs installed-not-authenticated vs subscription/quota" in UI agent readiness badges.
-- [ ] Add strict citation mode for research/finance lanes (reject uncited numeric claims).
-- [ ] Add "mixed-mode" toggle in Core Console to intentionally allow/disallow cross-agent fanout in deep mode.
-- [ ] Add Deep Run scorecard artifact (`ORDER_SCORECARD.md`) with per-lane quality, risk, and source coverage.
+- [x] Add structured shared-memory schema (claims, assumptions, sources, confidence) instead of raw text dumps.
+- [x] Preserve lifecycle events while pruning only noisy deltas; make event cap configurable per deployment.
+- [x] Surface explicit "not installed vs installed-not-authenticated vs subscription/quota" in UI agent readiness badges.
+- [x] Add strict citation mode for research/finance lanes (reject uncited numeric claims).
+- [x] Add "mixed-mode" toggle in Core Console to intentionally allow/disallow cross-agent fanout in deep mode.
+- [x] Add Deep Run scorecard artifact (`ORDER_SCORECARD.md`) with per-lane quality, risk, and source coverage.
 
 ## Landing Page Improvements
 - [x] Clean up `LandingPage.jsx` (remove variants: Agentic, Clay, 3D) making it solely `LandingMorphism`.

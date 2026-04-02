@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Check, Loader2, RefreshCw, Send, Trash2, Square } from 'lucide-react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Bot, Check, GitBranch, Loader2, Monitor, RefreshCw, Send, Square, Terminal, Trash2 } from 'lucide-react';
+import { trackEvent } from '../../lib/instrumentation.js';
 import { cancelOrder, checkAgentAvailability, getAgentModels } from '../../lib/daemon';
 import { CLI_AGENTS } from '../../lib/agents';
+import PreviewPanel from '../shared/PreviewPanel';
+
+const GitPanel = lazy(() => import('../git/GitPanel'));
 
 const CORE_AGENTS = [
   { id: 'auto', label: 'Auto (Smart Route)' },
@@ -13,12 +17,12 @@ const CORE_AGENTS = [
   { id: 'kiro', label: 'Kiro' },
 ];
 
-const TESTING_CWD = '/Users/shubh/Developer/ai-testing';
+const DEFAULT_CWD = '.';
 const ACTIVE_ORDER_SESSION_KEY = 'soupz.core.activeOrderId';
 const AGENT_MODEL_PREFS_KEY = 'soupz_agent_models';
 
 const BENCHMARK_PROMPT = [
-  'Build a complete mini project inside /Users/shubh/Developer/ai-testing/multi-agent-benchmark.',
+  'Build a complete mini project inside the current working directory under ./multi-agent-benchmark.',
   'Create these files with production-quality content: README.md, index.html, style.css, app.js, and run-report.md.',
   'Project spec: responsive task board app (add, edit, delete, filter, localStorage persistence, keyboard accessibility).',
   'Include a clear architecture section in README and a testing checklist in run-report.md.',
@@ -27,7 +31,7 @@ const BENCHMARK_PROMPT = [
 ].join(' ');
 
 const DEEP_STRESS_PROMPT = [
-  'Create a production-grade mini product inside /Users/shubh/Developer/ai-testing/deep-stress-suite.',
+  'Create a production-grade mini product inside the current working directory under ./deep-stress-suite.',
   'Build 3 artifacts: (1) a full web app (index.html, style.css, app.js), (2) a concise architecture doc (ARCHITECTURE.md), and (3) a QA + risk report (QA-RISKS.md).',
   'Web app spec: kanban + note board hybrid with add/edit/delete, drag-and-drop between columns, filters, search, localStorage persistence, and keyboard accessibility.',
   'Architecture doc must include data model, component boundaries, and tradeoff decisions.',
@@ -37,7 +41,7 @@ const DEEP_STRESS_PROMPT = [
 ].join(' ');
 
 const DEEP_COMPLEX_PROMPT = [
-  'Create an advanced production mini product inside /Users/shubh/Developer/ai-testing/parallel-systems-lab.',
+  'Create an advanced production mini product inside the current working directory under ./parallel-systems-lab.',
   'Deliver artifacts: index.html, style.css, app.js, ARCHITECTURE.md, TEST_PLAN.md, and PERFORMANCE_NOTES.md.',
   'Feature spec: multi-column planning workspace with drag-drop, inline editing, markdown notes, advanced filtering, undo/redo, and localStorage persistence with migration versioning.',
   'Include keyboard-first accessibility, optimistic UI updates, graceful empty/error states, and a clear in-app activity log.',
@@ -79,10 +83,11 @@ export default function CoreConsole({ workspace }) {
   const [agentId, setAgentId] = useState('auto');
   const [buildMode, setBuildMode] = useState('quick');
   const [useAiPlanner, setUseAiPlanner] = useState(true);
+  const [mixedMode, setMixedMode] = useState(true);
   const [plannerStyle, setPlannerStyle] = useState('balanced');
   const [plannerNotes, setPlannerNotes] = useState('');
   const [showPlannerSettings, setShowPlannerSettings] = useState(false);
-  const [cwd, setCwd] = useState(TESTING_CWD);
+  const [cwd, setCwd] = useState(workspace?.rootPath || DEFAULT_CWD);
   const [prompt, setPrompt] = useState('');
   const [output, setOutput] = useState('');
   const [running, setRunning] = useState(false);
@@ -130,12 +135,69 @@ export default function CoreConsole({ workspace }) {
     }
   });
   const [discoveredModels, setDiscoveredModels] = useState({});
+  const [dockTab, setDockTab] = useState('preview');
+  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewStatus, setPreviewStatus] = useState('idle');
+  const [previewError, setPreviewError] = useState('');
   const outputRef = useRef(null);
   const questionPanelRef = useRef(null);
   const completionMarkedRef = useRef(false);
   const knownWorkersRef = useRef([]);
   const agentRuntimeRef = useRef({});
   const online = !!workspace?.online;
+
+  useEffect(() => {
+    if (!workspace?.rootPath) return;
+    setCwd((prev) => (prev && prev !== DEFAULT_CWD ? prev : workspace.rootPath));
+  }, [workspace?.rootPath]);
+
+  async function refreshDockPreview() {
+    if (!workspace?.getDevServerUrl || !online || !previewEnabled) {
+      setPreviewUrl(null);
+      setPreviewStatus(online ? 'disabled' : 'offline');
+      setPreviewError('');
+      return;
+    }
+
+    setPreviewStatus('loading');
+    setPreviewError('');
+    try {
+      const result = await workspace.getDevServerUrl();
+      const nextUrl = result?.url || null;
+      setPreviewUrl(nextUrl);
+      setPreviewStatus(nextUrl ? 'ready' : 'empty');
+    } catch (err) {
+      setPreviewUrl(null);
+      setPreviewStatus('error');
+      setPreviewError(err?.message || 'Failed to detect dev server');
+    }
+  }
+
+  useEffect(() => {
+    if (!previewEnabled || !online) {
+      if (!online) {
+        setPreviewStatus('offline');
+        setPreviewUrl(null);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    let timer = null;
+
+    const poll = async () => {
+      if (cancelled) return;
+      await refreshDockPreview();
+      if (!cancelled) timer = setTimeout(poll, 15000);
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [previewEnabled, online]);
 
   useEffect(() => {
     agentRuntimeRef.current = agentRuntime;
@@ -556,7 +618,7 @@ export default function CoreConsole({ workspace }) {
           prompt: text,
           agentId,
           allowedAgents: agentId === 'auto' ? enabledAgents : undefined,
-          sameAgentOnly: buildMode === 'deep' && agentId !== 'auto',
+          sameAgentOnly: buildMode === 'deep' && !mixedMode,
           buildMode,
           selectedModel: selectedModel || undefined,
           agentModels: agentModelPrefs,
@@ -680,6 +742,11 @@ export default function CoreConsole({ workspace }) {
             : `\n\n[core] Prompt failed. exitCode=${detail.exitCode ?? 'unknown'}${filesLine}`;
         setOutput((prev) => prev + finalLine);
         setOrderError(detail.status === 'failed' ? ((detail.stderr || '').slice(-400) || 'Execution failed') : '');
+        
+        if (detail.status === 'completed' && buildMode === 'deep') {
+          window.dispatchEvent(new CustomEvent('soupz_complete_onboarding_item', { detail: { id: 'deep_run' } }));
+          trackEvent('deep_run_completed', { orderId: lastOrderId });
+        }
       }
 
       const hasLaneBuffers = detail?.laneBuffers && typeof detail.laneBuffers === 'object';
@@ -904,8 +971,20 @@ export default function CoreConsole({ workspace }) {
           </div>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div className="border border-border-subtle/60 rounded-md bg-bg-surface/60 p-3 space-y-3">
+        <div className="border border-border-subtle/70 rounded-md bg-bg-surface/80 px-3 py-2 flex flex-wrap items-center gap-2 text-xs">
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border ${online ? 'border-success/30 text-success bg-success/10' : 'border-warning/30 text-warning bg-warning/10'}`}>
+            {online ? 'Daemon Online' : 'Daemon Offline'}
+          </span>
+          <span className="text-text-faint">Status Bar:</span>
+          <span className="text-text-sec">Gemini {agentRuntime.gemini?.ready ? 'ready' : 'setup'}</span>
+          <span className="text-text-sec">Copilot {agentRuntime.copilot?.ready ? 'ready' : 'setup'}</span>
+          <span className="text-text-sec">Codex {agentRuntime.codex?.ready ? 'ready' : 'setup'}</span>
+          <span className="text-text-faint">|</span>
+          <span className="text-text-sec">Ready agents: {readyAgents.length}</span>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-3">
+          <div className="border border-border-subtle/60 rounded-md bg-bg-surface/60 p-3 space-y-3 md:col-span-2">
             <div>
               <label className="text-xs text-text-sec block mb-1">Agent</label>
               <select
@@ -913,12 +992,18 @@ export default function CoreConsole({ workspace }) {
                 onChange={(e) => setAgentId(e.target.value)}
                 className="w-full bg-bg-surface border border-border-subtle rounded-md px-2 py-2 text-sm"
               >
-                {CORE_AGENTS.map((a) => (
-                  <option key={a.id} value={a.id} disabled={a.id !== 'auto' && agentRuntime[a.id]?.installed === false}>
-                    {a.label}
-                    {a.id !== 'auto' && agentRuntime[a.id]?.installed === false ? ' (install first)' : ''}
-                  </option>
-                ))}
+                {CORE_AGENTS.map((a) => {
+                  const info = agentRuntime[a.id];
+                  const labelSuffix = a.id === 'auto' ? '' :
+                    !info?.installed ? ' (not installed)' :
+                    !info?.ready ? ` (${String(info.reason || 'not ready').replace(/_/g, ' ')})` :
+                    ' (ready)';
+                  return (
+                    <option key={a.id} value={a.id} disabled={a.id !== 'auto' && info?.installed === false}>
+                      {a.label}{labelSuffix}
+                    </option>
+                  );
+                })}
               </select>
             </div>
             
@@ -1043,7 +1128,7 @@ export default function CoreConsole({ workspace }) {
             </select>
           </label>
 
-          <label className="text-xs text-text-sec">
+          <label className="text-xs text-text-sec md:col-span-3">
             Agent Model
             <select
               value={selectedModel || ''}
@@ -1091,10 +1176,17 @@ export default function CoreConsole({ workspace }) {
                   onChange={(e) => setUseAiPlanner(e.target.checked)}
                 />
                 AI planner enabled
-              </label>
-              <button
-                type="button"
-                onClick={() => setShowPlannerSettings((prev) => !prev)}
+                </label>
+                <label className="flex items-center gap-2 text-xs text-text-sec" title="Allow different agents to be used for different sub-tasks in parallel.">
+                <input
+                  type="checkbox"
+                  checked={mixedMode}
+                  onChange={(e) => setMixedMode(e.target.checked)}
+                />
+                Mixed-agent fanout
+                </label>
+                <button
+                type="button"                onClick={() => setShowPlannerSettings((prev) => !prev)}
                 className="px-2 py-1 rounded-md text-xs bg-bg-elevated border border-border-subtle text-text-sec hover:text-text-pri"
               >
                 {showPlannerSettings ? 'Hide planner options' : 'Show planner options'}
@@ -1171,16 +1263,16 @@ export default function CoreConsole({ workspace }) {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => {
-              setCwd(TESTING_CWD);
+              setCwd(workspace?.rootPath || DEFAULT_CWD);
               setPrompt(BENCHMARK_PROMPT);
             }}
             className="px-2 py-1 rounded-md text-xs bg-bg-elevated border border-border-subtle text-text-sec hover:text-text-pri"
           >
-            Use AI-Testing Benchmark Prompt
+            Use Benchmark Prompt
           </button>
           <button
             onClick={() => {
-              setCwd(TESTING_CWD);
+              setCwd(workspace?.rootPath || DEFAULT_CWD);
               setBuildMode('deep');
               setPrompt(DEEP_STRESS_PROMPT);
             }}
@@ -1190,7 +1282,7 @@ export default function CoreConsole({ workspace }) {
           </button>
           <button
             onClick={() => {
-              setCwd(TESTING_CWD);
+              setCwd(workspace?.rootPath || DEFAULT_CWD);
               setBuildMode('deep');
               setPrompt(DEEP_COMPLEX_PROMPT);
             }}
@@ -1200,7 +1292,7 @@ export default function CoreConsole({ workspace }) {
           </button>
           <button
             onClick={() => {
-              setCwd(TESTING_CWD);
+              setCwd(workspace?.rootPath || DEFAULT_CWD);
               setBuildMode('deep');
               setPrompt(HACKATHON_RADIATOR_ROUTES_PROMPT);
             }}
@@ -1251,6 +1343,132 @@ export default function CoreConsole({ workspace }) {
             {lastOrderId ? ` • status: ${orderStatus}` : ''}
             {lastOrderId ? ` • events: ${orderEventCount}` : ''}
           </div>
+        </div>
+
+        <div className="bg-bg-surface/80 border border-border-subtle/60 rounded-md p-3 space-y-3">
+          <div className="flex flex-wrap items-center gap-2 justify-between">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-text-faint">Cockpit Workspace Dock</div>
+              <div className="text-xs text-text-sec">Preview, Git, and terminal visibility in one place.</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !previewEnabled;
+                setPreviewEnabled(next);
+                if (next) void refreshDockPreview();
+              }}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-xs ${previewEnabled ? 'border-accent/40 text-accent bg-accent/10' : 'border-border-subtle text-text-faint hover:text-text-sec'}`}
+            >
+              <Monitor size={12} />
+              {previewEnabled ? 'Preview On' : 'Preview Off'}
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              { id: 'preview', label: 'Preview', Icon: Monitor },
+              { id: 'git', label: 'Git', Icon: GitBranch },
+              { id: 'terminals', label: 'Terminals', Icon: Terminal },
+            ].map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setDockTab(id)}
+                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border text-xs ${dockTab === id ? 'border-accent/40 text-accent bg-accent/10' : 'border-border-subtle text-text-faint hover:text-text-sec'}`}
+              >
+                <Icon size={12} />
+                {label}
+              </button>
+            ))}
+            {dockTab === 'preview' ? (
+              <button
+                type="button"
+                onClick={() => void refreshDockPreview()}
+                disabled={!previewEnabled || !online}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-xs text-text-faint hover:text-text-sec disabled:opacity-50"
+              >
+                <RefreshCw size={11} className={previewStatus === 'loading' ? 'animate-spin' : ''} />
+                Refresh Preview
+              </button>
+            ) : null}
+          </div>
+
+          {dockTab === 'preview' ? (
+            <div className="space-y-2">
+              <div className="text-xs text-text-faint">
+                {previewEnabled
+                  ? previewStatus === 'ready'
+                    ? `Live preview detected at ${previewUrl}`
+                    : previewStatus === 'loading'
+                      ? 'Checking for a running dev server...'
+                      : previewStatus === 'empty'
+                        ? 'No dev server found. Start npm run dev in your project to enable preview.'
+                        : previewStatus === 'offline'
+                          ? 'Daemon offline. Connect first to use live preview.'
+                          : previewStatus === 'error'
+                            ? `Preview error: ${previewError || 'unknown error'}`
+                            : 'Preview is enabled.'
+                  : 'Preview is off. Toggle Preview On to show live app output.'}
+              </div>
+              <div className="h-[320px]">
+                {previewEnabled ? (
+                  <PreviewPanel previewUrl={previewUrl} onRefresh={() => void refreshDockPreview()} />
+                ) : (
+                  <div className="h-full rounded-lg border border-border-subtle bg-bg-elevated/40 flex items-center justify-center text-xs text-text-faint">
+                    Preview disabled
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {dockTab === 'git' ? (
+            <div className="rounded-md border border-border-subtle bg-bg-elevated/40 max-h-[380px] overflow-y-auto">
+              <Suspense fallback={<div className="p-3 text-xs text-text-faint">Loading Git panel...</div>}>
+                <GitPanel daemon={workspace} compact />
+              </Suspense>
+            </div>
+          ) : null}
+
+          {dockTab === 'terminals' ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-text-sec">{terminals.length} active terminal(s)</div>
+                <button
+                  onClick={refreshTerminals}
+                  disabled={termLoading || !online}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-xs text-text-faint hover:text-text-sec disabled:opacity-50"
+                >
+                  <RefreshCw size={11} className={termLoading ? 'animate-spin' : ''} />
+                  Refresh
+                </button>
+              </div>
+              {terminals.length === 0 ? (
+                <div className="text-xs text-text-faint">No active terminals right now.</div>
+              ) : (
+                <div className="space-y-1 max-h-[260px] overflow-y-auto">
+                  {terminals.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between gap-2 bg-bg-elevated border border-border-subtle rounded px-2 py-1.5">
+                      <div className="text-xs text-text-sec">
+                        <span className="font-mono text-text-pri">#{t.id}</span>
+                        <span className="ml-2">pid {t.pid ?? 'n/a'}</span>
+                        <span className="ml-2">{t.ageSec ?? 0}s</span>
+                      </div>
+                      <button
+                        onClick={() => killTerminal(t.id)}
+                        disabled={killingId === t.id}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded border border-danger/30 text-xs text-danger hover:bg-danger/10 disabled:opacity-50"
+                      >
+                        {killingId === t.id ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                        Kill
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
 
         {lastOrderId ? (
