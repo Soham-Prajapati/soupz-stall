@@ -313,7 +313,7 @@ characters). The code:
 - Is displayed in terminal when daemon starts
 - Auto-refreshes every 5 minutes
 - Is single-use (consumed on pair, deleted from map)
-- The URL is opened automatically: `soupz.app/connect?code=12345678`
+- The URL is opened automatically: `soupz.app/code?code=12345678`
 
 ### Why Specialists vs CLI Agents?
 
@@ -1319,7 +1319,7 @@ You can still browse the UI — it just won't execute agents.
 ```bash
 cd /Users/shubh/Developer/soupz-agents
 node bin/soupz.js
-# Outputs pairing code and opens browser to localhost:5173/connect
+# Outputs pairing code and opens browser to localhost:5173/code
 # Daemon runs at http://localhost:7070
 ```
 
@@ -1329,8 +1329,8 @@ existing process with `lsof -ti:7070 | xargs kill`.
 ### Pair the Web App to the Daemon
 
 1. Daemon shows: `Code: 12345678 (expires in 300s)`
-2. Browser auto-opens to `/connect?code=12345678`
-3. Or manually go to http://localhost:5173/connect and enter the code
+2. Browser auto-opens to `/code?code=12345678`
+3. Or manually go to http://localhost:5173/code and enter the code
 4. After pairing: nav bar shows green "Connected" dot
 
 ### Build for Production
@@ -1770,7 +1770,7 @@ Key colors:
 
 Daemon URL:    http://localhost:7070
 Web dev URL:   http://localhost:5173
-Live URL:      https://soupz-agents-sohams-projects-4080e0ee.vercel.app
+Live URL:      https://soupz.vercel.app
 
 Top remaining work:
   1. Streaming agent output via soupz_output_chunks

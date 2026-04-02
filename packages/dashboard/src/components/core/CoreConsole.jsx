@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Check, Loader2, RefreshCw, Send, Trash2, Square } from 'lucide-react';
-import { cancelOrder, checkAgentAvailability } from '../../lib/daemon';
+import { cancelOrder, checkAgentAvailability, getAgentModels } from '../../lib/daemon';
+import { CLI_AGENTS } from '../../lib/agents';
 
 const CORE_AGENTS = [
   { id: 'auto', label: 'Auto (Smart Route)' },
@@ -14,6 +15,7 @@ const CORE_AGENTS = [
 
 const TESTING_CWD = '/Users/shubh/Developer/ai-testing';
 const ACTIVE_ORDER_SESSION_KEY = 'soupz.core.activeOrderId';
+const AGENT_MODEL_PREFS_KEY = 'soupz_agent_models';
 
 const BENCHMARK_PROMPT = [
   'Build a complete mini project inside /Users/shubh/Developer/ai-testing/multi-agent-benchmark.',
@@ -56,6 +58,22 @@ const HACKATHON_RADIATOR_ROUTES_PROMPT = [
 ].join(' ');
 
 const ENABLED_CORE_AGENTS_KEY = 'soupz_enabled_core_agents';
+
+const RUNTIME_REASON_LABELS = {
+  not_installed: 'CLI not installed',
+  missing_cli: 'CLI not installed',
+  auth_required: 'Sign-in required',
+  login_required: 'Sign-in required',
+  setup_required: 'Setup required',
+  config_missing: 'Configuration missing',
+  unavailable: 'Unavailable',
+};
+
+function formatRuntimeReason(reason = '') {
+  if (!reason) return '';
+  if (RUNTIME_REASON_LABELS[reason]) return RUNTIME_REASON_LABELS[reason];
+  return reason.replace(/[_-]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+}
 
 export default function CoreConsole({ workspace }) {
   const [agentId, setAgentId] = useState('auto');
@@ -103,11 +121,25 @@ export default function CoreConsole({ workspace }) {
   const [agentRuntime, setAgentRuntime] = useState({});
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState('');
+  const [agentModelPrefs, setAgentModelPrefs] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(AGENT_MODEL_PREFS_KEY) || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
+  const [discoveredModels, setDiscoveredModels] = useState({});
   const outputRef = useRef(null);
   const questionPanelRef = useRef(null);
   const completionMarkedRef = useRef(false);
   const knownWorkersRef = useRef([]);
+  const agentRuntimeRef = useRef({});
   const online = !!workspace?.online;
+
+  useEffect(() => {
+    agentRuntimeRef.current = agentRuntime;
+  }, [agentRuntime]);
 
   const readyAgents = useMemo(
     () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentRuntime[a.id]?.ready).map(a => a.label),
@@ -129,12 +161,88 @@ export default function CoreConsole({ workspace }) {
     [agentRuntime],
   );
 
+  const setupAgentDetails = useMemo(
+    () => CORE_AGENTS
+      .filter(a => a.id !== 'auto' && agentRuntime[a.id]?.installed && !agentRuntime[a.id]?.ready)
+      .map((a) => ({
+        label: a.label,
+        reason: formatRuntimeReason(agentRuntime[a.id]?.reason),
+        hint: agentRuntime[a.id]?.hint || '',
+      })),
+    [agentRuntime],
+  );
+
+  const missingAgentDetails = useMemo(
+    () => CORE_AGENTS
+      .filter(a => a.id !== 'auto' && agentRuntime[a.id]?.installed === false)
+      .map((a) => ({
+        label: a.label,
+        reason: formatRuntimeReason(agentRuntime[a.id]?.reason),
+        hint: agentRuntime[a.id]?.hint || '',
+      })),
+    [agentRuntime],
+  );
+
   const enabledReadyAgents = useMemo(
     () => enabledAgents.filter(id => agentRuntime[id]?.ready),
     [enabledAgents, agentRuntime],
   );
 
   const autoAgentsEmpty = agentId === 'auto' && enabledReadyAgents.length === 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadModels() {
+      try {
+        const agents = await getAgentModels();
+        if (!cancelled && agents && typeof agents === 'object') {
+          setDiscoveredModels(agents);
+        }
+      } catch {
+        // Keep static model fallback list.
+      }
+    }
+    void loadModels();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const modelOptionsByAgent = useMemo(() => {
+    const byAgent = {};
+    for (const agent of CLI_AGENTS) {
+      const staticModels = Array.isArray(agent.models)
+        ? agent.models.map((m) => ({ id: m.id, name: m.name || m.id }))
+        : [];
+      const discovered = Array.isArray(discoveredModels?.[agent.id]?.available)
+        ? discoveredModels[agent.id].available.map((id) => ({ id, name: id }))
+        : [];
+      const combined = [...staticModels, ...discovered];
+      const seen = new Set();
+      byAgent[agent.id] = combined.filter((entry) => {
+        const id = String(entry?.id || '').trim();
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+    }
+    return byAgent;
+  }, [discoveredModels]);
+
+  const selectedModel = agentId !== 'auto' ? (agentModelPrefs?.[agentId] || '') : '';
+
+  function saveAgentModelPreference(agentKey, modelId) {
+    setAgentModelPrefs((prev) => {
+      const next = { ...(prev || {}) };
+      if (!agentKey || !modelId) {
+        delete next[agentKey];
+      } else {
+        next[agentKey] = modelId;
+      }
+      localStorage.setItem(AGENT_MODEL_PREFS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
 
   function persistEnabledAgents(list) {
     const sanitized = list.filter(id => id !== 'auto');
@@ -173,23 +281,37 @@ export default function CoreConsole({ workspace }) {
       try {
         const avail = await checkAgentAvailability();
         if (!active) return;
+        const hasSignals = Object.keys(avail?.detailed || {}).length > 0 || Object.keys(avail?.simple || {}).length > 0;
+        if (!hasSignals) {
+          setAvailabilityError('Agent probe unavailable. Keeping last known status.');
+          return;
+        }
         const readyMap = avail?.simple || avail || {};
         const detailed = avail?.detailed || {};
+        const prevRuntime = agentRuntimeRef.current || {};
 
         const runtime = CORE_AGENTS.reduce((acc, agent) => {
           if (agent.id === 'auto') return acc;
           const detail = detailed?.[agent.id] || {};
+          const prev = prevRuntime?.[agent.id] || {};
+          const hasReadyKey = Object.prototype.hasOwnProperty.call(readyMap || {}, agent.id);
           const installed = typeof detail.installed === 'boolean'
             ? detail.installed
-            : Boolean(readyMap?.[agent.id]);
+            : typeof detail.ready === 'boolean'
+              ? detail.ready
+              : hasReadyKey
+                ? Boolean(readyMap?.[agent.id])
+                : (typeof prev.installed === 'boolean' ? prev.installed : false);
           const ready = typeof detail.ready === 'boolean'
             ? detail.ready
-            : Boolean(readyMap?.[agent.id]);
+            : hasReadyKey
+              ? Boolean(readyMap?.[agent.id])
+              : (typeof prev.ready === 'boolean' ? prev.ready : false);
           acc[agent.id] = {
             installed,
             ready,
-            reason: detail.reason || '',
-            hint: detail.hint || '',
+            reason: detail.reason || prev.reason || '',
+            hint: detail.hint || prev.hint || '',
           };
           return acc;
         }, {});
@@ -436,6 +558,8 @@ export default function CoreConsole({ workspace }) {
           allowedAgents: agentId === 'auto' ? enabledAgents : undefined,
           sameAgentOnly: buildMode === 'deep' && agentId !== 'auto',
           buildMode,
+          selectedModel: selectedModel || undefined,
+          agentModels: agentModelPrefs,
           cwd,
           orchestrationMode: buildMode === 'deep' ? 'parallel' : 'single',
           useAiPlanner,
@@ -824,6 +948,7 @@ export default function CoreConsole({ workspace }) {
                     const status = agentRuntime[a.id] || { installed: agentAvailability[a.id] !== false, ready: Boolean(agentAvailability[a.id]) };
                     const installed = status.installed !== false;
                     const ready = !!status.ready;
+                    const reasonLabel = formatRuntimeReason(status.reason);
                     const enabled = enabledAgents.includes(a.id);
                     const statusLabel = !installed ? 'missing' : ready ? 'ready' : 'setup';
                     const statusClass = !installed ? 'text-warning' : ready ? 'text-success' : 'text-amber-400';
@@ -847,7 +972,15 @@ export default function CoreConsole({ workspace }) {
                         >
                           {enabled && <Check size={9} className="text-bg-base" />}
                         </span>
-                        <span className="flex-1">{a.label}</span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block truncate">{a.label}</span>
+                          {!ready && (reasonLabel || status.hint) ? (
+                            <span className="block text-[10px] text-text-faint truncate">
+                              {reasonLabel || 'Unavailable'}
+                              {status.hint ? ` - ${status.hint}` : ''}
+                            </span>
+                          ) : null}
+                        </span>
                         <span className={`text-[10px] font-mono uppercase ${statusClass}`} title={status.reason || status.hint || ''}>
                           {statusLabel}
                         </span>
@@ -874,11 +1007,21 @@ export default function CoreConsole({ workspace }) {
                       Needs setup/auth: {setupAgents.join(', ')}
                     </div>
                   )}
+                  {setupAgentDetails.slice(0, 2).map((detail) => (
+                    <div key={`setup-${detail.label}`} className="text-[10px] text-amber-300">
+                      {detail.label}: {detail.reason || 'Setup required'}{detail.hint ? ` - ${detail.hint}` : ''}
+                    </div>
+                  ))}
                   {missingAgents.length > 0 && (
                     <div className="text-warning">
                       Missing: {missingAgents.join(', ')} — runs will skip these until installed.
                     </div>
                   )}
+                  {missingAgentDetails.slice(0, 2).map((detail) => (
+                    <div key={`missing-${detail.label}`} className="text-[10px] text-warning/90">
+                      {detail.label}: {detail.reason || 'CLI not installed'}{detail.hint ? ` - ${detail.hint}` : ''}
+                    </div>
+                  ))}
                   {autoAgentsEmpty && (
                     <div className="text-warning">Select at least one ready agent so auto mode can run.</div>
                   )}
@@ -898,6 +1041,26 @@ export default function CoreConsole({ workspace }) {
               <option value="balanced">balanced (single + better routing)</option>
               <option value="deep">deep (parallel workers + synthesis)</option>
             </select>
+          </label>
+
+          <label className="text-xs text-text-sec">
+            Agent Model
+            <select
+              value={selectedModel || ''}
+              onChange={(e) => saveAgentModelPreference(agentId, e.target.value)}
+              disabled={agentId === 'auto'}
+              className="mt-1 w-full bg-bg-surface border border-border-subtle rounded-md px-2 py-2 text-sm disabled:opacity-60"
+            >
+              <option value="">default (agent CLI default)</option>
+              {(modelOptionsByAgent[agentId] || []).map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name || model.id}
+                </option>
+              ))}
+            </select>
+            {agentId === 'auto' ? (
+              <span className="block mt-1 text-[10px] text-text-faint">Pick a concrete agent to lock model selection.</span>
+            ) : null}
           </label>
         </div>
 

@@ -9,7 +9,7 @@ export class AgentSpawner extends EventEmitter {
         this.processes = new Map();
     }
 
-    run(agentId, prompt, cwd) {
+    run(agentId, prompt, cwd, options = {}) {
         const agent = this.registry.get(agentId);
         if (!agent) throw new Error(`Unknown agent: ${agentId}`);
         if (!agent.available) throw new Error(`Agent "${agent.name}" not installed`);
@@ -18,7 +18,28 @@ export class AgentSpawner extends EventEmitter {
         return new Promise((resolve, reject) => {
             // Build args from agent definition, replacing {prompt} placeholder
             const args = (agent.build_args || []).map((a) => a === '{prompt}' ? prompt : a);
+            const forcedModel = String(options?.model || '').trim();
+            if (forcedModel) {
+                // Apply model overrides only for CLIs with known model switch semantics.
+                if (agentId === 'ollama') {
+                    if (args[0] === 'run') {
+                        if (args.length >= 2) args[1] = forcedModel;
+                        else args.push(forcedModel);
+                    } else {
+                        args.unshift('run', forcedModel);
+                    }
+                } else if (agentId === 'gemini' || agentId === 'copilot' || agentId === 'codex') {
+                    const idx = args.indexOf('--model');
+                    if (idx >= 0) {
+                        if (idx === args.length - 1) args.push(forcedModel);
+                        else args[idx + 1] = forcedModel;
+                    } else {
+                        args.push('--model', forcedModel);
+                    }
+                }
+            }
             const parser = getParser(agentId);
+            const binary = agent.binaryPath || agent.binary;
 
             this.registry.updateState(agentId, {
                 state: 'running',
@@ -29,7 +50,7 @@ export class AgentSpawner extends EventEmitter {
             });
             this.emit('status-change', agentId, 'running');
 
-            const proc = spawn(agent.binary, args, {
+            const proc = spawn(binary, args, {
                 cwd: cwd || process.cwd(),
                 env: { ...process.env },
                 stdio: ['ignore', 'pipe', 'pipe'],
@@ -93,7 +114,6 @@ export class AgentSpawner extends EventEmitter {
         const proc = this.processes.get(agentId);
         if (proc) {
             proc.kill('SIGTERM');
-            setTimeout(() => { if (proc.exitCode === null) proc.kill('SIGKILL'); }, 3000);
         }
     }
 

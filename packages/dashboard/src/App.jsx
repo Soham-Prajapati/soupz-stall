@@ -31,13 +31,110 @@ import {
   getFileTree, readFile, writeFile, getGitStatus, getGitDiff,
   gitStage, gitCommit, gitPush, checkSystemCLIs,
   listTerminals, killTerminalById, getOrderDetail,
-  submitOrderInput, getDevServerUrl,
+  submitOrderInput, getDevServerUrl, setDaemonToken,
+  setDaemonUrl,
 } from './lib/daemon.js';
 import { cn } from './lib/cn';
 import { flattenFilePaths } from './lib/tree';
 
 const MODE_KEY  = 'soupz_ide_mode';
 const THEME_KEY = 'soupz_theme';
+const PROFILE_KEY = 'soupz_profile';
+const SYNCED_PROFILE_SETTING_KEYS = [
+  MODE_KEY,
+  THEME_KEY,
+  'soupz_agent',
+  'soupz_build_mode',
+  'soupz_builder_mode',
+  'soupz_enabled_agents',
+  'soupz_agent_config',
+];
+
+function readSyncedSettingsSnapshot() {
+  if (typeof window === 'undefined') return {};
+  const snapshot = {};
+  for (const key of SYNCED_PROFILE_SETTING_KEYS) {
+    const value = localStorage.getItem(key);
+    if (value != null) snapshot[key] = value;
+  }
+  return snapshot;
+}
+
+function readProfileMetricsSnapshot() {
+  if (typeof window === 'undefined') {
+    return { messageCount: 0, agentCount: 0, streak: 0, xp: 0, level: 1 };
+  }
+
+  let messageCount = 0;
+  let agentCount = 0;
+  let streak = 0;
+
+  try {
+    const history = JSON.parse(localStorage.getItem('soupz_chat_history') || '[]');
+    if (Array.isArray(history)) {
+      messageCount = history.filter((item) => item?.role === 'user').length;
+    }
+  } catch {}
+
+  try {
+    const usage = JSON.parse(localStorage.getItem('soupz_agent_usage') || '{}');
+    if (usage && typeof usage === 'object') {
+      agentCount = Object.keys(usage).length;
+    }
+  } catch {}
+
+  try {
+    const streakState = JSON.parse(localStorage.getItem('soupz_streak') || '{}');
+    streak = Number(streakState?.count || 0);
+  } catch {}
+
+  const achievementCount = [
+    messageCount >= 1,
+    messageCount >= 10,
+    messageCount >= 50,
+    messageCount >= 100,
+    agentCount >= 3,
+    streak >= 3,
+    streak >= 7,
+  ].filter(Boolean).length;
+
+  const xp = (messageCount * 10) + (streak * 50) + (achievementCount * 100);
+  const level = Math.max(1, Math.floor(xp / 500) + 1);
+
+  return { messageCount, agentCount, streak, xp, level };
+}
+
+function readPreferredDisplayName(user) {
+  if (typeof window === 'undefined') return user?.email?.split('@')[0] || null;
+  try {
+    const profile = JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}') || {};
+    const fromProfile = String(profile?.displayName || '').trim();
+    if (fromProfile) return fromProfile;
+  } catch {}
+  return user?.user_metadata?.user_name || user?.user_metadata?.preferred_username || user?.email?.split('@')[0] || null;
+}
+
+function applySyncedSettingsSnapshot(snapshot, { setMode, setTheme } = {}) {
+  if (!snapshot || typeof snapshot !== 'object') return;
+
+  for (const key of SYNCED_PROFILE_SETTING_KEYS) {
+    if (typeof snapshot[key] === 'string') {
+      localStorage.setItem(key, snapshot[key]);
+    }
+  }
+
+  if (typeof snapshot[MODE_KEY] === 'string') {
+    setMode?.(snapshot[MODE_KEY]);
+  }
+  if (typeof snapshot[THEME_KEY] === 'string') {
+    const normalized = applyTheme(snapshot[THEME_KEY]);
+    localStorage.setItem(THEME_KEY, normalized);
+    setTheme?.(normalized);
+  }
+  if (typeof snapshot.soupz_agent === 'string') {
+    window.dispatchEvent(new StorageEvent('storage', { key: 'soupz_agent', newValue: snapshot.soupz_agent }));
+  }
+}
 
 const THEME_ALIASES = {
   tokyo: 'tokyo-night',
@@ -182,10 +279,10 @@ export default function App() {
       const token = params.get('token');
 
       if (remote) {
-        localStorage.setItem('soupz_daemon_url', remote);
+        setDaemonUrl(remote);
         try { sessionStorage.setItem('soupz_auto_remote_hint', '1'); } catch {}
       }
-      if (token) localStorage.setItem('soupz_daemon_token', token);
+      if (token) setDaemonToken(token);
 
       if (remote || token) {
         params.delete('remote');
@@ -264,6 +361,7 @@ export default function App() {
     return `${host}::${activeWorkspaceRoot || 'global'}`;
   }, [activeWorkspaceRoot, workspaceMachine]);
   const previousOnlineRef = useRef(null);
+  const settingsSyncRef = useRef({ hydratedUserId: null, lastSerialized: '' });
 
   useEffect(() => {
     const previous = previousOnlineRef.current;
@@ -458,14 +556,20 @@ export default function App() {
 
     async function upsertProfile(u) {
       if (!u || u.id === 'local') return;
-      const githubUsername = u.user_metadata?.user_name || u.user_metadata?.preferred_username || u.email?.split('@')[0];
+      const metrics = readProfileMetricsSnapshot();
+      const displayName = readPreferredDisplayName(u);
       try {
         await supabase
           .from('soupz_profiles')
           .upsert({
             id: u.id,
-            display_name: githubUsername,
+            display_name: displayName,
             avatar_url: u.user_metadata?.avatar_url || null,
+            xp: metrics.xp,
+            level: metrics.level,
+            streak: metrics.streak,
+            message_count: metrics.messageCount,
+            agent_count: metrics.agentCount,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'id' });
       } catch (err) {
@@ -473,11 +577,33 @@ export default function App() {
       }
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    async function hydrateProfileSettings(userId) {
+      if (!userId) return;
+      try {
+        const { data, error } = await supabase
+          .from('soupz_profiles')
+          .select('settings')
+          .eq('id', userId)
+          .single();
+        if (error || !data?.settings) return;
+        applySyncedSettingsSnapshot(data.settings, { setMode, setTheme });
+        settingsSyncRef.current = {
+          hydratedUserId: userId,
+          lastSerialized: JSON.stringify(readSyncedSettingsSnapshot()),
+        };
+      } catch (err) {
+        console.error('Failed to hydrate profile settings:', err);
+      }
+    }
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       const curr = session?.user ?? null;
       console.log('Soupz Auth: Session loaded', curr ? `User: ${curr.email}` : 'No session');
       setUser(curr);
-      if (curr) upsertProfile(curr);
+      if (curr) {
+        await upsertProfile(curr);
+        await hydrateProfileSettings(curr.id);
+      }
       setAuthLoading(false);
     });
 
@@ -486,11 +612,59 @@ export default function App() {
       console.log(`Soupz Auth: Event [${event}]`, curr ? `User: ${curr.email}` : 'No user');
       setUser(curr);
       if (curr && (event === 'SIGNED_IN' || event === 'USER_UPDATED')) {
-        upsertProfile(curr);
+        void upsertProfile(curr);
+        if (event === 'SIGNED_IN') void hydrateProfileSettings(curr.id);
       }
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  // Periodically sync key local settings to soupz_profiles.settings for cross-device continuity.
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    if (!user || user.id === 'local') return;
+
+    let cancelled = false;
+
+    async function syncSettings() {
+      const snapshot = readSyncedSettingsSnapshot();
+      const serialized = JSON.stringify(snapshot);
+      const alreadyHydrated = settingsSyncRef.current.hydratedUserId === user.id;
+      if (alreadyHydrated && serialized === settingsSyncRef.current.lastSerialized) return;
+
+      try {
+        const metrics = readProfileMetricsSnapshot();
+        await supabase
+          .from('soupz_profiles')
+          .upsert({
+            id: user.id,
+            settings: snapshot,
+            xp: metrics.xp,
+            level: metrics.level,
+            streak: metrics.streak,
+            message_count: metrics.messageCount,
+            agent_count: metrics.agentCount,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'id' });
+
+        if (!cancelled) {
+          settingsSyncRef.current = {
+            hydratedUserId: user.id,
+            lastSerialized: serialized,
+          };
+        }
+      } catch (err) {
+        console.error('Failed to sync profile settings:', err);
+      }
+    }
+
+    void syncSettings();
+    const timer = setInterval(() => { void syncSettings(); }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [user]);
 
   // Workspace health check + auto-fetch file tree for local connections
   useEffect(() => {
@@ -555,8 +729,8 @@ export default function App() {
         console.error('Failed to auto-fetch file tree:', err);
       }
     },
-    async sendPrompt({ prompt, agentId, allowedAgents, sameAgentOnly, buildMode, cwd, orchestrationMode, useAiPlanner, plannerStyle, plannerNotes, returnOrderImmediately }, onChunk) {
-      return sendAgentPrompt({ prompt, agentId, allowedAgents, sameAgentOnly, buildMode, cwd, orchestrationMode, useAiPlanner, plannerStyle, plannerNotes, returnOrderImmediately }, user?.id, onChunk);
+    async sendPrompt(request, onChunk) {
+      return sendAgentPrompt(request || {}, user?.id, onChunk);
     },
     async readFile(path) {
       return readFile(path, user?.id, activeWorkspaceRoot);
@@ -638,7 +812,7 @@ export default function App() {
   if (path === '/docs') {
     return (
       <ErrorBoundary name="Docs Page">
-        <Suspense fallback={routeLoader}><DocsPage navigate={navigate} /></Suspense>
+        <Suspense fallback={routeLoader}><DocsPage navigate={navigate} workspace={workspace} /></Suspense>
       </ErrorBoundary>
     );
   }
@@ -675,7 +849,7 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-bg-base flex items-center justify-center">
+      <div className="min-h-[100dvh] min-h-screen bg-bg-base flex items-center justify-center">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
             <Terminal size={16} className="text-white" />
@@ -689,9 +863,9 @@ export default function App() {
   const CurrentThemeIcon = THEMES.find(t => t.id === theme)?.icon || Moon;
 
   return (
-    <div className="h-screen flex flex-col bg-bg-base overflow-hidden">
+    <div className="h-[100dvh] min-h-screen flex flex-col bg-bg-base overflow-hidden">
       {/* Nav */}
-      <nav className="h-14 bg-bg-surface/95 border-b border-border-subtle flex items-center px-4 gap-3 shrink-0 z-10 backdrop-blur-sm">
+      <nav className="h-[calc(56px+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] bg-bg-surface/95 border-b border-border-subtle flex items-center px-4 gap-3 shrink-0 z-10 backdrop-blur-sm">
         {/* Logo */}
         <div className="flex items-center gap-2.5 mr-1 shrink-0">
           <div className="w-8 h-8 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center shrink-0">

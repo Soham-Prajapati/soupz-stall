@@ -8,6 +8,67 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+const EXTRA_BIN_PATHS = [
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+    join(homedir(), 'Library/Application Support/Code/User/globalStorage/github.copilot-chat/copilotCli'),
+];
+
+function enrichedPath() {
+    const base = String(process.env.PATH || '')
+        .split(':')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    return Array.from(new Set([...base, ...EXTRA_BIN_PATHS])).join(':');
+}
+
+function ensureFlag(args, flag, value = null) {
+    if (!Array.isArray(args)) return value == null ? [flag] : [flag, value];
+    if (args.includes(flag)) return args;
+    return value == null ? [...args, flag] : [...args, flag, value];
+}
+
+function resolveFirstBinary(candidates = []) {
+    for (const candidate of candidates) {
+        if (whichBinary(candidate)) return candidate;
+    }
+    return null;
+}
+
+function normalizeAgentCliDefaults(meta = {}) {
+    const normalized = { ...meta };
+
+    if (normalized.id === 'gemini') {
+        let args = Array.isArray(normalized.build_args) ? [...normalized.build_args] : [];
+        if (!args.includes('-p') && !args.includes('--prompt')) {
+            args = ['-p', '{prompt}', ...args];
+        }
+        args = ensureFlag(args, '--output-format', 'stream-json');
+        args = ensureFlag(args, '--yolo');
+        normalized.build_args = args;
+    }
+
+    if (normalized.id === 'copilot') {
+        const standaloneCopilot = resolveFirstBinary(['copilot']);
+        if (standaloneCopilot) {
+            normalized.binary = 'copilot';
+            normalized.build_args = ['--allow-all-tools', '--allow-all-paths', '-p', '{prompt}'];
+        }
+    }
+
+    if (normalized.id === 'codex') {
+        const standaloneCodex = resolveFirstBinary(['codex', 'codex-cli', 'openai-codex']);
+        if (standaloneCodex) {
+            normalized.binary = standaloneCodex;
+            normalized.build_args = ['exec', '--dangerously-bypass-approvals-and-sandbox', '{prompt}'];
+        }
+    }
+
+    return normalized;
+}
+
 // ─── Paths ──────────────────────────────────────────────────────────────────
 export const DATA_DIR = join(homedir(), '.soupz-agents');
 export const AGENTS_DIR = join(DATA_DIR, 'agents');
@@ -42,7 +103,8 @@ export function loadAgentDefinition(filePath) {
     const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
     if (!fmMatch) return null;
 
-    const meta = parseYaml(fmMatch[1]);
+    const parsedMeta = parseYaml(fmMatch[1]);
+    const meta = normalizeAgentCliDefaults(parsedMeta);
     const body = fmMatch[2].trim();
 
     // Support both 'agent' (new) and 'persona' (legacy) type names
@@ -95,7 +157,8 @@ export function loadAllAgents() {
 function whichBinary(name) {
     if (!name) return null;
     try {
-        return execSync(`which ${name} 2>/dev/null`, { encoding: 'utf8' }).trim();
+        const env = { ...process.env, PATH: enrichedPath() };
+        return execSync(`command -v "${name}" 2>/dev/null`, { encoding: 'utf8', env }).trim();
     } catch {
         return null;
     }

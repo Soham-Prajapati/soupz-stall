@@ -30,6 +30,7 @@ export default function ProfilePage({ user, navigate, onSignOut }) {
   const githubUsername = user?.user_metadata?.user_name || user?.user_metadata?.preferred_username || user?.email?.split('@')[0] || '';
   
   const [displayName, setDisplayName] = useState(() => profile.displayName || githubUsername);
+  const [remoteProfile, setRemoteProfile] = useState(null);
   const [saved, setSaved] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [followers, setFollowers] = useState(0);
@@ -42,14 +43,41 @@ export default function ProfilePage({ user, navigate, onSignOut }) {
 
   const messages = useMemo(() => readJSON(STORAGE_KEY, []), []);
   const usage = useMemo(() => readJSON(USAGE_KEY, {}), []);
-  const streak = useMemo(() => {
+  const localStreak = useMemo(() => {
     const s = readJSON(STREAK_KEY, { count: 0 });
     return s.count || 0;
   }, []);
 
-  const totalMsgs = messages.filter(m => m.role === 'user').length;
-  const agentCount = Object.keys(usage).length;
+  const localTotalMsgs = messages.filter(m => m.role === 'user').length;
+  const localAgentCount = Object.keys(usage).length;
+  const totalMsgs = Math.max(localTotalMsgs, Number(remoteProfile?.message_count || 0));
+  const agentCount = Math.max(localAgentCount, Number(remoteProfile?.agent_count || 0));
+  const streak = Math.max(localStreak, Number(remoteProfile?.streak || 0));
   const earned = ACHIEVEMENTS.filter(a => a.req(totalMsgs, agentCount, streak));
+
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !user?.id) return;
+    let cancelled = false;
+    async function loadProfile() {
+      try {
+        const { data, error } = await supabase
+          .from('soupz_profiles')
+          .select('display_name, avatar_url, xp, level, streak, message_count, agent_count')
+          .eq('id', user.id)
+          .single();
+        if (error || !data || cancelled) return;
+        setRemoteProfile(data);
+        const remoteName = String(data.display_name || '').trim();
+        if (!profile.displayName && remoteName) setDisplayName(remoteName);
+      } catch (err) {
+        console.error('Profile fetch error', err);
+      }
+    }
+    void loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   // Load follower counts
   useEffect(() => {
@@ -100,8 +128,25 @@ export default function ProfilePage({ user, navigate, onSignOut }) {
     } catch (err) { console.error(err); }
   }
 
-  function handleSaveProfile() {
-    localStorage.setItem(PROFILE_KEY, JSON.stringify({ ...profile, displayName: displayName.trim() }));
+  async function handleSaveProfile() {
+    const trimmed = displayName.trim();
+    localStorage.setItem(PROFILE_KEY, JSON.stringify({ ...profile, displayName: trimmed }));
+
+    if (isSupabaseConfigured() && user?.id) {
+      try {
+        await supabase
+          .from('soupz_profiles')
+          .upsert({
+            id: user.id,
+            display_name: trimmed || githubUsername,
+            avatar_url: user?.user_metadata?.avatar_url || null,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'id' });
+      } catch (err) {
+        console.error('Profile save error', err);
+      }
+    }
+
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -118,10 +163,10 @@ export default function ProfilePage({ user, navigate, onSignOut }) {
   }
 
   return (
-    <div className="min-h-screen bg-bg-base text-text-pri font-ui overflow-y-auto pb-20 bg-grid bg-[length:32px_32px]">
+    <div className="min-h-[100dvh] min-h-screen bg-bg-base text-text-pri font-ui overflow-y-auto pb-20 bg-grid bg-[length:32px_32px]">
       
       {/* ═══ TOP COMMAND BAR (replaces big white profile header) ═══ */}
-      <div className="sticky top-0 z-50 bg-bg-surface/80 backdrop-blur-md border-b border-border-subtle px-6 md:px-10 h-16 flex items-center justify-between shadow-soft">
+      <div className="sticky top-0 z-50 bg-bg-surface/80 backdrop-blur-md border-b border-border-subtle px-6 md:px-10 h-[calc(64px+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] flex items-center justify-between shadow-soft">
         <div className="flex items-center gap-4">
           <button onClick={() => navigate('/dashboard')} className="p-2 -ml-2 rounded-lg hover:bg-bg-elevated text-text-faint hover:text-accent transition-all">
             <ArrowLeft size={16} />

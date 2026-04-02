@@ -135,6 +135,8 @@ const STYLES = `
 }
 `;
 
+const SHOW_SOURCE_LINKS = import.meta.env.VITE_SHOW_SOURCE_LINKS === 'true';
+
 function BackgroundElements() {
   return (
     <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
@@ -223,7 +225,7 @@ function CopyBtn({ text }) {
       )}
     >
       {copied ? <Check size={14} /> : <Copy size={14} />}
-      {copied ? 'Copied' : 'NPM Copy'}
+      {copied ? 'Copied' : 'Copy Command'}
     </button>
   );
 }
@@ -425,10 +427,16 @@ export default function LandingMorphism({ navigate }) {
                  <div className="px-6 py-2 font-mono text-base font-bold text-text-pri select-all">npx soupz</div>
                  <CopyBtn text="npx soupz" />
                </div>
-               <a href="https://github.com/Soham-Prajapati" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-6 py-3.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:-translate-y-1 text-text-pri font-bold transition-all shadow-xl group">
-                 <Github size={18} className="group-hover:rotate-12 transition-transform" />
-                 Open Source
+               <a href="https://www.npmjs.com/package/soupz" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-6 py-3.5 rounded-xl border border-success/25 bg-success/10 hover:bg-success/20 hover:-translate-y-1 text-success font-bold transition-all shadow-xl group">
+                 <Zap size={18} className="group-hover:scale-110 transition-transform" />
+                 npm Package
                </a>
+               {SHOW_SOURCE_LINKS ? (
+                 <a href="https://github.com/Soham-Prajapati/soupz-stall" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-6 py-3.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:-translate-y-1 text-text-pri font-bold transition-all shadow-xl group">
+                   <Github size={18} className="group-hover:rotate-12 transition-transform" />
+                   GitHub Repo
+                 </a>
+               ) : null}
             </div>
           </Reveal>
         </div>

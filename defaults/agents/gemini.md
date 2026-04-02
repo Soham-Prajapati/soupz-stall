@@ -25,7 +25,7 @@ routing_keywords:
 auth_command: "gemini auth"
 logout_command: "gemini auth revoke"
 status_command: "gemini auth status"
-build_args: ["-p", "{prompt}", "--output-format", "stream-json"]
+build_args: ["-p", "{prompt}", "--output-format", "stream-json", "--yolo"]
 grade: 50
 usage_count: 0
 ---

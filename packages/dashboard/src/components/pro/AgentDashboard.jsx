@@ -12,13 +12,6 @@ import {
   getOrderDetail,
 } from '../../lib/daemon.js';
 
-const DURATION_MAP = {
-  queued: 'Queued',
-  running: 'Running',
-  completed: 'Done',
-  failed: 'Failed',
-};
-
 const STATUS_COLORS = {
   queued: { bg: 'bg-yellow-500/10', text: 'text-yellow-600', label: 'Queued' },
   running: { bg: 'bg-blue-500/10', text: 'text-blue-600', label: 'Running' },
@@ -26,9 +19,58 @@ const STATUS_COLORS = {
   failed: { bg: 'bg-red-500/10', text: 'text-red-600', label: 'Failed' },
 };
 
+const REASON_LABELS = {
+  not_installed: 'CLI not installed',
+  missing_cli: 'CLI not installed',
+  auth_required: 'Sign-in required',
+  login_required: 'Sign-in required',
+  setup_required: 'Setup required',
+  config_missing: 'Configuration missing',
+  unavailable: 'Unavailable',
+};
+
+function normalizeAgentStatus(raw = {}) {
+  const normalized = {};
+  for (const [id, value] of Object.entries(raw || {})) {
+    if (typeof value === 'boolean') {
+      normalized[id] = {
+        installed: value,
+        ready: value,
+        reason: value ? '' : 'unavailable',
+        hint: '',
+      };
+      continue;
+    }
+
+    const installed = typeof value?.installed === 'boolean'
+      ? value.installed
+      : Boolean(value?.ready);
+    const ready = typeof value?.ready === 'boolean'
+      ? value.ready
+      : Boolean(value?.installed);
+
+    normalized[id] = {
+      installed,
+      ready,
+      reason: value?.reason || '',
+      hint: value?.hint || '',
+      source: value?.source || '',
+    };
+  }
+  return normalized;
+}
+
+function formatReason(reason = '') {
+  if (!reason) return '';
+  if (REASON_LABELS[reason]) return REASON_LABELS[reason];
+  return reason.replace(/[_-]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
 export default function AgentDashboard({ daemon }) {
   const [agentStatus, setAgentStatus] = useState({});
   const [orders, setOrders] = useState([]);
+  const [orderDetails, setOrderDetails] = useState({});
+  const [orderDetailsLoading, setOrderDetailsLoading] = useState(null);
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [agentsCollapsed, setAgentsCollapsed] = useState(false);
@@ -41,7 +83,11 @@ export default function AgentDashboard({ daemon }) {
   useEffect(() => {
     async function checkAgents() {
       const info = await checkAgentAvailability();
-      setAgentStatus(info?.simple || {});
+      const detailed = info?.detailed || info?.simple || {};
+      const hasSignals = Object.keys(detailed || {}).length > 0;
+      if (hasSignals) {
+        setAgentStatus(normalizeAgentStatus(detailed));
+      }
       setLoading(false);
     }
 
@@ -70,6 +116,22 @@ export default function AgentDashboard({ daemon }) {
     const interval = setInterval(fetchOrders, 10000); // Refresh every 10s
     return () => clearInterval(interval);
   }, []);
+
+  async function toggleExpandedOrder(orderId) {
+    const nextExpanded = expandedOrder === orderId ? null : orderId;
+    setExpandedOrder(nextExpanded);
+    if (!nextExpanded || orderDetails[nextExpanded]) return;
+
+    setOrderDetailsLoading(nextExpanded);
+    try {
+      const detail = await getOrderDetail(nextExpanded);
+      if (detail) {
+        setOrderDetails((prev) => ({ ...prev, [nextExpanded]: detail }));
+      }
+    } finally {
+      setOrderDetailsLoading(null);
+    }
+  }
 
   async function handleTeamRun(teamId) {
     const team = AGENT_TEAMS.find(t => t.id === teamId);
@@ -109,7 +171,7 @@ export default function AgentDashboard({ daemon }) {
           <Zap size={13} className="text-accent" />
           <span className="text-xs font-ui font-medium text-text-sec">Agent Status</span>
           <span className="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded font-mono">
-            {Object.values(agentStatus).filter(v => v).length}/{CLI_AGENTS.length}
+            {Object.values(agentStatus).filter(v => v?.ready).length}/{CLI_AGENTS.length}
           </span>
         </div>
         {agentsCollapsed
@@ -126,20 +188,20 @@ export default function AgentDashboard({ daemon }) {
             </div>
           ) : (
             CLI_AGENTS.map(agent => (
-              <AgentRow key={agent.id} agent={agent} installed={agentStatus[agent.id]} />
+              <AgentRow key={agent.id} agent={agent} status={agentStatus[agent.id]} />
             ))
           )}
         </div>
       )}
 
-      {/* Section 2: Recent Tasks */}
+      {/* Section 2: Recent Runs */}
       <button
         onClick={() => setTasksCollapsed(v => !v)}
         className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-bg-elevated transition-colors border-t border-border-subtle"
       >
         <div className="flex items-center gap-2">
           <Clock size={13} className="text-info" />
-          <span className="text-xs font-ui font-medium text-text-sec">Recent Tasks</span>
+          <span className="text-xs font-ui font-medium text-text-sec">Recent Runs</span>
           {orders.length > 0 && (
             <span className="text-[10px] bg-info/10 text-info px-1.5 py-0.5 rounded font-mono">
               {orders.length}
@@ -154,16 +216,18 @@ export default function AgentDashboard({ daemon }) {
 
       {!tasksCollapsed && (
         <div className="px-4 pb-3 space-y-2">
+          <p className="text-[10px] text-text-faint">Snapshot of latest orders, not a live process list.</p>
           {orders.length === 0 ? (
-            <p className="text-[11px] text-text-faint font-ui py-2">No tasks yet</p>
+            <p className="text-[11px] text-text-faint font-ui py-2">No runs yet</p>
           ) : (
             orders.map(order => {
               const statusInfo = STATUS_COLORS[order.status] || STATUS_COLORS.queued;
               const isExpanded = expandedOrder === order.id;
+              const orderDetail = orderDetails[order.id];
               return (
                 <div key={order.id} className="rounded-md border border-border-subtle overflow-hidden">
                   <button
-                    onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
+                    onClick={() => toggleExpandedOrder(order.id)}
                     className="w-full flex items-center gap-2 p-2 bg-bg-elevated/50 hover:bg-bg-elevated transition-colors"
                   >
                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: order.status === 'completed' ? '#22C55E' : order.status === 'failed' ? '#EF4444' : order.status === 'running' ? '#3B82F6' : '#FBBF24' }} />
@@ -186,6 +250,20 @@ export default function AgentDashboard({ daemon }) {
                       <p><strong>Prompt:</strong> {order.prompt}</p>
                       <p><strong>Agent:</strong> {order.agent}</p>
                       <p><strong>Status:</strong> {order.status}</p>
+                      {orderDetailsLoading === order.id && (
+                        <div className="flex items-center gap-1 text-text-faint">
+                          <Loader2 size={10} className="animate-spin" />
+                          Loading order details...
+                        </div>
+                      )}
+                      {orderDetail && (
+                        <>
+                          <p><strong>Events:</strong> {Array.isArray(orderDetail.events) ? orderDetail.events.length : 0}</p>
+                          {Array.isArray(orderDetail.events) && orderDetail.events.length > 0 && (
+                            <p><strong>Last Event:</strong> {orderDetail.events[orderDetail.events.length - 1]?.type || 'unknown'}</p>
+                          )}
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -280,9 +358,20 @@ export default function AgentDashboard({ daemon }) {
   );
 }
 
-function AgentRow({ agent, installed }) {
+function AgentRow({ agent, status }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const Icon = agent.icon;
+  const installed = status?.installed !== false;
+  const ready = !!status?.ready;
+  const reason = !ready ? formatReason(status?.reason) : '';
+  const hint = !ready ? status?.hint : '';
+
+  const indicator = ready
+    ? { label: 'Ready', className: 'text-success', icon: CheckCircle2 }
+    : installed
+      ? { label: 'Setup', className: 'text-amber-400', icon: AlertCircle }
+      : { label: 'Missing', className: 'text-error', icon: XCircle };
+  const StatusIcon = indicator.icon;
 
   return (
     <div className="space-y-1">
@@ -296,34 +385,31 @@ function AgentRow({ agent, installed }) {
         <Icon size={16} style={{ color: agent.color }} />
         <div className="flex-1 min-w-0">
           <p className="text-xs font-ui font-medium text-text-pri">{agent.name}</p>
-          <p className="text-[10px] text-text-faint">{agent.tier}</p>
+          <p className="text-[10px] text-text-faint">
+            {agent.tier}
+            {!ready && reason ? ` • ${reason}` : ''}
+          </p>
+          {!ready && hint ? (
+            <p className="text-[10px] text-text-faint mt-0.5 line-clamp-2">{hint}</p>
+          ) : null}
         </div>
         {agent.models && (
           <ChevronDown size={12} className={cn("text-text-faint transition-transform", isExpanded && "rotate-180")} />
         )}
-        {installed ? (
-          <CheckCircle2 size={14} className="text-success shrink-0" />
-        ) : (
-          <XCircle size={14} className="text-error shrink-0" />
-        )}
+        <div className={cn('flex items-center gap-1 shrink-0 text-[9px] uppercase font-mono', indicator.className)}>
+          <StatusIcon size={12} />
+          <span>{indicator.label}</span>
+        </div>
       </button>
 
       {isExpanded && agent.models && (
         <div className="ml-4 pl-4 border-l border-border-subtle space-y-2 py-1 animate-fade-in">
           {agent.models.map(model => (
-            <div key={model.id} className="space-y-1">
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="text-text-sec font-mono">{model.name}</span>
-                {model.usage !== undefined && <span className="text-text-faint">{model.usage}%</span>}
-              </div>
-              {model.usage !== undefined && (
-                <div className="h-1 bg-border-subtle rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-accent transition-all duration-500" 
-                    style={{ width: `${model.usage}%`, backgroundColor: agent.color }} 
-                  />
-                </div>
-              )}
+            <div key={model.id} className="flex items-center justify-between text-[10px] rounded border border-border-subtle bg-bg-elevated/40 px-2 py-1">
+              <span className="text-text-sec font-mono">{model.name}</span>
+              <span className="text-text-faint">
+                {model.usage !== undefined ? `usage ${model.usage}%` : 'ready'}
+              </span>
             </div>
           ))}
         </div>

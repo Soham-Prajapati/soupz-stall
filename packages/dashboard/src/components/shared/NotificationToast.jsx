@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { OVERLAY_Z } from '../../lib/overlayZ.js';
 
 const TOAST_EVENT = 'soupz_toast';
 
@@ -51,7 +52,7 @@ export default function NotificationToast() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed top-14 right-3 z-[130] flex flex-col gap-2 w-[320px] max-w-[calc(100vw-24px)] pointer-events-none">
+    <div className="fixed top-14 right-3 flex flex-col gap-2 w-[320px] max-w-[calc(100vw-24px)] pointer-events-none" style={{ zIndex: OVERLAY_Z.toast }}>
       {toasts.map((toast) => {
         const tone = toast.type;
         const Icon = tone === 'success' ? CheckCircle2 : tone === 'error' ? XCircle : tone === 'warning' ? AlertTriangle : Info;

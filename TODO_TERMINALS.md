@@ -494,7 +494,7 @@ All agents are done modifying index.js. NOW it's safe to split:
 - Sync: theme, mode, agent prefs, model tier, enabled agents
 
 ### T2-22: QR deep-link + auto-pair experience — ✅ DONE
-- Pairing QR + terminal link now include `remote=<daemon>` so mobile cameras open `soupz.vercel.app/connect?code=...` with the daemon URL embedded.
+- Pairing QR + terminal link now include `remote=<daemon>` so mobile cameras open `soupz.vercel.app/code?code=...` with the daemon URL embedded.
 - ConnectPage auto-submits whenever the link originated from a QR (session flag) or when the user is on mobile, and gracefully falls back if the daemon can't be reached.
 - `/pair` and `/pair/current` expose the preferred remote base and the CLI prints the deep link so scanning immediately authorizes the phone session.
 
@@ -612,16 +612,19 @@ This means: even without standalone Claude Code, users get Claude-level reasonin
 Purpose: run these in parallel sessions (`Session 1..6`) within a strict four-day stabilization window before demo day.
 
 ### Session 1 — Pairing + Connectivity Reliability
-- [ ] Migrate all public pairing surfaces to `/code` (keep `/connect` alias).
-- [ ] Add pairing diagnostics panel (`why pairing failed`, `last endpoint attempted`, `network hint`).
-- [ ] Add tunnel readiness checks and clear failure messages when remote pairing is unavailable.
-- [ ] Add automated smoke test: generate code -> validate -> auth WS -> create one order.
+- [x] Migrate all public pairing surfaces to `/code` (keep `/connect` alias).
+- [x] Add pairing diagnostics panel (`why pairing failed`, `last endpoint attempted`, `network hint`).
+- [x] Add tunnel readiness checks and clear failure messages when remote pairing is unavailable.
+- [x] Add automated smoke test: generate code -> validate -> auth WS -> create one order.
 
 ### Session 2 — Mobile UI Stack and Overflow Guardrails
-- [ ] Audit and fix z-index layering collisions (modals, dropdowns, toasts, command palette, terminal).
-- [ ] Add mobile overflow constraints for chat header, git panel, and side drawers.
-- [ ] Add visual regression snapshots for 360px, 390px, 430px widths.
-- [ ] Ship a shared overlay stacking convention doc and constants.
+- [x] Audit and fix z-index layering collisions (modals, dropdowns, toasts, command palette, terminal).
+- [x] Add mobile overflow constraints for chat header, git panel, and side drawers.
+- [x] Add visual regression snapshots for 360px, 390px, 430px widths.
+- [x] Ship a shared overlay stacking convention doc and constants.
+
+Notes:
+- Added scripted mobile captures via `npm run snapshot:mobile` (`scripts/mobile-viewport-snapshots.mjs`) for `/`, `/code`, `/dashboard` at 360/390/430 widths.
 
 ### Session 3 — Documentation and Demo Readiness
 - [ ] Keep architecture docs runtime-accurate (API map, lifecycle, failure paths, guardrails).
@@ -631,7 +634,7 @@ Purpose: run these in parallel sessions (`Session 1..6`) within a strict four-da
 
 ### Session 4 — CI/CD and Safe Release Workflow
 - [ ] Enforce PR-only deploy path (no direct deploy from broken local branch state).
-- [ ] Add CI checks for dashboard build + daemon syntax + tests + critical docs link check.
+- [x] Add CI checks for dashboard build + daemon syntax + tests + critical docs link check.
 - [ ] Add release branch convention: `release/*` and hotfix flow.
 - [ ] Add Vercel pre-deploy smoke command and rollback note.
 
@@ -667,7 +670,7 @@ This mode keeps concurrency practical on laptops while preserving delivery order
 - [x] Replace provider-priority classifier paths with deterministic scorecard routing.
 - [x] Expose route confidence + scorecard evidence in API payloads and order events.
 - [x] Add `/api/routing/explain` endpoint and document response contract.
-- [ ] Verify explicit user agent override still bypasses auto routing.
+- [x] Verify explicit user agent override still bypasses auto routing.
 - [x] Keep Codex and Copilot as separate routing identities even when they share transport tooling.
 - [x] Include Codex-vs-Copilot readiness reasons in `/api/agents` and `/api/system/check-clis`.
 

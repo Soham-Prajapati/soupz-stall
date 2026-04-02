@@ -9,22 +9,23 @@ import { cn } from '../../lib/cn';
 import { CLI_AGENTS, SPECIALISTS, BUILD_MODES, getAgentById } from '../../lib/agents';
 import { SKILLS, detectSkill, applySkill, getSkillById } from '../../lib/skills';
 import { getAutoSelection } from '../../lib/routing';
-import { checkAgentAvailability, cancelOrder } from '../../lib/daemon';
+import { checkAgentAvailability, cancelOrder, getDevServerUrl, getAgentModels } from '../../lib/daemon';
 import { detectTeamTrigger, getTeamById, createTeamPlan, executeTeam, getSubAgentById } from '../../lib/teams';
 import TeamExecutionCard from '../shared/TeamExecutionCard';
 import InteractiveQuestions from './InteractiveQuestions';
 import PreviewPanel from '../shared/PreviewPanel';
 import GitPanel from '../git/GitPanel';
-import { getDevServerUrl } from '../../lib/daemon';
 import { trackUsage } from '../../lib/learning';
 import { getMemoryContext } from '../../lib/memory';
 import { useKokoroTTS } from '../../hooks/useKokoroTTS';
+import { OVERLAY_Z } from '../../lib/overlayZ';
 
 const STORAGE_KEY = 'soupz_chat_history';
 const AGENT_KEY   = 'soupz_agent';
 const MODE_KEY    = 'soupz_build_mode';
 const ENABLED_AGENTS_KEY = 'soupz_enabled_agents';
 const MODEL_TIER_KEY = 'soupz_model_tier';
+const AGENT_MODEL_PREFS_KEY = 'soupz_agent_models';
 
 const MODEL_TIERS = [
   { id: 'fast',      label: 'Fast',      desc: 'Faster responses, lighter models' },
@@ -93,7 +94,17 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
   const [agentOpen, setAgentOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
   const [tierOpen, setTierOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
   const [modelTier, setModelTier] = useState(() => localStorage.getItem(MODEL_TIER_KEY) || 'balanced');
+  const [agentModelPrefs, setAgentModelPrefs] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(AGENT_MODEL_PREFS_KEY) || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
+  const [discoveredModels, setDiscoveredModels] = useState({});
   const [activeSkill, setActiveSkill] = useState(null);
   const [pendingTeamPlan, setPendingTeamPlan] = useState(null);
   const [teamCustomInstructions, setTeamCustomInstructions] = useState({});
@@ -131,6 +142,32 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
   const [mentionIndex, setMentionIndex] = useState(0);
   const mentionRangeRef = useRef(null);
   const [cursorVersion, setCursorVersion] = useState(0);
+  const agentButtonRef = useRef(null);
+  const modeButtonRef = useRef(null);
+  const tierButtonRef = useRef(null);
+  const modelButtonRef = useRef(null);
+  const [menuAnchors, setMenuAnchors] = useState({ agent: null, mode: null, tier: null, model: null });
+
+  const updateMenuAnchors = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const clampLeft = (left, width = 220) => Math.max(8, Math.min(left, window.innerWidth - width - 8));
+    const toAnchor = (ref, minWidth) => {
+      const rect = ref?.current?.getBoundingClientRect?.();
+      if (!rect) return null;
+      return {
+        top: rect.bottom + 6,
+        left: clampLeft(rect.left, minWidth),
+        width: Math.max(minWidth, rect.width),
+      };
+    };
+
+    setMenuAnchors({
+      agent: toAnchor(agentButtonRef, 220),
+      mode: toAnchor(modeButtonRef, 160),
+      tier: toAnchor(tierButtonRef, 150),
+      model: toAnchor(modelButtonRef, 220),
+    });
+  }, []);
 
   const handleImageFile = async (file) => {
     if (!file.type.startsWith('image/')) return;
@@ -245,6 +282,75 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
       }
     };
   }, [speechSupport]);
+
+  useEffect(() => {
+    if (!agentOpen && !modeOpen && !tierOpen && !modelOpen) return;
+
+    updateMenuAnchors();
+    const handleRelayout = () => updateMenuAnchors();
+    window.addEventListener('resize', handleRelayout);
+    window.addEventListener('scroll', handleRelayout, true);
+
+    return () => {
+      window.removeEventListener('resize', handleRelayout);
+      window.removeEventListener('scroll', handleRelayout, true);
+    };
+  }, [agentOpen, modeOpen, tierOpen, modelOpen, updateMenuAnchors]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadModels() {
+      try {
+        const agents = await getAgentModels();
+        if (!cancelled && agents && typeof agents === 'object') {
+          setDiscoveredModels(agents);
+        }
+      } catch {
+        // Keep static model fallbacks.
+      }
+    }
+    void loadModels();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const modelOptionsByAgent = useMemo(() => {
+    const byAgent = {};
+    for (const agent of CLI_AGENTS) {
+      const staticModels = Array.isArray(agent.models)
+        ? agent.models.map((m) => ({ id: m.id, name: m.name || m.id }))
+        : [];
+      const discovered = Array.isArray(discoveredModels?.[agent.id]?.available)
+        ? discoveredModels[agent.id].available.map((id) => ({ id, name: id }))
+        : [];
+      const combined = [...staticModels, ...discovered];
+      const seen = new Set();
+      byAgent[agent.id] = combined.filter((entry) => {
+        const id = String(entry?.id || '').trim();
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+    }
+    return byAgent;
+  }, [discoveredModels]);
+
+  const selectedAgentModel = agentId !== 'auto' ? (agentModelPrefs?.[agentId] || '') : '';
+  const selectedAgentModelLabel = selectedAgentModel || 'Default';
+
+  function saveAgentModel(agentKey, modelId) {
+    setAgentModelPrefs((prev) => {
+      const next = { ...(prev || {}) };
+      if (!agentKey || modelId === '__default__') {
+        delete next[agentKey];
+      } else {
+        next[agentKey] = modelId;
+      }
+      localStorage.setItem(AGENT_MODEL_PREFS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
 
   const handleMicToggle = () => {
     if (!speechSupport || !speechRecognitionRef.current) return;
@@ -440,7 +546,7 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
     if (teamTrigger && teamTrigger.confidence > 0 && daemon?.sendPrompt) {
       try {
         const avail = await checkAgentAvailability();
-        const plan = createTeamPlan(teamTrigger.teamId, text, avail?.simple || avail);
+        const plan = createTeamPlan(teamTrigger.teamId, text, avail?.simple || avail, {}, agentModelPrefs);
         if (plan) {
           setTeamCustomInstructions({});
           setExpandedInstructions({});
@@ -473,6 +579,8 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
           agentId: effectiveAgentId,
           buildMode,
           modelTier,
+          selectedModel: agentModelPrefs?.[effectiveAgentId] || undefined,
+          agentModels: agentModelPrefs,
           images: attachedImages.length > 0 ? attachedImages.map(img => ({ dataUrl: img.dataUrl })) : undefined
         };
 
@@ -547,7 +655,7 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
     setIsStreaming(true);
 
     try {
-      await executeTeam(daemon.sendPrompt, finalPlan, (phase, subAgentId, chunk) => {
+      await executeTeam(daemon.sendPrompt, { ...finalPlan, agentModels: agentModelPrefs }, (phase, subAgentId, chunk) => {
         let addition = '';
         if (phase === 'sub-agent-start') addition = `\n### ${subAgentId} started...\n`;
         else if (phase === 'sub-agent-chunk') addition = chunk || '';
@@ -572,24 +680,33 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
 
   return (
     <div
-      className="flex flex-col h-full bg-bg-surface overflow-hidden relative"
+      className="flex flex-col h-full bg-bg-surface overflow-hidden overflow-x-hidden relative"
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
       {/* Header */}
       <div className="h-10 px-2 sm:px-4 border-b border-border-subtle flex items-center justify-between gap-2 shrink-0 bg-bg-surface z-20">
-        <div className="flex items-center gap-1 sm:gap-2 min-w-0 flex-1 overflow-x-auto custom-scrollbar pr-1">
+        <div className="flex items-center gap-1 sm:gap-2 min-w-0 flex-1 overflow-x-auto overflow-y-hidden custom-scrollbar pr-1">
           {/* Agent Selector */}
           <div className="relative min-w-0">
-            <button onClick={() => setAgentOpen(!agentOpen)} className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors min-w-0">
+            <button ref={agentButtonRef} onClick={() => setAgentOpen(!agentOpen)} className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors min-w-0">
               <AgentIcon size={14} className="shrink-0" style={{ color: currentAgent.color }} />
               <span className="text-[11px] sm:text-[12px] font-bold text-text-pri uppercase tracking-tight truncate max-w-[80px] sm:max-w-none">{currentAgent.name}</span>
               <ChevronDown size={12} className={cn("text-text-faint transition-transform shrink-0", agentOpen && "rotate-180")} />
             </button>
             {agentOpen && (
               <>
-                <div className="fixed inset-0 z-[120]" onClick={() => setAgentOpen(false)} />
-                <div className="absolute left-0 top-full mt-1 z-[130] bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden min-w-[220px] animate-fade-in">
+                <div className="fixed inset-0" style={{ zIndex: OVERLAY_Z.modal }} onClick={() => setAgentOpen(false)} />
+                <div
+                  className="fixed bg-bg-surface border border-border-subtle rounded-lg shadow-soft overflow-hidden animate-fade-in"
+                  style={{
+                    zIndex: OVERLAY_Z.commandPalette,
+                    top: menuAnchors.agent?.top ?? 44,
+                    left: menuAnchors.agent?.left ?? 8,
+                    minWidth: menuAnchors.agent?.width ?? 220,
+                    maxWidth: 'min(320px, calc(100vw - 16px))',
+                  }}
+                >
                   {agentId === 'auto' && (
                     <div className="border-b border-border-subtle bg-bg-elevated/50">
                       <p className="px-3 py-1.5 text-[9px] font-bold text-text-faint uppercase tracking-widest">Filter Agents</p>
@@ -661,14 +778,23 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
 
           {/* Build Mode Selector */}
           <div className="relative">
-            <button onClick={() => setModeOpen(!modeOpen)} className="flex items-center justify-between gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors min-w-[90px]">
+            <button ref={modeButtonRef} onClick={() => setModeOpen(!modeOpen)} className="flex items-center justify-between gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors min-w-[90px]">
               <span className="text-[10px] sm:text-[11px] font-medium text-text-sec uppercase tracking-wider">{buildMode}<span className="hidden sm:inline"> Build</span></span>
               <ChevronDown size={12} className={cn("text-text-faint transition-transform shrink-0", modeOpen && "rotate-180")} />
             </button>
             {modeOpen && (
               <>
-                <div className="fixed inset-0 z-[120]" onClick={() => setModeOpen(false)} />
-                <div className="absolute left-0 top-full mt-1 z-[130] bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[160px] animate-fade-in">
+                <div className="fixed inset-0" style={{ zIndex: OVERLAY_Z.modal }} onClick={() => setModeOpen(false)} />
+                <div
+                  className="fixed bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 animate-fade-in"
+                  style={{
+                    zIndex: OVERLAY_Z.commandPalette,
+                    top: menuAnchors.mode?.top ?? 44,
+                    left: menuAnchors.mode?.left ?? 8,
+                    minWidth: menuAnchors.mode?.width ?? 160,
+                    maxWidth: 'min(300px, calc(100vw - 16px))',
+                  }}
+                >
                   {BUILD_MODES.map(m => (
                     <button
                       key={m.id}
@@ -691,7 +817,7 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
 
           {/* Model Tier Selector */}
           <div className="relative">
-            <button onClick={() => setTierOpen(!tierOpen)} className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors">
+            <button ref={tierButtonRef} onClick={() => setTierOpen(!tierOpen)} className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors">
               <span className={cn(
                 "text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-tight",
                 modelTier === 'fast' && "bg-green-500/15 text-green-400",
@@ -702,8 +828,17 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
             </button>
             {tierOpen && (
               <>
-                <div className="fixed inset-0 z-[120]" onClick={() => setTierOpen(false)} />
-                <div className="absolute left-0 top-full mt-1 z-[130] bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 min-w-[150px] animate-fade-in">
+                <div className="fixed inset-0" style={{ zIndex: OVERLAY_Z.modal }} onClick={() => setTierOpen(false)} />
+                <div
+                  className="fixed bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 animate-fade-in"
+                  style={{
+                    zIndex: OVERLAY_Z.commandPalette,
+                    top: menuAnchors.tier?.top ?? 44,
+                    left: menuAnchors.tier?.left ?? 8,
+                    minWidth: menuAnchors.tier?.width ?? 150,
+                    maxWidth: 'min(280px, calc(100vw - 16px))',
+                  }}
+                >
                   {MODEL_TIERS.map(t => (
                     <button
                       key={t.id}
@@ -721,6 +856,70 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
               </>
             )}
           </div>
+
+          {agentId !== 'auto' && (
+            <>
+              <div className="w-px h-4 bg-border-subtle mx-0.5 hidden sm:block" />
+              <div className="relative">
+                <button
+                  ref={modelButtonRef}
+                  onClick={() => setModelOpen(!modelOpen)}
+                  className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded hover:bg-text-pri/5 transition-colors min-w-[120px]"
+                  title={selectedAgentModel || 'Default model'}
+                >
+                  <span className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded bg-info/15 text-info uppercase tracking-tight truncate max-w-[130px]">
+                    {selectedAgentModelLabel}
+                  </span>
+                  <ChevronDown size={12} className={cn("text-text-faint transition-transform shrink-0", modelOpen && "rotate-180")} />
+                </button>
+                {modelOpen && (
+                  <>
+                    <div className="fixed inset-0" style={{ zIndex: OVERLAY_Z.modal }} onClick={() => setModelOpen(false)} />
+                    <div
+                      className="fixed bg-bg-surface border border-border-subtle rounded-lg shadow-soft py-1 animate-fade-in"
+                      style={{
+                        zIndex: OVERLAY_Z.commandPalette,
+                        top: menuAnchors.model?.top ?? 44,
+                        left: menuAnchors.model?.left ?? 8,
+                        minWidth: menuAnchors.model?.width ?? 220,
+                        maxWidth: 'min(320px, calc(100vw - 16px))',
+                      }}
+                    >
+                      <button
+                        onClick={() => { saveAgentModel(agentId, '__default__'); setModelOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors text-left",
+                          !selectedAgentModel ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated"
+                        )}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold uppercase text-[10px] tracking-tight">Default</div>
+                          <div className="text-[9px] text-text-faint">Use agent CLI default model</div>
+                        </div>
+                        {!selectedAgentModel ? <Check size={10} className="text-accent" /> : null}
+                      </button>
+                      {(modelOptionsByAgent[agentId] || []).map((model) => (
+                        <button
+                          key={model.id}
+                          onClick={() => { saveAgentModel(agentId, model.id); setModelOpen(false); }}
+                          className={cn(
+                            "w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors text-left",
+                            selectedAgentModel === model.id ? "text-accent bg-accent/5" : "text-text-sec hover:text-text-pri hover:bg-bg-elevated"
+                          )}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="font-bold text-[10px] tracking-tight truncate">{model.name || model.id}</div>
+                            <div className="text-[9px] text-text-faint truncate">{model.id}</div>
+                          </div>
+                          {selectedAgentModel === model.id ? <Check size={10} className="text-accent" /> : null}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
@@ -851,7 +1050,7 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
 
       {/* Slash Command Dropdown */}
       {slashCommandOpen && filteredCommands.length > 0 && (
-        <div className="mx-4 mb-2 bg-bg-elevated border border-border-subtle rounded-md shadow-2xl overflow-hidden z-[120] animate-fade-up">
+        <div className="mx-4 mb-2 bg-bg-elevated border border-border-subtle rounded-md shadow-2xl overflow-hidden z-[120] animate-fade-up max-w-[calc(100vw-2rem)]">
           <div className="px-3 py-1.5 border-b border-border-subtle bg-bg-elevated/50 flex items-center justify-between">
             <span className="text-[10px] font-bold text-text-faint uppercase tracking-widest">Commands & Agents</span>
             <span className="text-[9px] text-text-faint">↑↓ to navigate · Enter to select</span>
@@ -888,7 +1087,7 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
       )}
 
       {mentionOpen && mentionMatches.length > 0 && (
-        <div className="mx-4 mb-2 bg-bg-elevated border border-border-subtle rounded-md shadow-2xl overflow-hidden z-[120] animate-fade-up">
+        <div className="mx-4 mb-2 bg-bg-elevated border border-border-subtle rounded-md shadow-2xl overflow-hidden z-[120] animate-fade-up max-w-[calc(100vw-2rem)]">
           <div className="px-3 py-1.5 border-b border-border-subtle bg-bg-elevated/50 flex items-center justify-between">
             <span className="text-[10px] font-bold text-text-faint uppercase tracking-widest">Files</span>
             <span className="text-[9px] text-text-faint">Type to filter · Enter to insert</span>

@@ -40,6 +40,7 @@ import {
     selectAgent,
     explainAgentSelection,
     isAgentInstalled,
+    resolveAgentBinary,
     getAgentRuntimeReadiness,
     getInstalledAgentsInPriorityOrder,
     getReadyAgentsInPriorityOrder,
@@ -110,16 +111,16 @@ app.get('/api/system/check-clis', requireAuth, (req, res) => {
             hint: 'Install via npm install -g @anthropic-ai/claude-code.',
         },
         copilot: {
-            bin: 'gh',
-            versionCmd: 'gh --version',
+            bin: null,
+            versionCmd: null,
             installable: true,
-            hint: 'Requires GitHub CLI + gh-copilot extension auth.',
+            hint: 'Install Copilot CLI or GitHub CLI + gh-copilot extension.',
         },
         codex: {
-            bin: 'gh',
-            versionCmd: 'gh --version',
+            bin: null,
+            versionCmd: null,
             installable: true,
-            hint: 'Codex provider uses GitHub Copilot CLI models (install/auth gh-copilot).',
+            hint: 'Install Codex CLI or GitHub CLI + gh-copilot extension.',
         },
         supabase: {
             bin: 'supabase',
@@ -143,19 +144,30 @@ app.get('/api/system/check-clis', requireAuth, (req, res) => {
 
     const results = {};
     for (const [key, meta] of Object.entries(clis)) {
+        const resolvedBinary = (key === 'copilot' || key === 'codex')
+            ? resolveAgentBinary(key)
+            : meta.bin;
+        const versionCmd = (key === 'copilot' || key === 'codex')
+            ? (resolvedBinary ? `${resolvedBinary} --version` : null)
+            : meta.versionCmd;
+
         try {
-            execSync(`which ${meta.bin}`, { timeout: 1000 });
+            if (!resolvedBinary) throw new Error('not-installed');
+            execSync(`command -v "${resolvedBinary}"`, { timeout: 1000, stdio: 'ignore' });
             results[key] = {
                 installed: true,
                 ready: !['copilot', 'codex'].includes(key),
                 installable: meta.installable !== false,
                 hint: meta.hint,
             };
+            results[key].binary = resolvedBinary;
             try {
                 const versionEnv = { ...process.env };
                 if (meta.bin === 'supabase') versionEnv.SUPABASE_HIDE_UPDATE_MESSAGE = '1';
-                const versionOutput = execSync(meta.versionCmd, { timeout: 1500, env: versionEnv }).toString().trim();
-                results[key].version = versionOutput.split('\n')[0];
+                if (versionCmd) {
+                    const versionOutput = execSync(versionCmd, { timeout: 1500, env: versionEnv }).toString().trim();
+                    results[key].version = versionOutput.split('\n')[0];
+                }
             } catch { /* version lookup optional */ }
             if (key === 'copilot' || key === 'codex') {
                 const state = getAgentRuntimeReadiness(key);
@@ -288,24 +300,14 @@ app.post('/api/system/manage-cli', requireAuth, (req, res) => {
 
 // PUBLIC: List available CLI agents with detailed status
 app.get('/api/agents', (req, res) => {
-    const binaries = {
-        gemini: 'gemini',
-        claude: 'claude',
-        gh: 'gh',
-        codex: 'gh',
-        kiro: 'kiro-cli',
-        ollama: 'ollama',
+    const installs = {
+        gemini: isAgentInstalled('gemini'),
+        codex: isAgentInstalled('codex'),
+        'claude-code': isAgentInstalled('claude-code'),
+        copilot: isAgentInstalled('copilot'),
+        kiro: isAgentInstalled('kiro'),
+        ollama: isAgentInstalled('ollama'),
     };
-
-    const results = {};
-    for (const [key, bin] of Object.entries(binaries)) {
-        try {
-            execSync(`${bin} --version`, { timeout: 1500, stdio: 'ignore' });
-            results[key] = true;
-        } catch {
-            results[key] = false;
-        }
-    }
 
     const runtime = {
         gemini: getAgentRuntimeReadiness('gemini'),
@@ -318,14 +320,14 @@ app.get('/api/agents', (req, res) => {
 
     const agentStatus = {
         gemini: {
-            installed: results.gemini,
+            installed: installs.gemini,
             ready: runtime.gemini.ready,
             tier: 'free',
             usagePolicy: 'free-tier-quota',
             reason: runtime.gemini.reason,
         },
         codex: {
-            installed: results.gh,
+            installed: installs.codex,
             ready: runtime.codex.ready,
             tier: 'freemium',
             usagePolicy: 'plan-quota',
@@ -333,14 +335,14 @@ app.get('/api/agents', (req, res) => {
             reason: runtime.codex.reason,
         },
         'claude-code': {
-            installed: results.claude,
+            installed: installs['claude-code'],
             ready: runtime['claude-code'].ready,
             tier: 'premium',
             usagePolicy: 'subscription',
             reason: runtime['claude-code'].reason,
         },
         copilot: {
-            installed: results.gh,
+            installed: installs.copilot,
             ready: runtime.copilot.ready,
             tier: 'freemium',
             usagePolicy: 'plan-quota',
@@ -348,7 +350,7 @@ app.get('/api/agents', (req, res) => {
             reason: runtime.copilot.reason,
         },
         kiro: {
-            installed: results.kiro,
+            installed: installs.kiro,
             ready: runtime.kiro.ready,
             tier: 'premium',
             usagePolicy: 'subscription',
@@ -356,7 +358,7 @@ app.get('/api/agents', (req, res) => {
             reason: runtime.kiro.reason,
         },
         ollama: {
-            installed: results.ollama,
+            installed: installs.ollama,
             ready: runtime.ollama.ready,
             tier: 'free',
             usagePolicy: 'local-unlimited',

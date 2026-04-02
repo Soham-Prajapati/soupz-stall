@@ -30,7 +30,7 @@ Soupz is a hosted web IDE (soupz.vercel.app) + local daemon (`npx soupz-cockpit`
 - **Web app** (Vercel): `packages/dashboard/` — React 18 + Vite + Tailwind + Framer Motion
 - **Local daemon**: `packages/remote-server/` — Node.js ESM, Express, node-pty, WebSocket
 - **Relay**: Supabase Realtime between web app and daemon
-- **Auth**: Device pairing flow (9-character alphanumeric OTP or QR code → soupz.vercel.app/connect?code=XXX → approve)
+- **Auth**: Device pairing flow (9-character alphanumeric OTP or QR code -> soupz.vercel.app/code?code=XXX -> approve)
 
 ## Core Flow
 1. User runs `npx soupz` on their machine → Express server starts on port 7533 (configurable via SOUPZ_REMOTE_PORT)

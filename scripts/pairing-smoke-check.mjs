@@ -2,6 +2,7 @@
 
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { WebSocket } from 'ws';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -10,6 +11,61 @@ const PORT = Number.parseInt(process.env.SOUPZ_PAIR_SMOKE_PORT || '17633', 10);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+async function stopHandleWithTimeout(handle, timeoutMs = 5000) {
+  const stopPromise = (async () => {
+    if (handle?.stop) {
+      await handle.stop();
+      return;
+    }
+    if (handle?.server) {
+      await new Promise((resolveClose) => handle.server.close(resolveClose));
+    }
+  })();
+
+  await Promise.race([
+    stopPromise,
+    new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
+}
+
+async function assertWsAuth(baseUrl, token) {
+  const wsUrl = baseUrl.replace(/^http/i, 'ws');
+  await new Promise((resolveWs, rejectWs) => {
+    const ws = new WebSocket(wsUrl);
+    const timeout = setTimeout(() => {
+      try { ws.close(); } catch {}
+      rejectWs(new Error('WebSocket auth timed out'));
+    }, 5000);
+
+    ws.on('open', () => {
+      ws.send(JSON.stringify({ type: 'auth', token, clientType: 'smoke-test' }));
+    });
+
+    ws.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'auth_success') {
+          clearTimeout(timeout);
+          ws.close();
+          resolveWs();
+        }
+        if (msg.type === 'auth_failed') {
+          clearTimeout(timeout);
+          ws.close();
+          rejectWs(new Error(msg.message || 'WebSocket auth failed'));
+        }
+      } catch {
+        // Ignore parse errors from non-JSON frames.
+      }
+    });
+
+    ws.on('error', (err) => {
+      clearTimeout(timeout);
+      rejectWs(new Error(err?.message || 'WebSocket error'));
+    });
+  });
 }
 
 async function main() {
@@ -40,11 +96,13 @@ async function main() {
     const validated = await validateRes.json();
     assert(typeof validated.token === 'string' && validated.token.length >= 32, 'validate endpoint must return a session token.');
 
+    await assertWsAuth(baseUrl, validated.token);
+
     const orderRes = await fetch(`${baseUrl}/api/orders`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${validated.token}`,
+        'X-Soupz-Token': validated.token,
       },
       body: JSON.stringify({
         prompt: 'pairing smoke check',
@@ -61,19 +119,22 @@ async function main() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${validated.token}`,
+        'X-Soupz-Token': validated.token,
       },
       body: JSON.stringify({ reason: 'pairing_smoke_cleanup' }),
     }).catch(() => {});
 
-    process.stdout.write('Pairing smoke check passed: /pair -> /pair/current -> /pair/validate -> /api/orders\n');
+    process.stdout.write('Pairing smoke check passed: /pair -> /pair/current -> /pair/validate -> WS auth -> /api/orders\n');
   } finally {
-    if (handle?.stop) await handle.stop();
-    else if (handle?.server) await new Promise((resolveClose) => handle.server.close(resolveClose));
+    await stopHandleWithTimeout(handle);
   }
 }
 
-main().catch((err) => {
-  process.stderr.write(`Pairing smoke check failed: ${err.message}\n`);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch((err) => {
+    process.stderr.write(`Pairing smoke check failed: ${err.message}\n`);
+    process.exit(1);
+  });

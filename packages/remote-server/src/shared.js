@@ -185,6 +185,44 @@ export const AGENT_BINARY_MAP = {
     'kiro': 'kiro-cli',
     'ollama': 'ollama',
 };
+const MODEL_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,119}$/;
+
+export function normalizeModelId(value) {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return null;
+    if (!MODEL_ID_RE.test(trimmed)) return null;
+    return trimmed;
+}
+
+export function normalizeAgentModelMap(raw) {
+    if (!raw || typeof raw !== 'object') return {};
+    const normalized = {};
+    for (const [agentId, model] of Object.entries(raw)) {
+        if (!agentId || !AGENT_BINARY_MAP[agentId]) continue;
+        const safeModel = normalizeModelId(model);
+        if (safeModel) normalized[agentId] = safeModel;
+    }
+    return normalized;
+}
+
+export function getSelectedModelForAgent(order, agentId) {
+    if (!order || !agentId) return null;
+    const mapModel = normalizeModelId(order.agentModels?.[agentId]);
+    if (mapModel) return mapModel;
+
+    const directModel = normalizeModelId(order.selectedModel);
+    if (!directModel) return null;
+    if (order.agent === agentId || order.runAgent === agentId) return directModel;
+    return null;
+}
+export const AGENT_BINARY_CANDIDATES = {
+    gemini: ['gemini'],
+    codex: ['codex', 'codex-cli', 'openai-codex', 'gh'],
+    'claude-code': ['claude'],
+    copilot: ['copilot', 'gh'],
+    kiro: ['kiro-cli', 'kiro'],
+    ollama: ['ollama'],
+};
 export const OLLAMA_REQUIRED_MODEL = (process.env.SOUPZ_OLLAMA_REQUIRED_MODEL || 'qwen2.5:1.5b').trim();
 const OLLAMA_RUNTIME_CACHE = { at: 0, status: null };
 const CODEX_MODEL_HINTS = String(
@@ -218,10 +256,81 @@ export const DEFAULT_SPECIALIST_BY_AGENT = {
 
 // Ordered fallback chain — try free agents first
 export const AGENT_FALLBACK_CHAIN = ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'];
+const AGENT_RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000;
+const agentRateLimitCooldowns = new Map(); // agentId -> { until, reason, at }
+
+const AGENT_DETECT_PATH = (() => {
+    const existing = String(process.env.PATH || '')
+        .split(':')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+    const extras = [
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+        '/usr/bin',
+        '/bin',
+        join(os.homedir(), 'Library/Application Support/Code/User/globalStorage/github.copilot-chat/copilotCli'),
+    ];
+
+    return Array.from(new Set([...existing, ...extras])).join(':');
+})();
+
+function shellEscape(value) {
+    return `'${String(value || '').replace(/'/g, `'\\''`)}'`;
+}
+
+function commandExists(commandName) {
+    if (!commandName) return false;
+    try {
+        execSync(`command -v ${shellEscape(commandName)} >/dev/null 2>&1`, {
+            timeout: 1200,
+            stdio: 'ignore',
+            env: {
+                ...process.env,
+                PATH: AGENT_DETECT_PATH,
+            },
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export function resolveAgentBinary(agentId) {
+    const candidates = AGENT_BINARY_CANDIDATES[agentId] || [AGENT_BINARY_MAP[agentId]].filter(Boolean);
+    for (const candidate of candidates) {
+        if (commandExists(candidate)) return candidate;
+    }
+    return null;
+}
 export const MAX_DEEP_WORKERS = Math.max(
     DEFAULT_DEEP_WORKERS,
     Number.parseInt(process.env.SOUPZ_DEEP_WORKER_MAX || '64', 10) || 64,
 );
+
+function getAgentRateLimitCooldown(agentId) {
+    const entry = agentRateLimitCooldowns.get(agentId);
+    if (!entry) return null;
+    if (Date.now() >= entry.until) {
+        agentRateLimitCooldowns.delete(agentId);
+        return null;
+    }
+    return entry;
+}
+
+export function reportAgentRateLimit(agentId, reason = 'rate_limited') {
+    if (!agentId || agentId === 'ollama') return;
+    agentRateLimitCooldowns.set(agentId, {
+        at: Date.now(),
+        until: Date.now() + AGENT_RATE_LIMIT_COOLDOWN_MS,
+        reason,
+    });
+}
+
+export function isAgentCoolingDown(agentId) {
+    return !!getAgentRateLimitCooldown(agentId);
+}
 
 // ─── processOrderQueue — late-bound to avoid circular imports ─────────────────
 
@@ -689,9 +798,7 @@ export async function persistOrder(order) {
 // ─── Agent utilities ──────────────────────────────────────────────────────────
 
 export function isAgentInstalled(agentId) {
-    const bin = AGENT_BINARY_MAP[agentId];
-    if (!bin) return false;
-    try { execSync(`which ${bin}`, { timeout: 1000 }); return true; } catch { return false; }
+    return !!resolveAgentBinary(agentId);
 }
 
 export function normalizeAllowedAgents(input) {
@@ -709,7 +816,7 @@ export function resolveRunAgent(requestedAgent, allowedAgents = null) {
     const isAllowed = (agentId) => !allowedSet || allowedSet.has(agentId);
 
     // If requested agent is installed, use it
-    if (requestedAgent !== 'auto' && isAllowed(requestedAgent) && isAgentInstalled(requestedAgent)) {
+    if (requestedAgent !== 'auto' && isAllowed(requestedAgent) && isAgentInstalled(requestedAgent) && !isAgentCoolingDown(requestedAgent)) {
         const requestedState = getAgentRuntimeReadiness(requestedAgent);
         if (requestedState.ready) {
             return { agent: requestedAgent, fallback: false };
@@ -717,7 +824,7 @@ export function resolveRunAgent(requestedAgent, allowedAgents = null) {
     }
     // Otherwise, walk the fallback chain
     for (const candidate of AGENT_FALLBACK_CHAIN) {
-        if (!isAllowed(candidate) || !isAgentInstalled(candidate)) continue;
+        if (!isAllowed(candidate) || !isAgentInstalled(candidate) || isAgentCoolingDown(candidate)) continue;
         const state = getAgentRuntimeReadiness(candidate);
         if (state.ready) {
             return { agent: candidate, fallback: requestedAgent !== 'auto', originalRequest: requestedAgent };
@@ -1001,12 +1108,9 @@ export function getCodexModelCapabilityStatus() {
 }
 
 export function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
-    if (!isAgentInstalled(agentId)) {
+    const resolvedBinary = resolveAgentBinary(agentId);
+    if (!resolvedBinary) {
         return { ready: false, reason: 'not_installed' };
-    }
-
-    if (agentId === 'gemini' && !isPathInside(REPO_ROOT, cwd)) {
-        return { ready: false, reason: 'workspace_mismatch' };
     }
 
     if (agentId === 'claude-code') {
@@ -1027,14 +1131,34 @@ export function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
     }
 
     if (agentId === 'copilot' || agentId === 'codex') {
+        // New standalone CLIs are considered runtime-ready once installed.
+        // Keep gh-copilot checks only for gh-backed flows.
+        if (resolvedBinary !== 'gh') {
+            return { ready: true, reason: 'ready', binary: resolvedBinary };
+        }
+
         try {
-            execSync('gh auth status', { timeout: 2000, stdio: 'pipe' });
+            execSync('gh auth status', {
+                timeout: 2000,
+                stdio: 'pipe',
+                env: {
+                    ...process.env,
+                    PATH: AGENT_DETECT_PATH,
+                },
+            });
         } catch {
             return { ready: false, reason: 'gh_not_logged_in' };
         }
 
         try {
-            const exts = execSync('gh extension list 2>/dev/null', { timeout: 2000, encoding: 'utf8' }).toString();
+            const exts = execSync('gh extension list 2>/dev/null', {
+                timeout: 2000,
+                encoding: 'utf8',
+                env: {
+                    ...process.env,
+                    PATH: AGENT_DETECT_PATH,
+                },
+            }).toString();
             if (!exts.includes('copilot')) {
                 return { ready: false, reason: 'copilot_extension_missing' };
             }
@@ -1101,6 +1225,11 @@ export function getReadyAgentsInPriorityOrder(cwd = REPO_ROOT, allowedAgents = n
     const skipped = [];
 
     for (const agent of installed) {
+        const cooldown = getAgentRateLimitCooldown(agent);
+        if (cooldown) {
+            skipped.push({ agent, reason: 'rate_limit_cooldown', until: cooldown.until });
+            continue;
+        }
         const state = getAgentRuntimeReadiness(agent, cwd);
         if (state.ready) {
             ready.push(agent);
@@ -1201,8 +1330,12 @@ export function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WO
 
 // ─── runChildAgent ────────────────────────────────────────────────────────────
 
-export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStderr, runtime, childKey, childMeta, timeoutMs = 0 }) {
+export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStderr, runtime, childKey, childMeta, model = null }) {
     const args = [CLI_ENTRY, 'ask', agent, prompt];
+    const selectedModel = normalizeModelId(model);
+    if (selectedModel) {
+        args.push('--model', selectedModel);
+    }
     const spawnEnv = { ...process.env };
     if (mcpServers.length > 0) {
         spawnEnv.SOUPZ_MCP_SERVERS = JSON.stringify(mcpServers);

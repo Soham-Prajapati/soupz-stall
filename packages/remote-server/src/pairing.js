@@ -23,6 +23,7 @@ try { QRCode = (await import('qrcode')).default; } catch { /* qrcode not install
 
 export const PAIRING_CODE_LENGTH = 9;
 export const PAIRING_CODE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+const SESSION_REFRESH_THRESHOLD_MS = 23 * 60 * 60 * 1000; // 23 hours
 
 // ─── Code generation ──────────────────────────────────────────────────────────
 
@@ -177,6 +178,41 @@ export function validatePairingCode(code) {
     return token;
 }
 
+function refreshSessionToken(currentToken, { force = false } = {}) {
+    if (!currentToken) return { ok: false, status: 400, error: 'Missing active session token' };
+    const session = activeSessions.get(currentToken);
+    if (!session) return { ok: false, status: 401, error: 'Invalid session token' };
+
+    const now = Date.now();
+    const ageMs = Math.max(0, now - Number(session.createdAt || now));
+    if (!force && ageMs < SESSION_REFRESH_THRESHOLD_MS) {
+        return {
+            ok: true,
+            token: currentToken,
+            refreshed: false,
+            createdAt: session.createdAt,
+            expiresIn: Math.max(0, Math.round((SESSION_EXPIRY_MS - ageMs) / 1000)),
+        };
+    }
+
+    const nextToken = generateSessionToken();
+    activeSessions.set(nextToken, {
+        ...session,
+        createdAt: now,
+        lastSeen: now,
+        refreshedFrom: currentToken,
+    });
+    activeSessions.delete(currentToken);
+
+    return {
+        ok: true,
+        token: nextToken,
+        refreshed: true,
+        createdAt: now,
+        expiresIn: Math.round(SESSION_EXPIRY_MS / 1000),
+    };
+}
+
 export function getCurrentPairingSnapshot() {
     const pairing = getCurrentCode();
     if (!pairing) return null;
@@ -328,6 +364,24 @@ app.post('/api/pair', (req, res) => {
     if (!token) return res.status(401).json({ error: 'Invalid or expired pairing code', success: false });
     if (!ctx.silentMode) console.log(`  Paired via /api/pair (code: ${code})`);
     res.json({ success: true, token, hostname: os.hostname(), expiresIn: Math.round(SESSION_EXPIRY_MS / 1000) });
+});
+
+// AUTHENTICATED: refresh daemon token before session expiry
+app.post('/api/session/refresh-token', requireAuth, (req, res) => {
+    const token = req.headers['x-soupz-token'] || req.query.token || req.body?.token;
+    const force = req.body?.force === true;
+    const refreshed = refreshSessionToken(token, { force });
+    if (!refreshed.ok) {
+        return res.status(refreshed.status || 400).json({ success: false, error: refreshed.error || 'Session refresh failed' });
+    }
+    res.json({
+        success: true,
+        token: refreshed.token,
+        refreshed: refreshed.refreshed,
+        createdAt: refreshed.createdAt,
+        expiresIn: refreshed.expiresIn,
+        hostname: os.hostname(),
+    });
 });
 
 // AUTHENTICATED: Revoke session (logout)

@@ -3,7 +3,7 @@ name: Codex
 id: codex
 icon: "C"
 color: "#10B981"
-binary: gh
+binary: codex
 headless: true
 description: "Codex provider via GitHub Copilot CLI models (coding + refactoring + architecture)"
 output_format: text
@@ -23,7 +23,7 @@ routing_keywords:
 auth_command: "gh auth login"
 logout_command: "gh auth logout"
 status_command: "gh auth status"
-build_args: ["copilot", "-p", "{prompt}", "--model", "gpt-5.1-codex-mini", "--allow-all-tools"]
+build_args: ["exec", "--dangerously-bypass-approvals-and-sandbox", "{prompt}"]
 free_model: "gpt-5.1-codex-mini"
 grade: 82
 usage_count: 0

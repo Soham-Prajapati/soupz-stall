@@ -235,10 +235,17 @@ Original Request: "${prompt}"`;
 
         const workerCount = Math.min(tasks.length, available.length, 4);
         if (!this._fleet) this._fleet = [];
+        if (!this._fleetRuns) this._fleetRuns = [];
+        const selectedTasks = tasks.slice(0, workerCount);
+        const plan = selectedTasks
+            .map((task, idx) => `${idx + 1}. ${task.title}: ${task.description || task.prompt || ''}`)
+            .join('\n');
+        const runId = randomUUID().slice(0, 8);
         console.log(chalk.hex('#4ECDC4')(`  📡 Deploying ${workerCount} hidden workers…\n`));
 
+        const runWorkers = [];
         for (let i = 0; i < workerCount; i++) {
-            const task = tasks[i];
+            const task = selectedTasks[i];
             const taskPrompt = task.description || task.title || prompt;
             const agent = this.pickAgentForTask(taskPrompt, available);
             console.log(chalk.hex(agent.color || '#888')(`  ${i + 1}. ${agent.icon} ${agent.id}`) + chalk.dim(` — ${task.title}`));
@@ -250,13 +257,103 @@ Original Request: "${prompt}"`;
             const proc = spawn(agent.binary, args, { cwd: this.cwd || process.cwd() });
             const worker = { id: workerId, task: task.title, agent: agent.id, startTime: Date.now(), status: 'running', output: '', proc };
             this._fleet.push(worker);
+            runWorkers.push(worker);
             proc.stdout.on('data', d => worker.output += d.toString());
             proc.stderr.on('data', d => worker.output += d.toString());
-            proc.on('close', (code) => {
+            worker.done = new Promise((resolve) => {
+              proc.on('close', (code) => {
                 worker.status = code === 0 ? 'done' : 'failed';
                 worker.duration = Date.now() - worker.startTime;
+                resolve({ task: worker.task, output: worker.output, code, agent: worker.agent, workerId: worker.id });
+              });
             });
         }
+
+        const fleetRun = {
+            id: runId,
+            prompt,
+            plan,
+            status: 'running',
+            startedAt: Date.now(),
+            workerIds: runWorkers.map((w) => w.id),
+            synthesis: null,
+        };
+        this._fleetRuns.push(fleetRun);
+
+        // Background synthesis: complete hidden workers first, then produce one coordinated result.
+        void (async () => {
+            const results = await Promise.all(runWorkers.map((worker) => worker.done));
+            fleetRun.finishedAt = Date.now();
+            fleetRun.results = results;
+
+            console.log(chalk.hex('#A855F7')(`\n  🧠 Fleet Synthesis (${runId}) — merging ${results.length} worker reports…\n`));
+            try {
+                const synthesis = await synthesizeResults(this, prompt, plan || 'Execute tasks in parallel.', results, available, COPILOT_FAST_MODEL);
+                fleetRun.synthesis = synthesis || null;
+                fleetRun.status = 'synthesized';
+                if (synthesis) {
+                    this.pushToLog({ role: 'assistant', text: synthesis, ts: Date.now(), source: 'fleet', runId });
+                }
+            } catch (err) {
+                fleetRun.status = 'failed';
+                fleetRun.error = err?.message || 'Synthesis failed';
+                console.log(chalk.red(`  ✖ Fleet synthesis failed: ${fleetRun.error}`));
+            }
+        })();
+    },
+
+    listFleetRuns() {
+        if (!this._fleetRuns || this._fleetRuns.length === 0) {
+            console.log(chalk.dim('  No fleet runs yet. Use /fleet "prompt" to start one.'));
+            return;
+        }
+        console.log(chalk.bold('\n  🚀 Fleet Runs\n'));
+        this._fleetRuns.slice(-10).reverse().forEach((run, idx) => {
+            const status = run.status === 'running'
+                ? chalk.yellow('● running')
+                : run.status === 'synthesized'
+                    ? chalk.green('✔ synthesized')
+                    : chalk.red('✖ failed');
+            const workerCount = Array.isArray(run.workerIds) ? run.workerIds.length : 0;
+            const ageMs = (run.finishedAt || Date.now()) - (run.startedAt || Date.now());
+            const seconds = Math.max(0, Math.round(ageMs / 1000));
+            console.log(`  ${idx + 1}. ${chalk.bold(run.id)}  ${status}  ${chalk.dim(`${workerCount} workers · ${seconds}s`)}`);
+            console.log(`     ${chalk.dim((run.prompt || '').slice(0, 110))}`);
+        });
+        console.log(chalk.dim('\n  /fleet result <run-id> to inspect synthesized output\n'));
+    },
+
+    showFleetRunResult(runId) {
+        const runs = this._fleetRuns || [];
+        if (!runs.length) {
+            console.log(chalk.dim('  No fleet runs yet.'));
+            return;
+        }
+        const target = runId
+            ? runs.find((run) => run.id === runId)
+            : runs[runs.length - 1];
+        if (!target) {
+            console.log(chalk.red(`  Fleet run ${runId} not found.`));
+            return;
+        }
+
+        console.log(chalk.bold(`\n  🧾 Fleet Result ${target.id}\n`));
+        console.log(chalk.dim(`  Status: ${target.status}`));
+        if (target.error) console.log(chalk.red(`  Error: ${target.error}`));
+        if (target.status === 'running') {
+            console.log(chalk.dim('  Still running. Check again with /fleet result ' + target.id));
+            return;
+        }
+
+        const synthesis = (target.synthesis || '').trim();
+        if (!synthesis) {
+            console.log(chalk.dim('  No synthesized output captured for this run.'));
+            return;
+        }
+
+        console.log(chalk.dim('\n  ─────────────────────────────────────────────────────────────\n'));
+        console.log(synthesis);
+        console.log(chalk.dim('\n  ─────────────────────────────────────────────────────────────\n'));
     },
 
     showFleetStatus() {

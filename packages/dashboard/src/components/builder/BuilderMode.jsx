@@ -48,6 +48,7 @@ function renderMarkdown(text) {
 
 const BUILD_MODE_KEY = 'soupz_builder_mode';
 const MODEL_TIER_KEY = 'soupz_model_tier';
+const AGENT_MODEL_PREFS_KEY = 'soupz_agent_models';
 
 const MODEL_TIERS = [
   { id: 'fast',      label: 'Fast',      desc: 'Faster responses, lighter models' },
@@ -144,7 +145,21 @@ export default function BuilderMode({ daemon }) {
 
     try {
       if (daemon?.sendPrompt) {
-        const orderId = await daemon.sendPrompt({ prompt: text, agentId: effectiveAgentId, buildMode, modelTier }, chunk => {
+        let agentModels = {};
+        try {
+          const parsed = JSON.parse(localStorage.getItem(AGENT_MODEL_PREFS_KEY) || '{}');
+          if (parsed && typeof parsed === 'object') agentModels = parsed;
+        } catch {
+          agentModels = {};
+        }
+        const orderId = await daemon.sendPrompt({
+          prompt: text,
+          agentId: effectiveAgentId,
+          buildMode,
+          modelTier,
+          selectedModel: agentModels?.[effectiveAgentId] || undefined,
+          agentModels,
+        }, chunk => {
           setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: m.content + chunk } : m));
         });
         setCurrentOrderId(orderId);

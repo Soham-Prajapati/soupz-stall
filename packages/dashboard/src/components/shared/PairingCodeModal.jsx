@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, RefreshCw, Loader2 } from 'lucide-react';
 import { ShareCodeView } from '../connect/ConnectPage.jsx';
 import * as daemonApi from '../../lib/daemon.js';
+import { OVERLAY_Z } from '../../lib/overlayZ.js';
 
 const LOCAL_DAEMON_PORT = 7533;
 const DEFAULT_TTL = 300_000;
@@ -72,7 +73,7 @@ export default function PairingCodeModal({ onClose, machineName }) {
   }, [code, remainingMs, fetchCode]);
 
   return (
-    <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center px-4">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center px-4" style={{ zIndex: OVERLAY_Z.modal }}>
       <div className="w-full max-w-md bg-bg-surface border border-border-subtle rounded-2xl shadow-2xl p-5 relative">
         <button
           onClick={onClose}

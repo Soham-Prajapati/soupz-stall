@@ -5,6 +5,7 @@ import {
   Mic, Volume2, Sparkles, BrainCircuit, Github, Zap, Cpu,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { OVERLAY_Z } from '../../lib/overlayZ.js';
 
 const ACTIONS = [
   { id: 'toggle-mode',      label: 'Toggle Chat/IDE Mode',   icon: Layers,          shortcut: 'Cmd+1/2',  group: 'General' },
@@ -89,7 +90,7 @@ export default function CommandPalette({ open, onClose, onAction }) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[140] flex items-start justify-center pt-[15vh]">
+    <div className="fixed inset-0 flex items-start justify-center pt-[15vh]" style={{ zIndex: OVERLAY_Z.commandPalette }}>
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 

@@ -173,7 +173,20 @@ async function handleAsk([agentId, promptStr, ...restArgs]) {
     await registry.init();
 
     const spawner = new AgentSpawner(registry);
-    const fullPrompt = [promptStr, ...restArgs].join(' ');
+
+    let forcedModel = null;
+    const promptTokens = [];
+    for (let i = 0; i < restArgs.length; i++) {
+        const token = restArgs[i];
+        if (token === '--model' && restArgs[i + 1]) {
+            forcedModel = String(restArgs[i + 1] || '').trim() || null;
+            i += 1;
+            continue;
+        }
+        promptTokens.push(token);
+    }
+
+    const fullPrompt = [promptStr, ...promptTokens].join(' ');
 
     // The remote-server reads stdout/stderr directly
     spawner.on('output', (id, data) => {
@@ -182,7 +195,7 @@ async function handleAsk([agentId, promptStr, ...restArgs]) {
     });
 
     try {
-        await spawner.run(agentId, fullPrompt, process.cwd());
+        await spawner.run(agentId, fullPrompt, process.cwd(), { model: forcedModel });
     } catch (e) {
         process.stderr.write(`\n✖ Agent error: ${e.message}\n`);
         process.exit(1);

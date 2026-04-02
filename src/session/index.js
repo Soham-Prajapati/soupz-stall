@@ -231,9 +231,12 @@ export class Session {
             if (input.startsWith('/chain ')) { await this.handleChain(input.slice(7)); return; }
             if (input.startsWith('/delegate ')) { await this.handleDelegateCmd(input.slice(10)); return; }
             if (input.startsWith('/parallel ')) { await this.handleParallel(input.slice(10)); return; }
+            if (input.startsWith('/fleet peek ')) { this.peekFleetWorker(input.slice(12).trim()); return; }
+            if (input.startsWith('/fleet result ')) { this.showFleetRunResult(input.slice(14).trim()); return; }
+            if (input === '/fleet result') { this.showFleetRunResult(); return; }
+            if (input === '/fleet runs') { this.listFleetRuns(); return; }
             if (input.startsWith('/fleet ')) { await this.spawnFleet(input.slice(7)); return; }
             if (input === '/fleet') { this.showFleetStatus(); return; }
-            if (input.startsWith('/fleet peek ')) { this.peekFleetWorker(input.slice(12).trim()); return; }
             if (input.startsWith('/subagent ')) { await this.runSubAgents(input.slice(10)); return; }
             if (input.startsWith('/team ')) { await this.runAgentTeam(input.slice(6)); return; }
             if (input.startsWith('/svgart')) { await this.handleSvgArt(input); return; }

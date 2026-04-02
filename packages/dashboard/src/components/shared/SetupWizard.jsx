@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle2, Download, Loader2, X, Terminal, Server, Cpu 
 import { checkSystemCLIs, manageSystemCLI } from '../../lib/daemon';
 import { cn } from '../../lib/cn';
 import { pushToast } from './NotificationToast.jsx';
+import { OVERLAY_Z } from '../../lib/overlayZ.js';
 
 export default function SetupWizard({ isOpen, onClose }) {
   const [clis, setClis] = useState([]);
@@ -64,7 +65,7 @@ export default function SetupWizard({ isOpen, onClose }) {
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div className="fixed inset-0 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" style={{ zIndex: OVERLAY_Z.setupWizard }}>
         <motion.div
           initial={{ opacity: 0, scale: 0.9, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}

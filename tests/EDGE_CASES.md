@@ -42,6 +42,7 @@ Run these before any release or demo.
 
 ## Mobile & Responsive
 
+- [ ] Run `npm run snapshot:mobile` and review generated 360/390/430 captures for layering and overflow regressions
 - [ ] Open dashboard on 360px width (small phone) -- all views should be usable
 - [ ] Test ConnectPage on mobile -- OTP input should be touch-friendly, no overflow
 - [ ] Test SimpleMode (chat) on mobile -- keyboard should not obscure input

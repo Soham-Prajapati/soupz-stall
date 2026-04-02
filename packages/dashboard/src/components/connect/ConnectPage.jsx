@@ -3,7 +3,7 @@ import { Terminal, CheckCircle, XCircle, ArrowRight, RefreshCw, QrCode, Keyboard
 import { QRCodeSVG } from 'qrcode.react';
 import { cn } from '../../lib/cn';
 import { supabase } from '../../lib/supabase';
-import { checkDaemonHealth } from '../../lib/daemon';
+import { checkDaemonHealth, setDaemonToken, setDaemonUrl, getDaemonUrl } from '../../lib/daemon';
 
 const LOCAL_DAEMON_PORT = 7533;
 const CODE_TTL_MS = 300_000; // 5 minutes
@@ -36,11 +36,49 @@ async function parseJsonSafe(response) {
   try { return await response.json(); } catch { return null; }
 }
 
+function normalizeAttemptError(err) {
+  const name = err?.name || '';
+  if (name === 'TimeoutError' || name === 'AbortError') return 'Request timed out';
+  const message = err?.message || '';
+  if (/fetch failed|network/i.test(message)) return 'Network request failed';
+  return message || 'Request failed';
+}
+
 function normalizePairingPayload(payload) {
   if (!payload || typeof payload !== 'object') return null;
   const token = payload.token || payload.sessionToken || null;
   if (!token) return null;
   return { ...payload, token, success: payload.success !== false };
+}
+
+function toPersistableDaemonUrl(candidate) {
+  if (!candidate || typeof candidate !== 'string') return null;
+  const trimmed = candidate.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed.startsWith('http') ? trimmed : `http://${trimmed}`);
+    return parsed.origin.replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
+function chooseDaemonUrlFromPairing({ data, attemptBaseUrl }) {
+  const hinted = [
+    data?.remoteBaseUrl,
+    data?.daemonUrl,
+    data?.baseUrl,
+    attemptBaseUrl,
+  ].map(toPersistableDaemonUrl).filter(Boolean);
+
+  const appOrigin = typeof window !== 'undefined' ? window.location.origin.replace(/\/$/, '') : '';
+  for (const candidate of hinted) {
+    if (!candidate) continue;
+    // Never persist hosted web app origin as daemon endpoint.
+    if (appOrigin && candidate === appOrigin && !/localhost|127\.0\.0\.1/.test(candidate)) continue;
+    return candidate;
+  }
+  return null;
 }
 
 async function tryPairAgainstBase(baseUrl, code, timeoutMs = 2000) {
@@ -49,20 +87,71 @@ async function tryPairAgainstBase(baseUrl, code, timeoutMs = 2000) {
     base ? `${base}/api/pair` : '/api/pair',
     base ? `${base}/pair/validate` : '/pair/validate',
   ];
+  const attempts = [];
   let lastData = null;
   for (const target of endpoints) {
-    const res = await fetch(target, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    const data = await parseJsonSafe(res);
-    lastData = data;
-    const normalized = normalizePairingPayload(data);
-    if (res.ok && normalized?.token) return { ok: true, data: normalized, baseUrl: baseUrl || window.location.origin };
+    try {
+      const res = await fetch(target, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const data = await parseJsonSafe(res);
+      lastData = data;
+      const normalized = normalizePairingPayload(data);
+      const message = data?.error || data?.message || (res.ok ? 'Pairing response missing token' : 'Pairing failed');
+      attempts.push({ endpoint: target, status: res.status, message });
+      if (res.ok && normalized?.token) {
+        return {
+          ok: true,
+          data: normalized,
+          baseUrl: baseUrl || window.location.origin,
+          lastEndpoint: target,
+          attempts,
+        };
+      }
+    } catch (err) {
+      attempts.push({ endpoint: target, status: 0, message: normalizeAttemptError(err) });
+    }
   }
-  return { ok: false, data: lastData };
+  return {
+    ok: false,
+    data: lastData,
+    lastEndpoint: attempts[attempts.length - 1]?.endpoint || null,
+    error: attempts[attempts.length - 1]?.message || null,
+    attempts,
+  };
+}
+
+function buildPairingDiagnostics(attempts, fallbackReason) {
+  const normalizedAttempts = Array.isArray(attempts) ? attempts.filter(Boolean) : [];
+  const lastAttempt = normalizedAttempts[normalizedAttempts.length - 1] || null;
+  const reasonFromAttempt = lastAttempt?.message;
+  const reason = reasonFromAttempt || fallbackReason || 'Could not connect to a running daemon.';
+  const sawInvalidCode = normalizedAttempts.some((attempt) => /invalid|expired/i.test(attempt?.message || ''));
+  const sawTimeout = normalizedAttempts.some((attempt) => /timed out/i.test(attempt?.message || ''));
+  const sawNetwork = normalizedAttempts.some((attempt) => /network request failed|failed to fetch|cors/i.test(attempt?.message || ''));
+  const triedSupabase = normalizedAttempts.some((attempt) => (attempt?.source || '').startsWith('supabase'));
+  const sawLocalhost = normalizedAttempts.some((attempt) => (attempt?.endpoint || '').includes('localhost'));
+
+  let networkHint = 'Run npx soupz on your machine and retry this code within 5 minutes.';
+  if (sawInvalidCode) {
+    networkHint = 'Generate a fresh code from the terminal and retry immediately. Pairing codes are single-use.';
+  } else if (sawTimeout) {
+    networkHint = 'Daemon is not reachable from this device. Ensure your machine is online and tunnel/local network access is available.';
+  } else if (sawNetwork) {
+    networkHint = 'Network path failed. Check firewall/VPN rules and confirm the daemon URL is reachable.';
+  } else if (triedSupabase && !sawLocalhost) {
+    networkHint = 'Supabase lookup succeeded but daemon validation failed. Confirm tunnel targets are active and not expired.';
+  }
+
+  return {
+    reason,
+    lastEndpoint: lastAttempt?.endpoint || 'No endpoint reached',
+    networkHint,
+    attempts: normalizedAttempts,
+  };
 }
 
 // ── Apple-style countdown ring ───────────────────────────────────────────────
@@ -109,6 +198,8 @@ export default function ConnectPage({ getParam, navigate }) {
   const [status, setStatus] = useState('idle');
   const [machine, setMachine] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [pairingDiagnostics, setPairingDiagnostics] = useState(null);
+  const [tunnelReadiness, setTunnelReadiness] = useState(null);
   const [connectMode, setConnectMode] = useState(urlCode ? 'share' : 'code'); // code | qr | share
   const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [alreadyConnected, setAlreadyConnected] = useState(null); // { hostname } | null
@@ -182,7 +273,7 @@ export default function ConnectPage({ getParam, navigate }) {
     // Try same-origin first, then stored daemon URL
     const urls = [
       '',
-      localStorage.getItem('soupz_daemon_url'),
+      getDaemonUrl(),
       `http://localhost:${LOCAL_DAEMON_PORT}`,
     ].filter(Boolean);
 
@@ -192,6 +283,14 @@ export default function ConnectPage({ getParam, navigate }) {
         const res = await fetch(endpoint, { signal: AbortSignal.timeout(1500) });
         const data = await parseJsonSafe(res);
         const currentCode = (data?.code || '').toString().replace(/[^A-Z0-9]/gi, '').slice(0, 9);
+        const tunnelUrls = Array.isArray(data?.tunnelUrls) ? data.tunnelUrls : [];
+        const connectTargets = Array.isArray(data?.connectTargets) ? data.connectTargets : [];
+        setTunnelReadiness({
+          hasRemoteBase: !!data?.remoteBaseUrl,
+          tunnelCount: tunnelUrls.length,
+          connectTargetCount: connectTargets.length,
+          endpoint,
+        });
         if (currentCode.length === 9) {
           setDigits(currentCode.split(''));
           const ttl = (data?.expiresIn || 300) * 1000;
@@ -209,25 +308,57 @@ export default function ConnectPage({ getParam, navigate }) {
     if (c.length !== 9) return;
     setStatus('loading');
     setErrorMsg('');
+    setPairingDiagnostics(null);
+    const attemptLog = [];
+
+    const recordResult = (source, result) => {
+      if (!result) return;
+      const attempts = Array.isArray(result.attempts) ? result.attempts : [];
+      if (attempts.length) {
+        for (const attempt of attempts) attemptLog.push({ ...attempt, source });
+        return;
+      }
+      if (result.lastEndpoint || result.error) {
+        attemptLog.push({
+          source,
+          endpoint: result.lastEndpoint || 'unknown',
+          status: 0,
+          message: result.error || 'Pairing attempt failed',
+        });
+      }
+    };
+
+    const recordException = (source, endpoint, err) => {
+      attemptLog.push({ source, endpoint, status: 0, message: normalizeAttemptError(err) });
+    };
 
     try {
       const proxied = await tryPairAgainstBase(null, c, 2200);
+      recordResult('same-origin', proxied);
       if (proxied.ok) { finishConnect(proxied.data, proxied.baseUrl); return; }
-    } catch {}
+    } catch (err) {
+      recordException('same-origin', '/api/pair', err);
+    }
 
     try {
-      const remembered = localStorage.getItem('soupz_daemon_url');
+      const remembered = getDaemonUrl();
       if (remembered) {
         const result = await tryPairAgainstBase(remembered, c, 2200);
+        recordResult('remembered-daemon', result);
         if (result.ok) { finishConnect(result.data, result.baseUrl); return; }
       }
-    } catch {}
+    } catch (err) {
+      recordException('remembered-daemon', getDaemonUrl() || 'unknown', err);
+    }
 
     try {
       const localUrl = `http://localhost:${LOCAL_DAEMON_PORT}`;
       const result = await tryPairAgainstBase(localUrl, c, 1500);
+      recordResult('localhost', result);
       if (result.ok) { finishConnect(result.data, localUrl); return; }
-    } catch {}
+    } catch (err) {
+      recordException('localhost', `http://localhost:${LOCAL_DAEMON_PORT}/api/pair`, err);
+    }
 
     try {
       if (!supabase) throw new Error('Remote pairing unavailable (Supabase not configured).');
@@ -236,15 +367,29 @@ export default function ConnectPage({ getParam, navigate }) {
       if (new Date(data.expires_at) < new Date()) throw new Error('Code expired');
 
       const candidates = resolveRemoteCandidates(data);
+      if (candidates.length === 0) {
+        attemptLog.push({
+          source: 'supabase',
+          endpoint: 'supabase:soupz_pairing',
+          status: 0,
+          message: 'Remote pairing unavailable (no daemon tunnel targets found)',
+        });
+        throw new Error('Remote pairing unavailable: daemon did not publish reachable tunnel targets.');
+      }
       for (const baseUrl of candidates) {
         try {
           const result = await tryPairAgainstBase(baseUrl, c, 2500);
+          recordResult(`supabase:${baseUrl}`, result);
           if (result.ok) { finishConnect(result.data, baseUrl); return; }
-        } catch {}
+        } catch (err) {
+          recordException(`supabase:${baseUrl}`, `${baseUrl}/api/pair`, err);
+        }
       }
-      finishConnect(data, null);
+      throw new Error('Remote pairing unavailable: daemon validation endpoints were unreachable.');
     } catch (err) {
-      setErrorMsg(err.message || 'Could not connect. Make sure npx soupz is running.');
+      const diagnostics = buildPairingDiagnostics(attemptLog, err.message || 'Could not connect. Make sure npx soupz is running.');
+      setPairingDiagnostics(diagnostics);
+      setErrorMsg(diagnostics.reason);
       setStatus('error');
     }
   }
@@ -253,12 +398,13 @@ export default function ConnectPage({ getParam, navigate }) {
     setMachine(data);
     setStatus('success');
     if (data.token) {
-      localStorage.setItem('soupz_daemon_token', data.token);
-      sessionStorage.setItem('soupz_daemon_token', data.token);
+      setDaemonToken(data.token);
     }
     if (data.hostname) localStorage.setItem('soupz_hostname', data.hostname);
-    if (url) localStorage.setItem('soupz_daemon_url', url);
-    else localStorage.removeItem('soupz_daemon_url');
+    const daemonUrl = chooseDaemonUrlFromPairing({ data, attemptBaseUrl: url });
+    if (daemonUrl) {
+      setDaemonUrl(daemonUrl);
+    }
     setTimeout(() => navigate('/dashboard'), 1200);
   }
 
@@ -289,6 +435,7 @@ export default function ConnectPage({ getParam, navigate }) {
     setDigits(Array(9).fill(''));
     setStatus('idle');
     setErrorMsg('');
+    setPairingDiagnostics(null);
     inputRefs.current[0]?.focus();
   }
 
@@ -418,6 +565,34 @@ export default function ConnectPage({ getParam, navigate }) {
                 <div className="flex items-center gap-2 text-danger text-sm mb-4 p-3 bg-danger/5 border border-danger/20 rounded-lg">
                   <XCircle size={14} className="shrink-0" />
                   <span>{errorMsg}</span>
+                </div>
+              )}
+
+              {status === 'error' && pairingDiagnostics && (
+                <div className="mb-4 rounded-lg border border-border-subtle bg-bg-base px-3 py-3 space-y-2">
+                  <p className="text-[11px] font-ui uppercase tracking-wider text-text-faint">Pairing diagnostics</p>
+                  <div>
+                    <p className="text-[11px] text-text-faint">Why pairing failed</p>
+                    <p className="text-xs text-text-sec leading-relaxed">{pairingDiagnostics.reason}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-text-faint">Last endpoint attempted</p>
+                    <p className="text-xs font-mono text-text-sec break-all">{pairingDiagnostics.lastEndpoint}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-text-faint">Network hint</p>
+                    <p className="text-xs text-text-sec leading-relaxed">{pairingDiagnostics.networkHint}</p>
+                  </div>
+                </div>
+              )}
+
+              {connectMode === 'code' && status !== 'error' && tunnelReadiness && !tunnelReadiness.hasRemoteBase && (
+                <div className="mb-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2.5">
+                  <p className="text-[11px] font-ui uppercase tracking-wider text-warning">Tunnel readiness</p>
+                  <p className="text-xs text-text-sec leading-relaxed mt-1">
+                    Remote pairing is not yet reachable from outside your LAN. Keep local pairing on this machine,
+                    or start with tunnel support enabled before scanning from phone.
+                  </p>
                 </div>
               )}
 

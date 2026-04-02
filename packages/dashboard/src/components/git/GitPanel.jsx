@@ -49,7 +49,7 @@ function dedupeFiles(files = []) {
   return Array.from(map.values());
 }
 
-export default function GitPanel({ daemon, onOpenFile }) {
+export default function GitPanel({ daemon, onOpenFile, compact = false }) {
   const [status, setStatus]     = useState(null);
   const [diff, setDiff]         = useState('');
   const [recentCommits, setRecentCommits] = useState([]);
@@ -120,6 +120,10 @@ export default function GitPanel({ daemon, onOpenFile }) {
     const interval = setInterval(refresh, 15000); // Refresh every 15s
     return () => clearInterval(interval);
   }, [daemon, repoRoot]);
+
+  useEffect(() => {
+    if (compact) setExpandDiff(false);
+  }, [compact]);
 
   async function refresh() {
     setLoading(true);
@@ -274,32 +278,47 @@ export default function GitPanel({ daemon, onOpenFile }) {
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border-subtle shrink-0">
         <GitBranch size={13} className="text-accent" />
-        <div className="relative flex-1">
-          <button
-            onClick={() => setBranchDropdown(!branchDropdown)}
-            className="flex items-center gap-1 text-text-pri font-medium text-xs hover:text-accent transition-colors"
-          >
-            {branch}
-            <span className="text-[10px] text-text-faint">({totalChangedFiles})</span>
-            <ChevronDown size={11} className={cn('transition-transform', branchDropdown && 'rotate-180')} />
-          </button>
-          {branchDropdown && (
-            <div className="absolute top-full left-0 mt-1 bg-bg-surface border border-border-subtle rounded shadow-lg z-10 max-h-60 overflow-y-auto w-48 sm:w-56 max-w-[80vw]">
-              {branches.map(b => (
-                <button
-                  key={b}
-                  onClick={() => switchBranch(b)}
-                  className={cn(
-                    'w-full text-left px-3 py-2.5 sm:py-2 text-xs hover:bg-bg-elevated transition-colors min-h-[44px] sm:min-h-0',
-                    b === branch ? 'text-accent font-medium bg-accent/5' : 'text-text-sec'
-                  )}
-                >
-                  {b}
-                </button>
+        {compact ? (
+          <div className="flex-1 flex items-center gap-2 min-w-0">
+            <select
+              value={branch}
+              onChange={(e) => switchBranch(e.target.value)}
+              className="min-w-0 flex-1 bg-bg-elevated border border-border-subtle rounded px-2 py-1.5 text-xs text-text-pri"
+            >
+              {(branches.length ? branches : [branch]).map((b) => (
+                <option key={b} value={b}>{b}</option>
               ))}
-            </div>
-          )}
-        </div>
+            </select>
+            <span className="text-[10px] text-text-faint shrink-0">{totalChangedFiles}</span>
+          </div>
+        ) : (
+          <div className="relative flex-1">
+            <button
+              onClick={() => setBranchDropdown(!branchDropdown)}
+              className="flex items-center gap-1 text-text-pri font-medium text-xs hover:text-accent transition-colors"
+            >
+              {branch}
+              <span className="text-[10px] text-text-faint">({totalChangedFiles})</span>
+              <ChevronDown size={11} className={cn('transition-transform', branchDropdown && 'rotate-180')} />
+            </button>
+            {branchDropdown && (
+              <div className="absolute top-full left-0 mt-1 bg-bg-surface border border-border-subtle rounded shadow-lg z-10 max-h-60 overflow-y-auto w-48 sm:w-56 max-w-[80vw]">
+                {branches.map(b => (
+                  <button
+                    key={b}
+                    onClick={() => switchBranch(b)}
+                    className={cn(
+                      'w-full text-left px-3 py-2.5 sm:py-2 text-xs hover:bg-bg-elevated transition-colors min-h-[44px] sm:min-h-0',
+                      b === branch ? 'text-accent font-medium bg-accent/5' : 'text-text-sec'
+                    )}
+                  >
+                    {b}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <button
           onClick={refresh}
           disabled={loading}
@@ -313,6 +332,7 @@ export default function GitPanel({ daemon, onOpenFile }) {
       <div className="flex-1 overflow-y-auto min-h-0">
         {/* Staged */}
         <FileSection
+          compact={compact}
           label="Staged"
           files={stagedFiles}
           icon={<Check size={11} className="text-success" />}
@@ -323,6 +343,7 @@ export default function GitPanel({ daemon, onOpenFile }) {
 
         {/* Unstaged */}
         <FileSection
+          compact={compact}
           label="Changes"
           files={unstagedFiles}
           icon={<Minus size={11} className="text-warning" />}
@@ -343,30 +364,44 @@ export default function GitPanel({ daemon, onOpenFile }) {
             </button>
             {expandDiff && (
               <div className="border-t border-border-subtle/60 flex flex-col sm:flex-row">
-                <div className="sm:w-52 border-b sm:border-b-0 sm:border-r border-border-subtle/60 bg-bg-base/50 max-h-48 sm:max-h-64 overflow-y-auto">
-                  {diffFiles.map(section => (
-                    <button
-                      key={section.id}
-                      onClick={() => setActiveDiffId(section.id)}
-                      className={cn(
-                        'w-full flex items-center gap-2 px-3 py-2 text-[11px] text-left border-l-2 transition-colors',
-                        section.id === activeDiff?.id
-                          ? 'border-accent bg-accent/5 text-text-pri'
-                          : 'border-transparent text-text-sec hover:text-text-pri'
-                      )}
+                {compact ? (
+                  <div className="px-3 py-2 border-b border-border-subtle/60 bg-bg-base/40">
+                    <select
+                      value={activeDiff?.id || ''}
+                      onChange={(e) => setActiveDiffId(e.target.value)}
+                      className="w-full bg-bg-elevated border border-border-subtle rounded px-2 py-1.5 text-xs text-text-pri"
                     >
-                      <span className="flex-1 truncate font-mono">{section.file}</span>
-                      {section.status && (
-                        <span className={cn(
-                          'text-[9px] font-mono px-1.5 py-0.5 rounded border shrink-0',
-                          STATUS_META[section.status]?.className || 'border-border-subtle text-text-faint'
-                        )}>
-                          {STATUS_META[section.status]?.label || section.status}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
+                      {diffFiles.map((section) => (
+                        <option key={section.id} value={section.id}>{section.file}</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="sm:w-52 border-b sm:border-b-0 sm:border-r border-border-subtle/60 bg-bg-base/50 max-h-48 sm:max-h-64 overflow-y-auto">
+                    {diffFiles.map(section => (
+                      <button
+                        key={section.id}
+                        onClick={() => setActiveDiffId(section.id)}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-3 py-2 text-[11px] text-left border-l-2 transition-colors',
+                          section.id === activeDiff?.id
+                            ? 'border-accent bg-accent/5 text-text-pri'
+                            : 'border-transparent text-text-sec hover:text-text-pri'
+                        )}
+                      >
+                        <span className="flex-1 truncate font-mono">{section.file}</span>
+                        {section.status && (
+                          <span className={cn(
+                            'text-[9px] font-mono px-1.5 py-0.5 rounded border shrink-0',
+                            STATUS_META[section.status]?.className || 'border-border-subtle text-text-faint'
+                          )}>
+                            {STATUS_META[section.status]?.label || section.status}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="flex-1 overflow-auto max-h-72 sm:max-h-80 font-mono text-xs">
                   {(activeDiff?.lines || diff.split('\n')).map((line, i) => (
                     <div
@@ -466,7 +501,7 @@ export default function GitPanel({ daemon, onOpenFile }) {
   );
 }
 
-function FileSection({ label, files, icon, onStageAll, emptyLabel, onFileOpen }) {
+function FileSection({ compact = false, label, files, icon, onStageAll, emptyLabel, onFileOpen }) {
   const [open, setOpen] = useState(true);
 
   return (
@@ -485,7 +520,7 @@ function FileSection({ label, files, icon, onStageAll, emptyLabel, onFileOpen })
             onClick={e => { e.stopPropagation(); onStageAll(); }}
             className="opacity-100 md:opacity-0 md:group-hover:opacity-100 ml-auto px-2 py-1 rounded bg-accent/10 text-accent text-[10px] sm:text-xs hover:bg-accent/20 transition-all flex items-center gap-1 shrink-0 w-full sm:w-auto justify-center sm:justify-start mt-2 sm:mt-0"
           >
-            <Plus size={10} /> Stage all
+            <Plus size={10} /> {compact ? 'Stage' : 'Stage all'}
           </button>
         )}
       </div>

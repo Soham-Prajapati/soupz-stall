@@ -19,6 +19,9 @@ This folder has both current and historical documentation. Start with the files 
 - Owner checklist: [guides/OWNER_ACTION_CHECKLIST.md](guides/OWNER_ACTION_CHECKLIST.md)
 - Team runtime snapshot: [../CLAUDE.md](../CLAUDE.md)
 - Logic progression log: [../LOGIC_PENDING_TODO.md](../LOGIC_PENDING_TODO.md)
+- Overlay stacking convention: [guides/OVERLAY_STACKING_CONVENTION.md](guides/OVERLAY_STACKING_CONVENTION.md)
+- Keyboard parity guide: [guides/KEYBOARD_PARITY.md](guides/KEYBOARD_PARITY.md)
+- Production E2E flow: [guides/PRODUCTION_E2E_USER_FLOW.md](guides/PRODUCTION_E2E_USER_FLOW.md)
 
 ## Secondary Docs (May Be Historical)
 

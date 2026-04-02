@@ -33,6 +33,7 @@ jobs:
       - run: cd packages/dashboard && npm ci && npm run build
       - run: node --check packages/remote-server/src/index.js
       - run: node --check bin/soupz.js
+      - run: npm run lint:docs-links
       - run: npm test
       - name: Verify critical docs wiring
         run: |

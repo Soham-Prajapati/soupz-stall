@@ -43,6 +43,7 @@ import {
     summarizePromptForWorkspace,
     registerCreatedFile,
     toWorkspaceRelativePath,
+    getSelectedModelForAgent,
 } from './shared.js';
 import { archiveOrderResult } from './run-archive.js';
 
@@ -314,7 +315,7 @@ function buildFallbackClarifyingQuestions(intent = {}) {
 
 // ─── AI planner ───────────────────────────────────────────────────────────────
 
-async function planDeepExecutionWithAI({ prompt, plannerAgent, cwd, mcpServers, timeoutMs = 25000, plannerStyle = 'balanced', plannerNotes = '' }) {
+async function planDeepExecutionWithAI({ prompt, plannerAgent, plannerModel = null, cwd, mcpServers, plannerStyle = 'balanced', plannerNotes = '' }) {
     const style = String(plannerStyle || 'balanced').trim().toLowerCase();
     const notes = String(plannerNotes || '').trim();
     const planningPrompt = [
@@ -364,7 +365,7 @@ async function planDeepExecutionWithAI({ prompt, plannerAgent, cwd, mcpServers, 
         prompt: planningPrompt,
         cwd,
         mcpServers,
-        timeoutMs,
+        model: plannerModel,
     });
 
     if ((planResult?.code ?? 1) !== 0) {
@@ -417,7 +418,7 @@ function createInputAnswerSummary(questions = [], answers = {}) {
     return lines;
 }
 
-async function waitForOrderInput(order, runtime, questions = [], timeoutMs = 10 * 60 * 1000) {
+async function waitForOrderInput(order, runtime, questions = []) {
     if (!runtime || !Array.isArray(questions) || questions.length === 0) {
         return { answers: {}, timedOut: false, skipped: true };
     }
@@ -434,21 +435,9 @@ async function waitForOrderInput(order, runtime, questions = [], timeoutMs = 10 
         order.status = 'waiting_input';
         order.pendingQuestions = questions;
         order.pendingAnswers = {};
-        pushOrderEvent(order, 'input.requested', { questionCount: questions.length, timeoutMs });
+        pushOrderEvent(order, 'input.requested', { questionCount: questions.length, timeoutMs: 0 });
         void persistOrder(order);
         broadcastOrderUpdate(order);
-
-        request.timeoutHandle = setTimeout(() => {
-            if (runtime.inputRequest !== request) return;
-            runtime.inputRequest = null;
-            order.status = 'running';
-            order.pendingQuestions = [];
-            order.pendingAnswers = {};
-            pushOrderEvent(order, 'input.timed_out', { questionCount: questions.length });
-            void persistOrder(order);
-            broadcastOrderUpdate(order);
-            resolve({ answers: {}, timedOut: true, skipped: false });
-        }, Math.max(15000, timeoutMs));
     });
 }
 
@@ -702,7 +691,7 @@ async function runNestedDelegationForWorker({
             runtime,
             childKey,
             childMeta: { kind: 'nested', workerId: parentWorkerId, agent: nestedAgent },
-            timeoutMs: nestedPolicy.nestedTimeoutMs,
+            model: getSelectedModelForAgent(order, nestedAgent),
             onStdout: (text, pid) => {
                 const tagged = `[nested:${nestedId}|agent:${nestedAgent}] ${text}`;
                 order.stdout += tagged;
@@ -791,7 +780,7 @@ async function runNestedDelegationForWorker({
             runtime,
             childKey: `nested-synthesis:${parentWorkerId}`,
             childMeta: { kind: 'nested-synthesis', workerId: parentWorkerId, agent: synthesisAgent },
-            timeoutMs: nestedPolicy.nestedSynthesisTimeoutMs,
+            model: getSelectedModelForAgent(order, synthesisAgent),
         });
 
         nestedSynthesis = {
@@ -855,9 +844,9 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             planner = await planDeepExecutionWithAI({
                 prompt: order.prompt,
                 plannerAgent: runAgent,
+                plannerModel: getSelectedModelForAgent(order, runAgent),
                 cwd: order.cwd,
                 mcpServers,
-                timeoutMs: 25000,
                 plannerStyle,
                 plannerNotes,
             });
@@ -998,14 +987,9 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     const workerRuns = workers.map(async (worker, idx) => {
         const { workerId, agent } = worker;
         const childKey = `worker:${workerId}`;
-        const perWorkerTimeoutMs = 0;
         const meta = workerMeta[workerId] || { workerLabel: workerId, specialist: 'developer', focus: 'deliver concrete implementation guidance' };
         if (specialistFocusPlan[meta.specialist]) {
             meta.focus = specialistFocusPlan[meta.specialist];
-        }
-
-        if (idx > 0) {
-            await new Promise((resolve) => setTimeout(resolve, Math.min(1000, idx * 150)));
         }
 
         let sharedMemoryForWorker = '';
@@ -1063,7 +1047,7 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
                 runtime,
                 childKey,
                 childMeta: { kind: 'worker', workerId, agent },
-                timeoutMs: perWorkerTimeoutMs,
+                model: getSelectedModelForAgent(order, agent),
                 onStdout: (text, pid) => {
                     const tagged = `[worker:${workerId}|agent:${agent}] ${text}`;
                     order.stdout += tagged;
@@ -1203,7 +1187,6 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     const synthesisAgent = (primaryWorker && primaryWorker.code === 0)
         ? runAgent
         : (successfulWorkers[0]?.agent || workers[0]?.agent || runAgent);
-    const synthesisTimeoutMs = 0;
 
     let sharedMemoryExcerpt = '';
     if (artifactContext?.sharedPath) {
@@ -1236,7 +1219,7 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         runtime,
         childKey: 'synthesis',
         childMeta: { kind: 'synthesis', agent: synthesisAgent },
-        timeoutMs: synthesisTimeoutMs,
+        model: getSelectedModelForAgent(order, synthesisAgent),
         onStdout: (text, pid) => {
             const tagged = `[synthesis:${synthesisAgent}] ${text}`;
             order.stdout += tagged;

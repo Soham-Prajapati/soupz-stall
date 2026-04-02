@@ -163,6 +163,9 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
   const [mobileTab, setMobileTab] = useState('chat');
   const [runToast, setRunToast] = useState(null);
 
+  const sidebarPanelWidth = useMemo(() => `min(${sidebarWidth}px, 40vw)`, [sidebarWidth]);
+  const chatPanelWidth = useMemo(() => `min(${chatWidth}px, 45vw)`, [chatWidth]);
+
   const editorRef = useRef(null);
   const saveTimeoutRef = useRef(null);
 
@@ -382,6 +385,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                 <div className="h-full overflow-y-auto">
                   <GitPanel
                     daemon={daemon}
+                    compact
                     onOpenFile={(filePath) => {
                       const node = fileNodeFromPath(filePath);
                       if (!node) return;
@@ -492,7 +496,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
 
       {/* Sidebar — resizable */}
       {sidebarOpen && (
-        <div style={{ width: sidebarWidth }} className="bg-bg-surface border-r border-border-subtle flex flex-col shrink-0 overflow-hidden">
+        <div style={{ width: sidebarPanelWidth }} className="bg-bg-surface border-r border-border-subtle flex flex-col shrink-0 overflow-hidden">
           <div className="px-4 py-3 border-b border-border-subtle shrink-0">
             <p className="text-text-pri text-sm font-ui font-semibold">
               {activeActivity === 'files' ? 'Explorer' : activeActivity === 'search' ? 'Search' : activeActivity === 'git' ? 'Source Control' : activeActivity === 'agents' ? 'Agent Tasks' : activeActivity === 'extensions' ? 'Extensions' : activeActivity === 'stats' ? 'Insights' : 'Settings'}
@@ -551,6 +555,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                 <Suspense fallback={<PanelLoader />}>
                   <GitPanel
                     daemon={daemon}
+                    compact={false}
                     onOpenFile={(filePath) => {
                       const node = fileNodeFromPath(filePath);
                       if (!node) return;
@@ -906,7 +911,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             direction="horizontal"
             onResize={(delta) => setChatWidth(prev => Math.max(260, Math.min(600, prev - delta)))}
           />
-          <div style={{ width: chatWidth }} className="border-l border-border-subtle flex flex-col shrink-0 min-h-0">
+          <div style={{ width: chatPanelWidth }} className="border-l border-border-subtle flex flex-col shrink-0 min-h-0 overflow-hidden">
             <SimpleMode daemon={daemon} compact={chatWidth < 360} filePaths={flattenedPaths} />
           </div>
         </>
