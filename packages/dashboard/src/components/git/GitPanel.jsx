@@ -14,6 +14,17 @@ const STATUS_META = {
   '?': { label: 'NEW', className: 'border-success/40 text-success bg-success/10' },
 };
 
+const CO_AUTHOR_BY_AGENT = {
+  'claude-code': 'Claude Opus 4.6 <noreply@anthropic.com>',
+  'copilot': 'GitHub Copilot <copilot@github.com>',
+  'codex': 'GitHub Copilot <copilot@github.com>',
+};
+
+function resolveCoAuthorIdentity() {
+  const selectedAgent = (localStorage.getItem('soupz_agent') || '').trim();
+  return CO_AUTHOR_BY_AGENT[selectedAgent] || 'Soupz <agent@soupz.vercel.app>';
+}
+
 function normalizeGitPath(path = '') {
   const cleaned = String(path || '').trim();
   if (!cleaned) return '';
@@ -184,8 +195,8 @@ export default function GitPanel({ daemon, onOpenFile }) {
     setLoading(true);
     setCommitError('');
     try {
-      // Append Soupz co-author tag (like Claude Code / Copilot do)
-      const coAuthor = '\n\nCo-Authored-By: Soupz <agent@soupz.vercel.app>';
+      const coAuthorIdentity = resolveCoAuthorIdentity();
+      const coAuthor = `\n\nCo-Authored-By: ${coAuthorIdentity}`;
       const fullMsg = message.trim().includes('Co-Authored-By:')
         ? message.trim()
         : message.trim() + coAuthor;
@@ -414,7 +425,7 @@ export default function GitPanel({ daemon, onOpenFile }) {
             <span>Generate</span>
           </button>
         </div>
-        <p className="text-[10px] text-text-faint">Commit uses your local git author plus Soupz co-author trailer.</p>
+        <p className="text-[10px] text-text-faint">Commit uses your local git author plus a Copilot/Claude/Soupz co-author trailer.</p>
         <textarea
           value={message}
           onChange={e => setMessage(e.target.value)}
