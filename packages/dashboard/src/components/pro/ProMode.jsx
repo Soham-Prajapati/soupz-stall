@@ -911,6 +911,19 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           </div>
         </>
       )}
+
+      {runToast && (
+        <div
+          className={cn(
+            'absolute bottom-6 right-6 px-3 py-2 rounded border text-xs font-ui shadow-soft bg-bg-surface flex items-center gap-2 z-30',
+            runToast.status === 'error' && 'border-danger/40 text-danger',
+            runToast.status === 'done' && 'border-success/40 text-success',
+            runToast.status === 'running' && 'border-accent/40 text-accent'
+          )}
+        >
+          {runToast.message}
+        </div>
+      )}
     </div>
   );
 }
@@ -1065,21 +1078,8 @@ function AgentsSettings() {
                 onChange={e => setTemperature(agent.id, parseFloat(e.target.value))}
                 className="w-full h-1 bg-bg-elevated rounded appearance-none cursor-pointer accent-accent"
               />
-        </div>
-
-        {runToast && (
-          <div
-            className={cn(
-              'absolute bottom-6 right-6 px-3 py-2 rounded border text-xs font-ui shadow-soft bg-bg-surface flex items-center gap-2',
-              runToast.status === 'error' && 'border-danger/40 text-danger',
-              runToast.status === 'done' && 'border-success/40 text-success',
-              runToast.status === 'running' && 'border-accent/40 text-accent'
-            )}
-          >
-            {runToast.message}
+            </div>
           </div>
-        )}
-      </div>
         );
       })}
     </div>

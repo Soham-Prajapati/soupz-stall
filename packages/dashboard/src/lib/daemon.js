@@ -755,6 +755,16 @@ export async function fetchBranches(rootPath, userId) {
   return sendCommand('GIT_BRANCHES', { root: rootPath }, userId);
 }
 
+export async function getGitLog(rootPath, userId, limit = 8) {
+  const params = new URLSearchParams();
+  if (rootPath) params.set('root', rootPath);
+  if (Number.isFinite(limit)) params.set('limit', String(limit));
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+
+  if (token() || isLocalDaemon()) return localGet(`/api/git/log${suffix}`);
+  return { commits: [] };
+}
+
 export async function checkoutBranch(branch, userId, rootPath) {
   if (token() || isLocalDaemon()) return localPost('/api/git/checkout', { branch, root: rootPath, cwd: rootPath });
   return sendCommand('GIT_CHECKOUT', { branch, root: rootPath }, userId);

@@ -15,6 +15,14 @@ Read `CLAUDE.md` first for project conventions and architecture.
 4. **If you create new tasks** during your work, add them to this file under your terminal's section.
 5. **Read this file BEFORE starting** to see what's already been completed by other terminals.
 
+Canonical multi-session prompt workflow is now documented in root `.copilot.md` and this task tracker.
+
+## HOTFIX LOG (APR 2, 2026)
+- [x] Fixed runtime crash in Pairing modal import path by using daemon namespace import + safe fallback URL resolution.
+- [x] Fixed ProMode crash (`runToast is not defined`) by moving toast render out of `AgentsSettings` and back into `ProMode` scope.
+- [x] Fixed Core Console status confusion: agents now display `ready` vs `setup` vs `missing` based on detailed runtime health (installed + ready + reason).
+- [x] Dev cache guard added: service worker now auto-unregisters on localhost to avoid stale module export mismatches after refactors.
+
 ---
 
 ## TERMINAL 1: COMPLETED
@@ -470,12 +478,12 @@ All agents are done modifying index.js. NOW it's safe to split:
 
 ## TERMINAL 2 (BATCH 4): New Features
 
-### T2-19: Keyboard shortcuts overlay
+### [x] T2-19: Keyboard shortcuts overlay
 - Cmd+/ or Cmd+Shift+K to show shortcuts panel
 - List all shortcuts, searchable
 - packages/dashboard/src/components/shared/KeyboardShortcuts.jsx
 
-### T2-20: Toast notification system
+### [x] T2-20: Toast notification system
 - Order completed/failed, rate limit fallback, achievement, daemon disconnect/reconnect
 - Auto-dismiss 5s, notification queue
 - packages/dashboard/src/components/shared/NotificationToast.jsx

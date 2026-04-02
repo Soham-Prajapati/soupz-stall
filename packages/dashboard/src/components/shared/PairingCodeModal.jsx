@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, RefreshCw, Loader2 } from 'lucide-react';
 import { ShareCodeView } from '../connect/ConnectPage.jsx';
-import { getDaemonUrl } from '../../lib/daemon';
+import * as daemonApi from '../../lib/daemon.js';
 
 const LOCAL_DAEMON_PORT = 7533;
 const DEFAULT_TTL = 300_000;
@@ -16,8 +16,12 @@ export default function PairingCodeModal({ onClose, machineName }) {
   const fetchCode = useCallback(async () => {
     setLoading(true);
     setError('');
+    const daemonUrl = typeof daemonApi.getDaemonUrl === 'function'
+      ? daemonApi.getDaemonUrl()
+      : localStorage.getItem('soupz_daemon_url')
+        || `http://localhost:${LOCAL_DAEMON_PORT}`;
     const sources = Array.from(new Set([
-      getDaemonUrl(),
+      daemonUrl,
       localStorage.getItem('soupz_daemon_url'),
       `http://localhost:${LOCAL_DAEMON_PORT}`,
     ].filter(Boolean)));

@@ -4,7 +4,7 @@ import {
   Sparkles, Loader2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { fetchBranches, checkoutBranch } from '../../lib/daemon';
+import { fetchBranches, checkoutBranch, getGitLog } from '../../lib/daemon';
 
 const STATUS_META = {
   M: { label: 'MOD', className: 'border-warning/40 text-warning bg-warning/10' },
@@ -41,6 +41,7 @@ function dedupeFiles(files = []) {
 export default function GitPanel({ daemon, onOpenFile }) {
   const [status, setStatus]     = useState(null);
   const [diff, setDiff]         = useState('');
+  const [recentCommits, setRecentCommits] = useState([]);
   const [message, setMessage]   = useState('');
   const [loading, setLoading]   = useState(false);
   const [pushing, setPushing]   = useState(false);
@@ -112,18 +113,48 @@ export default function GitPanel({ daemon, onOpenFile }) {
   async function refresh() {
     setLoading(true);
     try {
-      const [s, d, br] = await Promise.all([
+      const [s, d, br, log] = await Promise.all([
         daemon?.gitStatus?.(),
         daemon?.gitDiff?.(),
         fetchBranches(repoRoot),
+        getGitLog(repoRoot, undefined, 6),
       ]);
       setStatus(s);
       const diffText = typeof d === 'string' ? d : (d?.diff || d?.content || '');
       setDiff(diffText);
       setBranch(br?.current || s?.branch || 'main');
       setBranches(br?.branches || []);
-    } catch { /* no daemon */ }
+      setRecentCommits(Array.isArray(log?.commits) ? log.commits : []);
+      setCommitError('');
+    } catch {
+      setCommitError('Unable to load git data for this workspace. Open a git repo folder and refresh.');
+    }
     setLoading(false);
+  }
+
+  function buildLocalCommitSuggestion(statusResult = {}, diffText = '') {
+    const files = dedupeFiles([
+      ...(statusResult?.staged || []),
+      ...(statusResult?.unstaged || []),
+      ...(statusResult?.files || []),
+    ]);
+
+    if (!files.length) return 'chore: update project files';
+
+    const primary = files[0];
+    const remaining = files.length - 1;
+    const noun = remaining > 0 ? `${primary.path} +${remaining}` : primary.path;
+
+    if (/test|spec/i.test(noun) || /\n[+-].*test/i.test(diffText)) {
+      return `test: update ${noun}`;
+    }
+    if (/readme|docs?|\.md$/i.test(noun)) {
+      return `docs: update ${noun}`;
+    }
+    if (/fix|bug|error/i.test(diffText)) {
+      return `fix: update ${noun}`;
+    }
+    return `feat: update ${noun}`;
   }
 
   async function switchBranch(newBranch) {
@@ -167,10 +198,6 @@ export default function GitPanel({ daemon, onOpenFile }) {
 
   async function generateCommitMessage() {
     if (generatingMsg) return;
-    if (!daemon?.sendPrompt) {
-      setCommitError('Daemon is offline — cannot contact agents.');
-      return;
-    }
     setGeneratingMsg(true);
     setCommitError('');
     try {
@@ -186,6 +213,15 @@ export default function GitPanel({ daemon, onOpenFile }) {
 
       const prompt = `Generate a concise git commit message (imperative mood, max 72 chars for subject line) for these changes:\n\nChanged files: ${changedFiles}\n\nDiff:\n${diffText.slice(0, 3000)}\n\nRespond with ONLY the commit message. No quotes, no explanation. Format: subject line, then optional blank line + bullet body.`;
 
+      // Local fallback always available.
+      const localDraft = buildLocalCommitSuggestion(statusResult, diffText);
+
+      if (!daemon?.sendPrompt) {
+        setMessage(localDraft);
+        setCommitError('AI generator unavailable. Inserted a local draft message.');
+        return;
+      }
+
       let result = '';
       const orderId = await daemon.sendPrompt({ prompt, agentId: 'auto', buildMode: 'quick' }, (chunk, done) => {
         if (done) {
@@ -196,11 +232,18 @@ export default function GitPanel({ daemon, onOpenFile }) {
         setMessage(result.trim());
       });
       if (!orderId && !result.trim()) {
-        setCommitError('No response from agent. Try again or pick a different provider.');
+        setMessage(localDraft);
+        setCommitError('No AI response. Inserted a local draft message.');
       }
     } catch (err) {
       console.warn('Could not generate commit message:', err);
-      setCommitError(err?.message || 'Failed to contact agent.');
+      try {
+        const diffResult = await daemon?.gitDiff?.() || {};
+        const statusResult = await daemon?.gitStatus?.() || {};
+        const diffText = diffResult.diff || diffResult.content || '';
+        setMessage(buildLocalCommitSuggestion(statusResult, diffText));
+      } catch { /* ignore secondary failure */ }
+      setCommitError(err?.message || 'AI generation failed. Inserted a local draft message.');
     } finally {
       setGeneratingMsg(false);
     }
@@ -338,6 +381,23 @@ export default function GitPanel({ daemon, onOpenFile }) {
             <p className="text-[11px] text-text-faint font-ui">Working tree clean — no diff to show.</p>
           </div>
         )}
+
+        {recentCommits.length > 0 && (
+          <div className="border-t border-border-subtle">
+            <div className="px-3 py-2 text-[11px] font-medium text-text-faint">Recent commits</div>
+            <div className="max-h-40 overflow-y-auto">
+              {recentCommits.map((commit) => (
+                <div key={commit.hash} className="px-3 py-2 border-t border-border-subtle/50">
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <span className="font-mono text-text-faint">{String(commit.hash || '').slice(0, 7)}</span>
+                    <span className="truncate text-text-pri">{commit.message}</span>
+                  </div>
+                  <div className="text-[10px] text-text-faint mt-0.5 truncate">{commit.author}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Commit area */}
@@ -346,7 +406,7 @@ export default function GitPanel({ daemon, onOpenFile }) {
           <span className="text-xs font-medium text-text-faint">Commit message</span>
           <button
             onClick={generateCommitMessage}
-            disabled={generatingMsg || !hasChanges || !daemon?.sendPrompt}
+            disabled={generatingMsg || !hasChanges}
             title="Generate commit message with AI"
             className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-ui text-text-faint hover:text-accent hover:bg-accent/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
@@ -354,6 +414,7 @@ export default function GitPanel({ daemon, onOpenFile }) {
             <span>Generate</span>
           </button>
         </div>
+        <p className="text-[10px] text-text-faint">Commit uses your local git author plus Soupz co-author trailer.</p>
         <textarea
           value={message}
           onChange={e => setMessage(e.target.value)}

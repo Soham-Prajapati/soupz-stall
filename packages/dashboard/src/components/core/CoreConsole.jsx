@@ -100,6 +100,7 @@ export default function CoreConsole({ workspace }) {
   const [termError, setTermError] = useState('');
   const [killingId, setKillingId] = useState(null);
   const [agentAvailability, setAgentAvailability] = useState({});
+  const [agentRuntime, setAgentRuntime] = useState({});
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState('');
   const outputRef = useRef(null);
@@ -109,16 +110,31 @@ export default function CoreConsole({ workspace }) {
   const online = !!workspace?.online;
 
   const readyAgents = useMemo(
-    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentAvailability[a.id]).map(a => a.label),
-    [agentAvailability],
+    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentRuntime[a.id]?.ready).map(a => a.label),
+    [agentRuntime],
+  );
+
+  const installedAgents = useMemo(
+    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentRuntime[a.id]?.installed).map(a => a.label),
+    [agentRuntime],
   );
 
   const missingAgents = useMemo(
-    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentAvailability[a.id] === false).map(a => a.label),
-    [agentAvailability],
+    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentRuntime[a.id]?.installed === false).map(a => a.label),
+    [agentRuntime],
   );
 
-  const autoAgentsEmpty = agentId === 'auto' && enabledAgents.length === 0;
+  const setupAgents = useMemo(
+    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentRuntime[a.id]?.installed && !agentRuntime[a.id]?.ready).map(a => a.label),
+    [agentRuntime],
+  );
+
+  const enabledReadyAgents = useMemo(
+    () => enabledAgents.filter(id => agentRuntime[id]?.ready),
+    [enabledAgents, agentRuntime],
+  );
+
+  const autoAgentsEmpty = agentId === 'auto' && enabledReadyAgents.length === 0;
 
   function persistEnabledAgents(list) {
     const sanitized = list.filter(id => id !== 'auto');
@@ -128,7 +144,7 @@ export default function CoreConsole({ workspace }) {
   }
 
   function toggleAgent(agentIdToToggle) {
-    if (agentIdToToggle !== 'auto' && agentAvailability[agentIdToToggle] === false) {
+    if (agentIdToToggle !== 'auto' && agentRuntime[agentIdToToggle]?.installed === false) {
       return;
     }
     setEnabledAgents(prev => {
@@ -143,7 +159,7 @@ export default function CoreConsole({ workspace }) {
 
   function toggleAllAgents(enable) {
     const next = enable
-      ? CORE_AGENTS.filter(a => a.id !== 'auto' && agentAvailability[a.id] !== false).map(a => a.id)
+      ? CORE_AGENTS.filter(a => a.id !== 'auto' && agentRuntime[a.id]?.installed !== false).map(a => a.id)
       : [];
     setEnabledAgents(next);
     persistEnabledAgents(next);
@@ -157,16 +173,38 @@ export default function CoreConsole({ workspace }) {
       try {
         const avail = await checkAgentAvailability();
         if (!active) return;
-        const normalized = CORE_AGENTS.reduce((acc, agent) => {
+        const readyMap = avail?.simple || avail || {};
+        const detailed = avail?.detailed || {};
+
+        const runtime = CORE_AGENTS.reduce((acc, agent) => {
           if (agent.id === 'auto') return acc;
-          const map = avail?.simple || avail;
-          acc[agent.id] = Boolean(map?.[agent.id]);
+          const detail = detailed?.[agent.id] || {};
+          const installed = typeof detail.installed === 'boolean'
+            ? detail.installed
+            : Boolean(readyMap?.[agent.id]);
+          const ready = typeof detail.ready === 'boolean'
+            ? detail.ready
+            : Boolean(readyMap?.[agent.id]);
+          acc[agent.id] = {
+            installed,
+            ready,
+            reason: detail.reason || '',
+            hint: detail.hint || '',
+          };
           return acc;
         }, {});
+
+        const normalized = CORE_AGENTS.reduce((acc, agent) => {
+          if (agent.id === 'auto') return acc;
+          acc[agent.id] = Boolean(runtime[agent.id]?.ready);
+          return acc;
+        }, {});
+
         setAgentAvailability(normalized);
+        setAgentRuntime(runtime);
         setEnabledAgents(prev => {
-          const filtered = prev.filter(id => id !== 'auto' && (normalized[id] || normalized[id] === undefined));
-          const fallback = Object.keys(normalized).filter(id => normalized[id]);
+          const filtered = prev.filter(id => id !== 'auto' && runtime[id]?.installed !== false);
+          const fallback = Object.keys(runtime).filter(id => runtime[id]?.ready);
           const next = filtered.length ? filtered : fallback;
           const same = next.length === prev.length && next.every(id => prev.includes(id));
           if (same) return prev;
@@ -752,9 +790,9 @@ export default function CoreConsole({ workspace }) {
                 className="w-full bg-bg-surface border border-border-subtle rounded-md px-2 py-2 text-sm"
               >
                 {CORE_AGENTS.map((a) => (
-                  <option key={a.id} value={a.id} disabled={a.id !== 'auto' && agentAvailability[a.id] === false}>
+                  <option key={a.id} value={a.id} disabled={a.id !== 'auto' && agentRuntime[a.id]?.installed === false}>
                     {a.label}
-                    {a.id !== 'auto' && agentAvailability[a.id] === false ? ' (install first)' : ''}
+                    {a.id !== 'auto' && agentRuntime[a.id]?.installed === false ? ' (install first)' : ''}
                   </option>
                 ))}
               </select>
@@ -783,13 +821,17 @@ export default function CoreConsole({ workspace }) {
                 </div>
                 <div className="space-y-1">
                   {CORE_AGENTS.filter(a => a.id !== 'auto').map(a => {
-                    const available = agentAvailability[a.id] !== false;
+                    const status = agentRuntime[a.id] || { installed: agentAvailability[a.id] !== false, ready: Boolean(agentAvailability[a.id]) };
+                    const installed = status.installed !== false;
+                    const ready = !!status.ready;
                     const enabled = enabledAgents.includes(a.id);
+                    const statusLabel = !installed ? 'missing' : ready ? 'ready' : 'setup';
+                    const statusClass = !installed ? 'text-warning' : ready ? 'text-success' : 'text-amber-400';
                     return (
                       <button
                         key={a.id}
                         type="button"
-                        disabled={!available}
+                        disabled={!installed}
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleAgent(a.id);
@@ -806,8 +848,8 @@ export default function CoreConsole({ workspace }) {
                           {enabled && <Check size={9} className="text-bg-base" />}
                         </span>
                         <span className="flex-1">{a.label}</span>
-                        <span className={`text-[10px] font-mono uppercase ${available ? 'text-success' : 'text-warning'}`}>
-                          {available ? 'ready' : 'missing'}
+                        <span className={`text-[10px] font-mono uppercase ${statusClass}`} title={status.reason || status.hint || ''}>
+                          {statusLabel}
                         </span>
                       </button>
                     );
@@ -817,11 +859,21 @@ export default function CoreConsole({ workspace }) {
                   <div>
                     {availabilityLoading
                       ? 'Detecting installed CLIs…'
-                      : readyAgents.length
-                        ? `Detected: ${readyAgents.join(', ')}`
+                      : installedAgents.length
+                        ? `Installed: ${installedAgents.join(', ')}`
                         : 'No CLI agents detected yet.'}
                     {availabilityError && <span className="text-warning ml-2">{availabilityError}</span>}
                   </div>
+                  {readyAgents.length > 0 && (
+                    <div className="text-success">
+                      Ready: {readyAgents.join(', ')}
+                    </div>
+                  )}
+                  {setupAgents.length > 0 && (
+                    <div className="text-amber-400">
+                      Needs setup/auth: {setupAgents.join(', ')}
+                    </div>
+                  )}
                   {missingAgents.length > 0 && (
                     <div className="text-warning">
                       Missing: {missingAgents.join(', ')} — runs will skip these until installed.
