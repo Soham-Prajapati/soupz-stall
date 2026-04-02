@@ -50,6 +50,7 @@ import {
     inferSpecialistsFromPrompt,
     estimateDeepWorkerCount,
     getAgentRuntimeReadiness,
+    resolveAgentBinary,
     normalizeModelId,
     normalizeAgentModelMap,
     getSelectedModelForAgent,
@@ -75,13 +76,11 @@ export function startSingleAgentOrder(order, runAgent, mcpServers) {
         args.push('--model', selectedModel);
     }
 
-    // Map agent ID to CLI binary name for availability check
-    const AGENT_BINARY_MAP = { 'gemini': 'gemini', 'codex': 'gh', 'copilot': 'gh', 'claude-code': 'claude', 'kiro': 'kiro', 'ollama': 'ollama' };
-    const agentBinary = AGENT_BINARY_MAP[runAgent] || runAgent;
+    const agentBinary = resolveAgentBinary(runAgent) || runAgent;
 
     // Before spawning, verify binary is available
     try {
-        execSync(`which ${agentBinary}`, { timeout: 2000, stdio: 'ignore' });
+        execSync(`command -v "${agentBinary}"`, { timeout: 2000, stdio: 'ignore' });
     } catch {
         const fallbackOrder = ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'];
         const nextAgent = fallbackOrder.find((a) => a !== runAgent && getAgentRuntimeReadiness(a, order.cwd || REPO_ROOT).ready);

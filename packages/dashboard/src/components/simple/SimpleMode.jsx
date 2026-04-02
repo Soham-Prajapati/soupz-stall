@@ -898,6 +898,20 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
                         </div>
                         {!selectedAgentModel ? <Check size={10} className="text-accent" /> : null}
                       </button>
+                      <button
+                        onClick={() => {
+                          const custom = window.prompt('Enter model ID for this agent (for example: gemini-3.1-pro-preview)');
+                          const next = String(custom || '').trim();
+                          if (next) saveAgentModel(agentId, next);
+                          setModelOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-ui transition-colors text-left text-text-sec hover:text-text-pri hover:bg-bg-elevated"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold uppercase text-[10px] tracking-tight">Custom model ID…</div>
+                          <div className="text-[9px] text-text-faint">Set any model string for this agent</div>
+                        </div>
+                      </button>
                       {(modelOptionsByAgent[agentId] || []).map((model) => (
                         <button
                           key={model.id}

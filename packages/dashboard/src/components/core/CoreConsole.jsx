@@ -1047,11 +1047,21 @@ export default function CoreConsole({ workspace }) {
             Agent Model
             <select
               value={selectedModel || ''}
-              onChange={(e) => saveAgentModelPreference(agentId, e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === '__custom__') {
+                  const custom = window.prompt('Enter model ID for this agent (for example: gemini-3.1-pro-preview)');
+                  const next = String(custom || '').trim();
+                  if (next) saveAgentModelPreference(agentId, next);
+                  return;
+                }
+                saveAgentModelPreference(agentId, value);
+              }}
               disabled={agentId === 'auto'}
               className="mt-1 w-full bg-bg-surface border border-border-subtle rounded-md px-2 py-2 text-sm disabled:opacity-60"
             >
               <option value="">default (agent CLI default)</option>
+              <option value="__custom__">custom model ID…</option>
               {(modelOptionsByAgent[agentId] || []).map((model) => (
                 <option key={model.id} value={model.id}>
                   {model.name || model.id}
