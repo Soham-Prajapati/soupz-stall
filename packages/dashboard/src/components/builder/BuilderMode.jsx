@@ -87,7 +87,7 @@ export default function BuilderMode({ daemon }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Check for dev server on mount and when messages change
+  // Check for a running local server on mount and when messages change
   useEffect(() => {
     async function checkDevServer() {
       try {
@@ -135,7 +135,7 @@ export default function BuilderMode({ daemon }) {
     setIsStreaming(true);
     setCurrentOrderId(null);
 
-    // Check dev server on first message
+    // Check for a running local server on first message
     if (messages.length === 0) {
       try {
         const result = await getDevServerUrl();
@@ -552,7 +552,7 @@ export default function BuilderMode({ daemon }) {
                     {!devServerChecked ? (
                       <>
                         <Loader2 size={32} className="text-text-faint/30 mx-auto animate-spin" />
-                        <p className="text-sm text-text-faint">Waiting for dev server...</p>
+                        <p className="text-sm text-text-faint">Waiting for a local server...</p>
                       </>
                     ) : (
                       <>
@@ -560,9 +560,9 @@ export default function BuilderMode({ daemon }) {
                           <span className="text-2xl text-text-faint/30">→</span>
                         </div>
                         <div className="space-y-2">
-                          <p className="text-sm font-medium text-text-pri">Start a dev server to see live preview</p>
+                          <p className="text-sm font-medium text-text-pri">Start a local server to see live preview</p>
                           <p className="text-xs text-text-faint/60 max-w-xs mx-auto">
-                            Run a dev server in the terminal (e.g., <code className="font-mono text-accent/80">npm run dev</code>)
+                            Run the project’s dev script in the terminal for this app (for example, the command defined in package.json)
                           </p>
                         </div>
                       </>

@@ -66,6 +66,57 @@ const NESTED_SUBAGENT_BLUEPRINTS = {
 
 const NESTED_SPECIALIST_PRIORITY = ['architect', 'developer', 'security', 'researcher', 'qa', 'devops', 'strategist', 'pm', 'analyst', 'finance', 'designer', 'evaluator'];
 
+const ANSI_RE = /\x1B\[[0-9;?]*[ -\/]*[@-~]/g;
+const RUNTIME_NOISE_RE = [
+    /^YOLO mode is enabled\./i,
+    /^Keychain initialization encountered an error:/i,
+    /^Require stack:/i,
+    /^Using FileKeychain fallback/i,
+    /^Loaded cached credentials\.?$/i,
+    /^\[?stderr\]?\s*$/i,
+    /^OpenAI Codex v[\d.]+/i,
+    /^workdir:\s+/i,
+    /^model:\s+/i,
+    /^provider:\s+/i,
+    /^approval:\s+/i,
+    /^sandbox:\s+/i,
+    /^reasoning effort:\s+/i,
+    /^reasoning summaries:\s+/i,
+    /^\[.*\]\s*Not inside a trusted directory/i,
+    /^✖ Agent error:\s*Exited with code\s+\d+/i,
+    /^\s*↳\s*[a-z_][\w.-]*\s*\.\.\.\s*$/i,
+    /^\s*[⠁-⣿]+\s*$/,
+];
+
+function sanitizeArtifactText(text = '') {
+    const raw = String(text || '');
+    if (!raw) return '';
+
+    const normalized = raw
+        .replace(/\r/g, '\n')
+        .replace(ANSI_RE, '')
+        .split('\n')
+        .map((line) => line.trimEnd())
+        .filter((line) => {
+            const trimmed = line.trim();
+            if (!trimmed) return true;
+            return !RUNTIME_NOISE_RE.some((re) => re.test(trimmed));
+        })
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+    return normalized;
+}
+
+function hasSubstantiveContent(text = '') {
+    const cleaned = sanitizeArtifactText(text);
+    if (!cleaned) return false;
+    if (cleaned.length >= 700) return true;
+    const structureHits = (cleaned.match(/(^|\n)(#|##|\-|\*|\d+\.)\s+/g) || []).length;
+    return cleaned.length >= 220 && structureHits >= 4;
+}
+
 // ─── Nested policy builder ────────────────────────────────────────────────────
 
 function buildNestedPolicy(deepPolicy = {}, workerCount = DEFAULT_DEEP_WORKERS) {
@@ -536,7 +587,7 @@ async function persistWorkerArtifact(order, artifactContext, workerId, agent, wo
     const safeSpecialist = String(workerMetaInfo?.specialist || 'developer').replace(/[^a-zA-Z0-9-_]/g, '_');
     const workerFile = join(artifactContext.runRoot, `${safeWorkerId}--${safeSpecialist}.md`);
     
-    const outputText = String(result?.stdout || result?.stderr || '');
+    const outputText = sanitizeArtifactText(result?.stdout || result?.stderr || '');
     const { claims, assumptions, sources } = extractStructuredMemory(outputText);
 
     const body = [
@@ -550,7 +601,7 @@ async function persistWorkerArtifact(order, artifactContext, workerId, agent, wo
         '',
         '## Output',
         '```text',
-        outputText.slice(0, 70000),
+        outputText.slice(0, 70000) || '_No substantial output produced._',
         '```',
     ].join('\n');
 
@@ -569,7 +620,7 @@ async function persistWorkerArtifact(order, artifactContext, workerId, agent, wo
             '',
             `Agent: ${agent} | Specialist: ${workerMetaInfo?.specialist || 'developer'} | Exit: ${result?.code ?? 1}`,
             '',
-            outputText.slice(0, 3000),
+            outputText.slice(0, 3000) || '_No substantial output produced._',
             '',
         ].join('\n');
     }
@@ -595,7 +646,7 @@ async function persistNestedWorkerArtifact(order, artifactContext, parentWorkerI
         '',
         '## Output',
         '```text',
-        String(result?.stdout || result?.stderr || '').slice(0, 40000),
+        sanitizeArtifactText(result?.stdout || result?.stderr || '').slice(0, 40000) || '_No substantial output produced._',
         '```',
     ].join('\n');
 
@@ -606,7 +657,7 @@ async function persistNestedWorkerArtifact(order, artifactContext, parentWorkerI
         `### Nested ${safeNested} (${safeParent})`,
         `Agent: ${nestedMeta?.agent || 'unknown'} | Specialist: ${nestedMeta?.specialist || 'developer'} | Exit: ${result?.code ?? 1}`,
         '',
-        String(result?.stdout || result?.stderr || '').slice(0, 2000),
+        sanitizeArtifactText(result?.stdout || result?.stderr || '').slice(0, 2000) || '_No substantial output produced._',
         '',
     ].join('\n');
     await writeFile(artifactContext.sharedPath, sharedSnippet, { encoding: 'utf8', flag: 'a' });
@@ -622,7 +673,7 @@ async function persistNestedSynthesisArtifact(order, artifactContext, parentWork
         `- Agent: ${synthesis?.agent || 'unknown'}`,
         `- Exit code: ${synthesis?.code ?? 1}`,
         '',
-        String(synthesis?.stdout || synthesis?.stderr || '').trim() || '_No nested synthesis output produced._',
+        sanitizeArtifactText(synthesis?.stdout || synthesis?.stderr || '').trim() || '_No nested synthesis output produced._',
     ].join('\n');
 
     await writeFile(synthPath, body, 'utf8');
@@ -630,7 +681,7 @@ async function persistNestedSynthesisArtifact(order, artifactContext, parentWork
 
     const sharedSnippet = [
         `## Nested Team Synthesis (${safeParent})`,
-        String(synthesis?.stdout || synthesis?.stderr || '').slice(0, 3000),
+        sanitizeArtifactText(synthesis?.stdout || synthesis?.stderr || '').slice(0, 3000) || '_No nested synthesis output produced._',
         '',
     ].join('\n');
     await writeFile(artifactContext.sharedPath, sharedSnippet, { encoding: 'utf8', flag: 'a' });
@@ -639,6 +690,7 @@ async function persistNestedSynthesisArtifact(order, artifactContext, parentWork
 async function persistSynthesisArtifact(order, artifactContext, synthesisText, synthesisMeta = {}) {
     if (!artifactContext) return;
     const synthesisPath = join(artifactContext.runRoot, 'FINAL_SYNTHESIS.md');
+    const cleanedSynthesis = sanitizeArtifactText(synthesisText);
     const body = [
         '# Final Synthesis',
         '',
@@ -646,7 +698,7 @@ async function persistSynthesisArtifact(order, artifactContext, synthesisText, s
         `- Exit code: ${synthesisMeta.exitCode ?? 1}`,
         `- Fallback used: ${synthesisMeta.fallbackUsed ? 'yes' : 'no'}`,
         '',
-        String(synthesisText || '').trim() || '_No synthesis output produced._',
+        cleanedSynthesis || '_No synthesis output produced._',
     ].join('\n');
 
     await writeFile(synthesisPath, body, 'utf8');
@@ -654,7 +706,7 @@ async function persistSynthesisArtifact(order, artifactContext, synthesisText, s
 
     const sharedSnippet = [
         '## Synthesis',
-        String(synthesisText || '').slice(0, 5000),
+        (cleanedSynthesis || '').slice(0, 5000) || '_No synthesis output produced._',
         '',
     ].join('\n');
     await writeFile(artifactContext.sharedPath, sharedSnippet, { encoding: 'utf8', flag: 'a' });
@@ -1266,12 +1318,14 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         });
     }
 
-    const successfulWorkers = workerResults.filter((r) => r.code === 0);
+    const successfulWorkers = workerResults.filter((r) => r.code === 0 && hasSubstantiveContent(r.stdout || r.stderr || ''));
+    const nominalSuccessfulWorkers = workerResults.filter((r) => r.code === 0);
     const primaryWorker = workerResults.find((r) => r.agent === runAgent && r.code === 0);
 
     pushOrderEvent(order, 'parallel.collected', {
         workerCount: workerResults.length,
         successfulWorkers: successfulWorkers.length,
+        nominalSuccessfulWorkers: nominalSuccessfulWorkers.length,
     });
 
     if (runtime.cancelRequested && successfulWorkers.length === 0) {
@@ -1310,7 +1364,10 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             ? `Shared memory aggregate (from SHARED_MEMORY.md):\n${sharedMemoryExcerpt}`
             : 'Shared memory aggregate: unavailable',
         'Worker outputs:',
-        ...workerResults.map((r) => `\n--- ${r.workerId} via ${r.agent} (exit ${r.code}) ---\n${(r.stdout || r.stderr || '').slice(0, 40000)}`),
+        ...workerResults.map((r) => {
+            const cleaned = sanitizeArtifactText(r.stdout || r.stderr || '');
+            return `\n--- ${r.workerId} via ${r.agent} (exit ${r.code}) ---\n${cleaned.slice(0, 40000) || '_No substantial output produced._'}`;
+        }),
     ].join('\n');
 
     pushOrderEvent(order, 'synthesis.started', { agent: synthesisAgent, role: 'lead-synthesizer' });
@@ -1354,7 +1411,10 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             .sort((a, b) => (b.stdout || '').length - (a.stdout || '').length)
             .slice(0, Math.min(3, successfulWorkers.length));
         const fallbackBody = ranked
-            .map((r) => `## ${r.workerId} (${r.agent})\n${(r.stdout || r.stderr || '').slice(0, 12000)}`)
+            .map((r) => {
+                const cleaned = sanitizeArtifactText(r.stdout || r.stderr || '');
+                return `## ${r.workerId} (${r.agent})\n${cleaned.slice(0, 12000) || '_No substantial output produced._'}`;
+            })
             .join('\n\n');
         const fallbackText = [
             '[synthesis:fallback] Primary synthesis timed out/failed; returning deterministic merge of successful worker outputs.',
@@ -1373,7 +1433,10 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     const synthesisText = canFallbackComplete
         ? [
             '[synthesis:fallback] Primary synthesis timed out/failed; deterministic merge below.',
-            ...successfulWorkers.slice(0, 3).map((r) => `\n## ${r.workerId} (${r.agent})\n${(r.stdout || r.stderr || '').slice(0, 12000)}`),
+            ...successfulWorkers.slice(0, 3).map((r) => {
+                const cleaned = sanitizeArtifactText(r.stdout || r.stderr || '');
+                return `\n## ${r.workerId} (${r.agent})\n${cleaned.slice(0, 12000) || '_No substantial output produced._'}`;
+            }),
         ].join('\n')
         : (synth.stdout || synth.stderr || '');
     try {

@@ -114,14 +114,12 @@ Request: "${prompt.slice(0, 1000)}"`;
         const geminiSignals = /\b(ui|design|frontend|front-end|css|html|layout|visual|creative|style|color|animation|svg|image|icon|logo|illustration|landing|page|component|react|tailwind|responsive|research|analysis|compare|summarize)\b/i;
         const codexSignals = /\b(refactor|architecture|module|implementation|typescript|javascript|python|bug|fix|debug|test|code review|codebase)\b/i;
         const copilotSignals = /\b(github|pull request|pr|issue|merge|commit|branch|workflow|actions|terminal|shell|cli|command|docker|ci|cd|pipeline)\b/i;
-        const ollamaSignals = /\b(local|offline|privacy|on-device|airgapped|no cloud)\b/i;
 
         const score = (re) => ((lower.match(re) || []).length);
         const scores = {
             gemini: score(geminiSignals),
             codex: score(codexSignals),
             copilot: score(copilotSignals),
-            ollama: score(ollamaSignals),
         };
 
         const byId = (id) => available.find(a => a.id === id);
@@ -132,7 +130,7 @@ Request: "${prompt.slice(0, 1000)}"`;
 
         let picked = candidates[0]?.agent || byId('gemini') || byId('codex') || byId('copilot') || available[0];
 
-        if ((scores.gemini === 0 && scores.codex === 0 && scores.copilot === 0 && scores.ollama === 0) && byId('gemini')) {
+        if ((scores.gemini === 0 && scores.codex === 0 && scores.copilot === 0) && byId('gemini')) {
             picked = byId('gemini');
         }
 

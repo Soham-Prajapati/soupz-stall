@@ -9,7 +9,7 @@ const INITIAL_ITEMS = [
   { id: 'pair',      label: 'Pair your first machine', icon: Wifi,      desc: 'Access your local environment from any browser.' },
   { id: 'deep_run',  label: 'Run a Deep orchestration', icon: Zap,       desc: 'Watch multiple agents solve a complex task in parallel.' },
   { id: 'commit',    label: 'Commit a change remotely', icon: GitCommit, desc: 'Complete the dev loop without touching your laptop.' },
-  { id: 'preview',   label: 'Preview a live dev server', icon: Monitor,   desc: 'See your UI changes render in real-time.' },
+  { id: 'preview',   label: 'Preview a local server', icon: Monitor,   desc: 'See your UI changes render in real-time.' },
 ];
 
 export default function OnboardingChecklist({ workspaceOnline, devServerUrl }) {

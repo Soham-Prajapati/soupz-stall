@@ -10,11 +10,8 @@ export class SemanticRouter extends EventEmitter {
         this.registry = registry;
         this.context = contextManager;
         this.memory = memory;
-        this.ollamaUrl = process.env.OLLAMA_HOST || 'http://localhost:11434';
-        this.ollamaModel = process.env.OLLAMA_ROUTER_MODEL || 'qwen2.5:1.5b';
-        this.ollamaAvailable = null;
-        // Auto mode keeps routing provider-neutral: API provider -> Copilot -> Ollama.
-        this.routerMode = process.env.SOUPZ_ROUTER || 'auto'; // auto | copilot | ollama
+        // Auto mode keeps routing provider-neutral: API provider -> Copilot -> rules.
+        this.routerMode = process.env.SOUPZ_ROUTER || 'auto'; // auto | copilot
         
         this.semanticPatterns = {
             design: /\b(pretty|beautiful|ui|ux|interface|layout|design|wireframe|mockup|visual|aesthetic|user.?flow|screen|component|svg|icon|logo|brand|color|palette|typography|award|prototype|landing.?page|css|animation|gsap)\b/i,
@@ -36,54 +33,6 @@ export class SemanticRouter extends EventEmitter {
             'ai-engineering': /\b(LLM|GPT|Claude|Gemini|embedding|vector|RAG|retrieval|fine.?tune|prompt|MCP|tool.?use|function.?calling|inference|token|context.?window|langchain)\b/i,
             security: /\b(security|OWASP|vulnerability|auth|authentication|authorization|XSS|CSRF|injection|encrypt|token|JWT|session|pentest|threat)\b/i,
         };
-    }
-
-    async _checkOllama() {
-        if (this.ollamaAvailable !== null) return this.ollamaAvailable;
-        try {
-            const res = await fetch(`${this.ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(3000) });
-            const data = await res.json();
-            const modelBase = this.ollamaModel.split(':')[0];
-            this.ollamaAvailable = data.models?.some(m => m.name?.startsWith(modelBase)) || false;
-        } catch { this.ollamaAvailable = false; }
-        return this.ollamaAvailable;
-    }
-
-    /** Ask Ollama to pick the best agent — full AI, no pre-filtering */
-    async _aiRoute(prompt, candidates) {
-        const options = candidates.map(c => {
-            const desc = (c.description || c.capabilities?.slice(0, 3)?.join(', ') || 'general').slice(0, 80);
-            return `${c.id}: ${desc}`;
-        }).join('\n');
-
-        const aiPrompt = `Pick the single best id from this list for the given task. Reply with ONLY the id, nothing else.
-
-${options}
-
-Task: ${prompt.slice(0, 300)}
-Answer:`;
-        
-        try {
-            const res = await fetch(`${this.ollamaUrl}/api/generate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: this.ollamaModel, prompt: aiPrompt, stream: false,
-                    options: { temperature: 0, num_predict: 30 }
-                }),
-                signal: AbortSignal.timeout(15000),
-            });
-            const data = await res.json();
-            const raw = data.response?.trim().toLowerCase().replace(/[^a-z0-9-_ ]/g, '').trim();
-            const picked = raw.split(/[\s,]+/)[0]; // take first word
-            
-            let match = candidates.find(c => c.id === picked);
-            if (!match) match = candidates.find(c => picked.startsWith(c.id) || c.id.startsWith(picked));
-            if (!match) match = candidates.find(c => picked.includes(c.id) || c.id.includes(picked));
-            if (!match) match = candidates.find(c => c.name.toLowerCase().includes(picked));
-            if (match) return { agent: match.id, name: match.name, method: 'ai' };
-        } catch { /* fall through */ }
-        return null;
     }
 
     /** Route via API key provider (Anthropic/OpenAI/Groq/OpenRouter) */
@@ -137,7 +86,7 @@ Answer:`;
         });
     }
 
-    /** Try AI routing with neutral priority: API provider first, then Copilot, then Ollama. */
+    /** Try AI routing with neutral priority: API provider first, then Copilot, then rules. */
     async _smartRoute(prompt, candidates) {
         const mode = this.routerMode;
 
@@ -155,23 +104,6 @@ Answer:`;
             if (copilotResult) return copilotResult;
         }
 
-        if (mode === 'ollama' || mode === 'auto') {
-            const ollamaReady = await this._checkOllama();
-            if (ollamaReady) {
-                const ollamaResult = await this._aiRoute(prompt, candidates);
-                if (ollamaResult) return ollamaResult;
-            }
-        }
-
-        // If mode is copilot-only and copilot failed, still try ollama
-        if (mode === 'copilot') {
-            const ollamaReady = await this._checkOllama();
-            if (ollamaReady) {
-                const ollamaResult = await this._aiRoute(prompt, candidates);
-                if (ollamaResult) return ollamaResult;
-            }
-        }
-
         // Last resort fallback for non-auto modes.
         const apiProvider = getBestApiProvider('fast');
         if (apiProvider) {
@@ -187,10 +119,9 @@ Answer:`;
         return this._routeRuleBased(prompt, options);
     }
 
-    /** Full AI-powered routing — Copilot primary, Ollama fallback, rules last */
+    /** Full AI-powered routing — Copilot primary, rules last */
     async routeAI(prompt, options = {}) {
-        // Available headless CLI agents (exclude routing-only agents like ollama)
-        const agents = this.registry.headless().filter(a => !['ollama'].includes(a.id));
+        const agents = this.registry.headless();
         if (agents.length === 0) return null;
 
         if (options.forceAgent) {
@@ -235,7 +166,7 @@ Answer:`;
     }
 
     /** Determine engine preference: Gemini for UI/design, Copilot for dev/building.
-     *  Uses 3-layer AI: Copilot Claude Sonnet → Ollama → rules (last resort) */
+    *  Uses Copilot first, then rules (last resort) */
     async _getEnginePreference(prompt) {
         const enginePrompt = `Classify this task as either "gemini" (UI, design, CSS, visual, styling, layout, frontend aesthetics) or "copilot" (coding, building, debugging, API, backend, testing, deployment, config). Reply with ONLY one word: gemini or copilot.
 
@@ -258,33 +189,14 @@ Answer:`;
             return result;
         } catch { /* fall through */ }
 
-        // Layer 2: Ollama
-        try {
-            const ollamaUrl = process.env.OLLAMA_HOST || 'http://localhost:11434';
-            const res = await fetch(`${ollamaUrl}/api/generate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: process.env.OLLAMA_ROUTER_MODEL || 'qwen2.5:1.5b',
-                    prompt: enginePrompt, stream: false,
-                    options: { temperature: 0, num_predict: 5 }
-                }),
-                signal: AbortSignal.timeout(5000),
-            });
-            const data = await res.json();
-            const answer = (data.response || '').trim().toLowerCase();
-            if (answer.includes('gemini')) return 'gemini';
-            if (answer.includes('copilot')) return 'copilot';
-        } catch { /* fall through */ }
-
-        // Layer 3: Simple keyword rules (last resort)
+        // Simple keyword rules (last resort)
         const lower = prompt.toLowerCase();
         if (/\b(ui|ux|design|layout|css|style|visual|color|animation|landing.?page|mockup|wireframe|aesthetic|beautiful|pretty|font|typography|responsive|tailwind)\b/i.test(lower)) return 'gemini';
         if (/\b(fix|bug|implement|code|refactor|debug|api|endpoint|database|auth|jwt|test|deploy|docker|ci|build|config|install|npm|git|migration|schema|backend|server|middleware)\b/i.test(lower)) return 'copilot';
         return null;
     }
 
-    /** Full AI-powered persona routing — Copilot primary, Ollama fallback */
+    /** Full AI-powered persona routing — Copilot primary, rules fallback */
     async routePersonaAI(prompt) {
         const personas = this.registry.personas();
         if (personas.length === 0) return null;
@@ -310,7 +222,7 @@ Answer:`;
 
     /** Rule-based agent/tool routing (fallback when all AI unavailable) */
     _routeRuleBased(prompt, options = {}) {
-        const agents = this.registry.headless().filter(a => a.id !== 'ollama');
+        const agents = this.registry.headless();
         if (agents.length === 0) return null;
 
         if (options.forceAgent) {

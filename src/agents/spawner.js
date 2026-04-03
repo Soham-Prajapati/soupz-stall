@@ -21,14 +21,7 @@ export class AgentSpawner extends EventEmitter {
             const forcedModel = String(options?.model || '').trim();
             if (forcedModel) {
                 // Apply model overrides only for CLIs with known model switch semantics.
-                if (agentId === 'ollama') {
-                    if (args[0] === 'run') {
-                        if (args.length >= 2) args[1] = forcedModel;
-                        else args.push(forcedModel);
-                    } else {
-                        args.unshift('run', forcedModel);
-                    }
-                } else if (agentId === 'gemini' || agentId === 'copilot' || agentId === 'codex') {
+                if (agentId === 'gemini' || agentId === 'copilot' || agentId === 'codex') {
                     const idx = args.indexOf('--model');
                     if (idx >= 0) {
                         if (idx === args.length - 1) args.push(forcedModel);

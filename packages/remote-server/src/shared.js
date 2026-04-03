@@ -183,7 +183,6 @@ export const AGENT_BINARY_MAP = {
     'claude-code': 'claude',
     'copilot': 'gh',
     'kiro': 'kiro-cli',
-    'ollama': 'ollama',
 };
 const MODEL_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,119}$/;
 
@@ -221,12 +220,7 @@ export const AGENT_BINARY_CANDIDATES = {
     'claude-code': ['claude'],
     copilot: ['copilot', 'gh'],
     kiro: ['kiro-cli', 'kiro'],
-    ollama: ['ollama'],
 };
-export const OLLAMA_REQUIRED_MODEL = (process.env.SOUPZ_OLLAMA_REQUIRED_MODEL || 'qwen2.5:1.5b').trim();
-const OLLAMA_RUNTIME_CACHE = { at: 0, ttlMs: 0, status: null };
-const OLLAMA_READY_CACHE_TTL_MS = 120000;
-const OLLAMA_NOT_READY_CACHE_TTL_MS = 10000;
 const CODEX_MODEL_HINTS = String(
     process.env.SOUPZ_CODEX_MODEL_HINTS ||
     'gpt-5.3-codex,gpt-5.1-codex,gpt-5.1-codex-mini,codex'
@@ -240,7 +234,6 @@ export const AUTO_ENABLE_KIRO = process.env.SOUPZ_ENABLE_KIRO_AUTO === 'true';
 export const DEFAULT_DEEP_WORKERS = Math.max(1, Number.parseInt(process.env.SOUPZ_DEEP_WORKER_COUNT || '4', 10) || 4);
 export const DEFAULT_SPECIALIST_SEQUENCE = ['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security'];
 export const AGENT_SPECIALIST_ALLOWLIST = {
-    'ollama': new Set(['researcher', 'analyst']),
     'codex': new Set(['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security']),
     'copilot': new Set(['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security']),
     'gemini': new Set(['researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator']),
@@ -248,7 +241,6 @@ export const AGENT_SPECIALIST_ALLOWLIST = {
     'kiro': new Set(['developer', 'qa', 'devops', 'analyst']),
 };
 export const DEFAULT_SPECIALIST_BY_AGENT = {
-    'ollama': 'researcher',
     'codex': 'developer',
     'copilot': 'developer',
     'gemini': 'analyst',
@@ -257,7 +249,7 @@ export const DEFAULT_SPECIALIST_BY_AGENT = {
 };
 
 // Ordered fallback chain — try free agents first
-export const AGENT_FALLBACK_CHAIN = ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'];
+export const AGENT_FALLBACK_CHAIN = ['gemini', 'codex', 'copilot', 'claude-code'];
 const AGENT_RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000;
 const agentRateLimitCooldowns = new Map(); // agentId -> { until, reason, at }
 
@@ -322,7 +314,7 @@ function getAgentRateLimitCooldown(agentId) {
 }
 
 export function reportAgentRateLimit(agentId, reason = 'rate_limited') {
-    if (!agentId || agentId === 'ollama') return;
+    if (!agentId) return;
     agentRateLimitCooldowns.set(agentId, {
         at: Date.now(),
         until: Date.now() + AGENT_RATE_LIMIT_COOLDOWN_MS,
@@ -849,7 +841,7 @@ export function resolveRunAgent(requestedAgent, allowedAgents = null) {
 
 export function getInstalledAgentsInPriorityOrder() {
     // Keep stronger coding-capable agents ahead of local tiny models for mixed-worker deep runs.
-    const ordered = ['gemini', 'codex', 'copilot', 'claude-code', 'ollama', 'kiro'];
+    const ordered = ['gemini', 'codex', 'copilot', 'claude-code', 'kiro'];
     return ordered.filter((id) => isAgentInstalled(id));
 }
 
@@ -946,10 +938,10 @@ export function inferExecutionRole(agentId, prompt = '') {
     const text = String(prompt || '').toLowerCase();
 
     if (/\b(ui|ux|design|visual|layout|css|theme|accessibility)\b/.test(text)) {
-        return agentId === 'ollama' ? 'researcher' : 'designer';
+        return 'designer';
     }
     if (/\b(product|user journey|experience|workflow|persona|journey|interaction|frontend|web app|mobile app)\b/.test(text)) {
-        return agentId === 'ollama' ? 'researcher' : 'designer';
+        return 'designer';
     }
     if (/\b(devops|infra|infrastructure|docker|k8s|kubernetes|deploy|ci\/cd|pipeline|aws|gcp|azure)\b/.test(text)) {
         return 'devops';
@@ -965,7 +957,6 @@ export function inferExecutionRole(agentId, prompt = '') {
         codex: 'developer',
         copilot: 'developer',
         gemini: 'analyst',
-        ollama: 'researcher',
         'claude-code': 'architect',
         kiro: 'devops',
     };
@@ -1183,45 +1174,6 @@ export function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
 
     if (agentId === 'kiro' && !AUTO_ENABLE_KIRO) {
         return { ready: false, reason: 'disabled_by_default' };
-    }
-
-    if (agentId === 'ollama') {
-        const now = Date.now();
-        if (OLLAMA_RUNTIME_CACHE.status && (now - OLLAMA_RUNTIME_CACHE.at) < OLLAMA_RUNTIME_CACHE.ttlMs) {
-            return OLLAMA_RUNTIME_CACHE.status;
-        }
-
-        try {
-            const raw = execSync('curl -s --max-time 3 http://localhost:11434/api/tags 2>/dev/null', {
-                timeout: 3500,
-                encoding: 'utf8',
-            }).trim();
-            const parsed = JSON.parse(raw || '{}');
-            const models = Array.isArray(parsed.models)
-                ? parsed.models.map((m) => String(m?.name || '').trim()).filter(Boolean)
-                : [];
-
-            const requiredModel = OLLAMA_REQUIRED_MODEL;
-            const requiredBase = requiredModel.split(':')[0];
-
-            const hasRequiredModel = requiredModel
-                ? models.some((name) => name === requiredModel || name.startsWith(`${requiredBase}:`))
-                : models.length > 0;
-            const state = hasRequiredModel
-                ? { ready: true, reason: 'ready', requiredModel: requiredModel || null }
-                : { ready: false, reason: 'ollama_model_missing', requiredModel: requiredModel || null, availableModels: models.slice(0, 15) };
-
-            OLLAMA_RUNTIME_CACHE.at = now;
-            OLLAMA_RUNTIME_CACHE.ttlMs = state.ready ? OLLAMA_READY_CACHE_TTL_MS : OLLAMA_NOT_READY_CACHE_TTL_MS;
-            OLLAMA_RUNTIME_CACHE.status = state;
-            return state;
-        } catch {
-            const state = { ready: false, reason: 'ollama_not_running', requiredModel: OLLAMA_REQUIRED_MODEL || null };
-            OLLAMA_RUNTIME_CACHE.at = now;
-            OLLAMA_RUNTIME_CACHE.ttlMs = OLLAMA_NOT_READY_CACHE_TTL_MS;
-            OLLAMA_RUNTIME_CACHE.status = state;
-            return state;
-        }
     }
 
     return { ready: true, reason: 'ready' };
@@ -1646,7 +1598,6 @@ const AGENT_SIGNAL_WEIGHTS = {
     copilot:     { code: 1.1, architecture: 0.95, research: 0.75, github: 1.4, devops: 1.0, privacy: 0.45, product: 0.7, security: 0.85 },
     'claude-code': { code: 1.25, architecture: 1.35, research: 0.95, github: 0.85, devops: 0.95, privacy: 0.5, product: 1.0, security: 1.35 },
     kiro:        { code: 0.85, architecture: 1.0, research: 0.75, github: 0.65, devops: 1.45, privacy: 0.5, product: 0.6, security: 0.9 },
-    ollama:      { code: 0.8, architecture: 0.8, research: 0.75, github: 0.55, devops: 0.7, privacy: 1.5, product: 0.65, security: 0.8 },
 };
 
 function normalizeText(text = '') {
@@ -1691,16 +1642,6 @@ function buildAgentScorecard(prompt = '', availableAgents = []) {
         if (complexityBoost > 0 && (agent === 'codex' || agent === 'claude-code' || agent === 'gemini')) {
             score += complexityBoost;
             reasons.push(`complexity bonus ${complexityBoost.toFixed(2)}`);
-        }
-
-        if (isComplexPrompt && agent === 'ollama') {
-            score -= 0.6;
-            reasons.push('complexity penalty -0.60');
-        }
-
-        if (isBasicAuditPrompt && agent === 'ollama') {
-            score += 0.45;
-            reasons.push('low-cost audit bonus 0.45');
         }
 
         candidates.push({

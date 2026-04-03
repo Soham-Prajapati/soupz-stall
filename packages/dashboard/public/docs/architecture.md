@@ -7,7 +7,7 @@ Soupz is a local-first system with a hosted control UI:
 - Dashboard: React + Vite web client (browser/phone)
 - Daemon: Express + WebSocket server (runs on user machine)
 - Relay: Supabase Realtime bridge (for remote transport)
-- Providers: Gemini, Codex/Copilot, Claude Code, Ollama, Kiro
+- Providers: Gemini, Codex/Copilot, Claude Code, Kiro
 
 ```text
 Dashboard UI -> Daemon API

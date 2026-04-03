@@ -88,7 +88,7 @@ export function startSingleAgentOrder(order, runAgent, mcpServers) {
     try {
         execSync(`command -v "${agentBinary}"`, { timeout: 2000, stdio: 'ignore' });
     } catch {
-        const fallbackOrder = ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'];
+        const fallbackOrder = ['gemini', 'codex', 'copilot', 'claude-code'];
         const nextAgent = fallbackOrder.find((a) => a !== runAgent && getAgentRuntimeReadiness(a, order.cwd || REPO_ROOT).ready);
         if (nextAgent) {
             pushOrderEvent(order, 'agent.binary_missing', { agent: runAgent, fallback: nextAgent });
@@ -207,7 +207,7 @@ export function startSingleAgentOrder(order, runAgent, mcpServers) {
         if (code !== 0 && duration < 2000 && !order._instantCrashRetried) {
             order._instantCrashRetried = true;
             pushOrderEvent(order, 'agent.instant_crash', { agent: runAgent, duration, exitCode: code });
-            const fallbackOrder = ['gemini', 'codex', 'copilot', 'ollama'];
+            const fallbackOrder = ['gemini', 'codex', 'copilot'];
             const nextAgent = fallbackOrder.find((a) => a !== runAgent && getAgentRuntimeReadiness(a, order.cwd || REPO_ROOT).ready);
             if (nextAgent) { startSingleAgentOrder(order, nextAgent, mcpServers); return; }
         }
@@ -219,7 +219,7 @@ export function startSingleAgentOrder(order, runAgent, mcpServers) {
                 order._rateLimitFallbackRetries = (order._rateLimitFallbackRetries || 0) + 1;
                 const canRetry = order._rateLimitFallbackRetries <= 2;
                 if (canRetry) {
-                    const fallbackOrder = ['gemini', 'codex', 'copilot', 'ollama', 'claude-code'];
+                    const fallbackOrder = ['gemini', 'codex', 'copilot', 'claude-code'];
                     const nextAgent = fallbackOrder.find((candidate) => {
                         if (candidate === runAgent) return false;
                         if (isAgentCoolingDown(candidate)) return false;

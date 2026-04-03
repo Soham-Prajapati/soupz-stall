@@ -18,7 +18,7 @@ npx soupz-cockpit
 Open Setup Wizard and make sure these are ready:
 - Gemini CLI
 - Copilot/Codex via `gh` + `gh-copilot`
-- Optional: Claude Code, Ollama, Kiro
+- Optional: Claude Code, Kiro
 
 ## 4. Build workflow
 

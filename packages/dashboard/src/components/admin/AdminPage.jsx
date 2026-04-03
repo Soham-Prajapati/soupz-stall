@@ -59,7 +59,6 @@ export default function AdminPage({ user, navigate }) {
           gemini: '#4285F4',
           codex: '#10B981',
           copilot: '#6E40C9',
-          ollama: '#888888',
           'claude-code': '#D97706',
           kiro: '#F59E0B',
         };

@@ -111,7 +111,17 @@ async function startDaemon() {
             console.log(chalk.dim('  Phone can connect over internet using this tunnel target.\n'));
         }
 
-        // Live countdown
+        const shouldAnimateCountdown =
+            process.stdout.isTTY
+            && process.env.TERM !== 'dumb'
+            && process.env.SOUPZ_SHOW_CODE_TIMER === '1';
+
+        if (!shouldAnimateCountdown) {
+            console.log(chalk.dim(`  Code expires in ${pairing.expiresIn}s. Set SOUPZ_SHOW_CODE_TIMER=1 to show animated timer.`));
+            return null;
+        }
+
+        // Optional live countdown (disabled by default to avoid noisy terminals).
         const expiresAt = Date.now() + pairing.expiresIn * 1000;
         const countdownInterval = setInterval(() => {
             const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));

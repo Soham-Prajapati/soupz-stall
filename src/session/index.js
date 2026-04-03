@@ -27,11 +27,6 @@ const COPILOT_MODELS = [
     { id: 'gpt-5.1-codex', desc: '1x', cost: 1 },
     { id: 'gpt-4.1-mini', desc: '0x (FREE)', cost: 0 }
 ];
-const OLLAMA_MODELS = [
-    { id: 'llama3.1:8b', desc: 'Meta 8B model' },
-    { id: 'qwen2.5-coder:7b', desc: 'Alibaba coder 7B' },
-    { id: 'phi3:3.8b', desc: 'Microsoft 3.8B model' }
-];
 
 export class Session {
     constructor({ registry, spawner, orchestrator, contextManager, memory, grading, auth, userAuth, cwd, compressor, preprocessor, kitchenMonitor, mcpClient, memoryPool }) {
@@ -308,12 +303,10 @@ export class Session {
         const lower = prompt.toLowerCase();
         const has = (id) => !!available.find(a => a.id === id);
 
-        const ollamaSignals = /\b(local|offline|privacy|on-device|no cloud|airgapped)\b/i;
         const geminiSignals = /\b(ui|design|frontend|css|html|visual|style|color|animation|svg|image|icon|logo|illustration|landing|page|component|react|tailwind|research|analyze|compare|summarize)\b/i;
         const codexSignals = /\b(refactor|architecture|module|implementation|bug|fix|debug|typescript|javascript|python|codebase)\b/i;
         const copilotSignals = /\b(github|pull request|pr|issue|merge|commit|branch|workflow|actions|terminal|shell|cli|command|devops)\b/i;
 
-        if (ollamaSignals.test(lower) && has('ollama')) return 'ollama';
         if (geminiSignals.test(lower) && has('gemini')) return 'gemini';
         if (codexSignals.test(lower) && has('codex')) return 'codex';
         if (copilotSignals.test(lower) && has('copilot')) return 'copilot';
@@ -321,7 +314,6 @@ export class Session {
         if (has('gemini')) return 'gemini';
         if (has('codex')) return 'codex';
         if (has('copilot')) return 'copilot';
-        if (has('ollama')) return 'ollama';
         return available[0].id;
     }
 

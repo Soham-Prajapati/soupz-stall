@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   GitBranch, AlertCircle, AlertTriangle, Bell, Bot,
   Wifi, WifiOff, MessageSquare, Flame, Zap, Check,
-  BrainCircuit, Sparkles, Github, Cpu, X, ChevronUp, Code2,
+  BrainCircuit, Sparkles, Github, X, ChevronUp, Code2,
   Radio, Clock, Terminal, RotateCcw, Circle,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
@@ -20,7 +20,6 @@ const AGENT_ICONS = {
   'claude-code': BrainCircuit,
   copilot: Github,
   kiro: Zap,
-  ollama: Cpu,
 };
 
 function readJSON(key, fallback) {
@@ -376,7 +375,7 @@ function AgentPopup({
       {/* Free tier info */}
       <div className="px-3 py-2 border-t border-border-subtle bg-bg-surface">
         <p className="text-[10px] text-text-faint font-ui leading-relaxed">
-          Gemini: unlimited free tier &middot; Copilot: ~2k/mo &middot; Ollama: unlimited local
+          Gemini: unlimited free tier &middot; Copilot: ~2k/mo
         </p>
       </div>
     </div>

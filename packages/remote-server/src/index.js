@@ -306,7 +306,6 @@ app.get('/api/agents', (req, res) => {
         'claude-code': isAgentInstalled('claude-code'),
         copilot: isAgentInstalled('copilot'),
         kiro: isAgentInstalled('kiro'),
-        ollama: isAgentInstalled('ollama'),
     };
 
     const runtime = {
@@ -315,7 +314,6 @@ app.get('/api/agents', (req, res) => {
         'claude-code': getAgentRuntimeReadiness('claude-code'),
         copilot: getAgentRuntimeReadiness('copilot'),
         kiro: getAgentRuntimeReadiness('kiro'),
-        ollama: getAgentRuntimeReadiness('ollama'),
     };
 
     const agentStatus = {
@@ -357,13 +355,6 @@ app.get('/api/agents', (req, res) => {
             reliability: 'low',
             reason: runtime.kiro.reason,
         },
-        ollama: {
-            installed: installs.ollama,
-            ready: runtime.ollama.ready,
-            tier: 'free',
-            usagePolicy: 'local-unlimited',
-            reason: runtime.ollama.reason,
-        },
     };
 
     const simple = {
@@ -372,7 +363,6 @@ app.get('/api/agents', (req, res) => {
         'claude-code': runtime['claude-code'].ready,
         copilot: runtime.copilot.ready,
         kiro: runtime.kiro.ready,
-        ollama: runtime.ollama.ready,
     };
 
     if (req.query.detailed === 'true') {
@@ -412,7 +402,7 @@ app.post('/api/classify', async (req, res) => {
     const { prompt, availableAgents = [] } = req.body || {};
     if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
 
-    const agentList = availableAgents.length ? availableAgents : ['claude-code', 'gemini', 'codex', 'copilot', 'kiro', 'ollama'];
+    const agentList = availableAgents.length ? availableAgents : ['claude-code', 'gemini', 'codex', 'copilot', 'kiro'];
     const specialistList = ['dev', 'architect', 'ai-engineer', 'devops', 'security', 'designer', 'ux-designer', 'researcher', 'analyst', 'strategist', 'pm', 'contentwriter', 'techwriter'];
 
     const lower = String(prompt || '').toLowerCase();
@@ -1250,9 +1240,8 @@ async function executeCommand(cmd) {
                         gemini: 'gemini',
                         codex: 'gh',
                         copilot: 'gh',
-                        ollama: 'ollama',
                     };
-                    const available = ['claude-code', 'gemini', 'codex', 'copilot', 'ollama'].filter(id => {
+                    const available = ['claude-code', 'gemini', 'codex', 'copilot'].filter(id => {
                         try {
                             execSync(`which ${agentBinaryMap[id] || id}`, { timeout: 1000 });
                             return true;

@@ -62,13 +62,6 @@ const PROBE_STRATEGIES = {
         },
         fallback: ['gemini-2.5-flash', 'gemini-2.5-pro'],
     },
-    ollama: {
-        probe: () => {
-            const result = execSync('ollama list', { timeout: 5000, encoding: 'utf8' });
-            return result.split('\n').slice(1).map(line => line.split(/\s+/)[0]).filter(Boolean);
-        },
-        fallback: [],
-    },
     'claude-code': {
         probe: () => ['sonnet', 'opus', 'haiku'],
         fallback: ['sonnet'],

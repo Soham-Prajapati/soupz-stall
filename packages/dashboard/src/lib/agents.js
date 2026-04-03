@@ -1,7 +1,7 @@
 import {
   Crosshair, Code2, Palette, FlaskConical, Briefcase, Rocket,
   BarChart2, Bot, Shield, Building2, TestTube2, FileText,
-  Sparkles, BrainCircuit, Github, Zap, Cpu,
+  Sparkles, BrainCircuit, Github, Zap,
   TrendingUp, Search, Users, Scale, DollarSign,
   Pen, Presentation, PieChart, Globe, Layers,
   Microscope, LayoutTemplate, Wrench, Target,
@@ -56,22 +56,6 @@ export const CLI_AGENTS = [
     models: [
       { id: 'copilot-chat', name: 'Copilot Chat' },
       { id: 'copilot-suggest', name: 'Copilot Suggest' },
-    ]
-  },
-  { 
-    id: 'ollama',      
-    name: 'Ollama',      
-    icon: Cpu,         
-    color: '#888',    
-    binary: 'ollama',   
-    description: 'Local models (free, offline, no hosted usage limits)', 
-    freeModel: 'any local model',     
-    tier: 'free',
-    usagePolicy: 'local-unlimited',
-    models: [
-      { id: 'qwen2.5:0.5b', name: 'Qwen 2.5 0.5B' },
-      { id: 'llama3:8b', name: 'Llama 3 8B' },
-      { id: 'mistral', name: 'Mistral' },
     ]
   },
   { id: 'claude-code', name: 'Claude Code', icon: BrainCircuit,color: '#D97706', binary: 'claude',   description: 'Anthropic Claude CLI',         freeModel: null,                  tier: 'premium'  },
@@ -150,5 +134,4 @@ export const AGENT_INSTALL_GUIDES = {
   'claude-code': { cmd: 'npm install -g @anthropic-ai/claude-code', note: 'Requires Anthropic API key', url: 'https://github.com/anthropics/claude-code' },
   'copilot':     { cmd: 'npm install -g @github/copilot', note: 'Separate workflow lane from Codex; requires GitHub Copilot subscription', url: 'https://github.com/github/copilot-cli' },
   'kiro':        { cmd: 'brew install --cask kiro-cli', note: 'macOS/Linux - or: curl -fsSL https://cli.kiro.dev/install | bash', url: 'https://kiro.dev/cli/' },
-  'ollama':      { cmd: 'curl -fsSL https://ollama.com/install.sh | sh', note: 'Free local runtime with no hosted usage caps. macOS: brew install ollama', url: 'https://ollama.com' },
 };

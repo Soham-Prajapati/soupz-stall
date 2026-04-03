@@ -32,7 +32,7 @@
 - **Action:** Paste a complex prompt: *“Analyze the current system architecture and propose a security hardening plan for the file system API.”*
 - **Action:** Select **Deep** mode.
 - **Action:** Watch the **AI Planner** kick in. “The planner is decomposing the task. It's assigning the audit to Gemini and the hardening plan to Copilot.”
-- **Narration:** “Soupz orchestrates multiple agents in parallel. If Copilot hits a rate limit, the system automatically falls back to Gemini or my local Ollama instance.”
+- **Narration:** “Soupz orchestrates multiple agents in parallel. If Copilot hits a rate limit, the system automatically falls back to Gemini or another available agent.”
 - **Fallback:** If a CLI agent hangs, use the **Cancel** button and switch to **Single Agent** mode to show a faster recovery.
 
 ---

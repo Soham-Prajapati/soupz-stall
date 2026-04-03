@@ -412,11 +412,11 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
   }, [messages]);
 
   const previewHelperText = useMemo(() => {
-    if (previewStatus === 'loading') return 'Checking the daemon for a running dev server...';
+    if (previewStatus === 'loading') return 'Checking the daemon for a running local server...';
     if (previewStatus === 'ready' && previewUrl) return `Live preview → ${previewUrl}`;
     if (previewStatus === 'html' && derivedHtmlPreview) return 'Rendering the last HTML block from the agent output.';
-    if (previewStatus === 'empty') return 'No preview yet. Ask an agent to build UI or start `npm run dev` locally.';
-    if (previewStatus === 'error') return 'Unable to reach the dev server. Ensure it is running and paired.';
+    if (previewStatus === 'empty') return 'No preview yet. Ask an agent to build UI or start the project’s dev script locally.';
+    if (previewStatus === 'error') return 'Unable to reach the local server. Ensure it is running and paired.';
     return '';
   }, [previewStatus, previewUrl, derivedHtmlPreview]);
 
@@ -991,7 +991,7 @@ export default function SimpleMode({ daemon, compact = false, filePaths = [] }) 
               onRefresh={refreshPreview}
             />
             <p className="text-[10px] text-text-faint mt-2">
-              {previewHelperText || 'Drop HTML or start a dev server to preview work without leaving chat.'}
+              {previewHelperText || 'Drop HTML or start a local server to preview work without leaving chat.'}
             </p>
           </div>
         )}

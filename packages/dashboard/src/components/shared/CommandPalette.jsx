@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Search, Files, GitBranch, Settings, Terminal, Layers, Code2,
   Moon, Package, RotateCcw, PanelRightOpen, PanelRightClose,
-  Mic, Volume2, Sparkles, BrainCircuit, Github, Zap, Cpu,
+  Mic, Volume2, Sparkles, BrainCircuit, Github, Zap,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { OVERLAY_Z } from '../../lib/overlayZ.js';
@@ -22,7 +22,6 @@ const ACTIONS = [
   { id: 'agent-codex',      label: 'Switch to Codex',         icon: Code2,           shortcut: '',         group: 'Agents' },
   { id: 'agent-claude',     label: 'Switch to Claude Code',   icon: BrainCircuit,    shortcut: '',         group: 'Agents' },
   { id: 'agent-copilot',    label: 'Switch to Copilot',       icon: Github,          shortcut: '',         group: 'Agents' },
-  { id: 'agent-ollama',     label: 'Switch to Ollama',        icon: Cpu,             shortcut: '',         group: 'Agents' },
   { id: 'theme-dark',       label: 'Theme: Dark',             icon: Moon,            shortcut: '',         group: 'Theme' },
   { id: 'theme-light',      label: 'Theme: Light',            icon: Moon,            shortcut: '',         group: 'Theme' },
   { id: 'theme-dracula',    label: 'Theme: Dracula',          icon: Moon,            shortcut: '',         group: 'Theme' },

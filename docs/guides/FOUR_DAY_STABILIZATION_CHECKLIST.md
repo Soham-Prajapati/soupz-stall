@@ -6,7 +6,7 @@
 - [ ] Run routing explanation smoke checks:
   - `POST /api/classify`
   - `POST /api/routing/explain`
-- [ ] Verify Ollama is treated as local-unlimited (no quota cooldown behavior).
+- [ ] Verify local agents are not penalized by quota cooldown behavior.
 - [ ] Capture one benchmark baseline run using `scripts/run-model-benchmark.mjs`.
 
 ## Day 2 - Pairing and Tunnel Reliability

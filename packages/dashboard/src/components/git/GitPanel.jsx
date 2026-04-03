@@ -4,6 +4,7 @@ import {
   Sparkles, Loader2,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import Select from '../shared/Select';
 import { fetchBranches, checkoutBranch, getGitLog } from '../../lib/daemon';
 
 const STATUS_META = {
@@ -274,15 +275,12 @@ export default function GitPanel({ daemon, onOpenFile, onCompareFile, compact = 
         <GitBranch size={13} className="text-accent" />
         {compact ? (
           <div className="flex-1 flex items-center gap-2 min-w-0">
-            <select
+            <Select
               value={branch}
-              onChange={(e) => switchBranch(e.target.value)}
-              className="min-w-0 flex-1 bg-bg-elevated border border-border-subtle rounded px-2 py-1.5 text-xs text-text-pri"
-            >
-              {(branches.length ? branches : [branch]).map((b) => (
-                <option key={b} value={b}>{b}</option>
-              ))}
-            </select>
+              onChange={val => switchBranch(val)}
+              className="min-w-0 flex-1"
+              options={(branches.length ? branches : [branch]).map((b) => ({ value: b, label: b }))}
+            />
             <span className="text-[10px] text-text-faint shrink-0">{totalChangedFiles}</span>
           </div>
         ) : (

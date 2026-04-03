@@ -152,7 +152,9 @@ export function loadAllAgents() {
     const files = readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.md'));
     const agents = [];
     for (const file of files) {
+        if (file === 'ollama.md') continue;
         const agent = loadAgentDefinition(join(AGENTS_DIR, file));
+        if (agent?.id === 'ollama') continue;
         if (agent) agents.push(agent);
     }
     return agents;

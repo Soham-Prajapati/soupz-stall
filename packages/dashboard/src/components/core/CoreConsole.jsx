@@ -4,6 +4,7 @@ import { trackEvent } from '../../lib/instrumentation.js';
 import { cancelOrder, checkAgentAvailability, getAgentModels } from '../../lib/daemon';
 import { CLI_AGENTS } from '../../lib/agents';
 import PreviewPanel from '../shared/PreviewPanel';
+import Select from '../shared/Select';
 import './CoreConsole.css';
 
 const GitPanel = lazy(() => import('../git/GitPanel'));
@@ -13,7 +14,6 @@ const CORE_AGENTS = [
   { id: 'gemini', label: 'Gemini' },
   { id: 'codex', label: 'Codex' },
   { id: 'copilot', label: 'Copilot' },
-  { id: 'ollama', label: 'Ollama' },
   { id: 'claude-code', label: 'Claude Code' },
   { id: 'kiro', label: 'Kiro' },
 ];
@@ -171,7 +171,7 @@ export default function CoreConsole({ workspace }) {
     } catch (err) {
       setPreviewUrl(null);
       setPreviewStatus('error');
-      setPreviewError(err?.message || 'Failed to detect dev server');
+      setPreviewError(err?.message || 'Failed to detect local server');
     }
   }
 
@@ -988,24 +988,19 @@ export default function CoreConsole({ workspace }) {
           <div className="border border-border-subtle/60 rounded-md bg-bg-surface/60 p-3 space-y-3 md:col-span-2">
             <div>
               <label className="text-xs text-text-sec block mb-1">Agent</label>
-              <select
+              <Select
                 value={agentId}
-                onChange={(e) => setAgentId(e.target.value)}
-                className="w-full bg-bg-surface border border-border-subtle rounded-md px-2 py-2 text-sm"
-              >
-                {CORE_AGENTS.map((a) => {
+                onChange={val => setAgentId(val)}
+                className="w-full"
+                options={CORE_AGENTS.map((a) => {
                   const info = agentRuntime[a.id];
                   const labelSuffix = a.id === 'auto' ? '' :
                     !info?.installed ? ' (not installed)' :
                     !info?.ready ? ` (${String(info.reason || 'not ready').replace(/_/g, ' ')})` :
                     ' (ready)';
-                  return (
-                    <option key={a.id} value={a.id} disabled={a.id !== 'auto' && info?.installed === false}>
-                      {a.label}{labelSuffix}
-                    </option>
-                  );
-                })}
-              </select>
+                  return { value: a.id, label: `${a.label}${labelSuffix}`, disabled: a.id !== 'auto' && info?.installed === false };
+                }).filter(o => !o.disabled)}
+              />
             </div>
             
             {agentId === 'auto' && (
@@ -1118,42 +1113,38 @@ export default function CoreConsole({ workspace }) {
 
           <label className="text-xs text-text-sec">
             Build Mode
-            <select
+            <Select
+              className="mt-1 w-full"
               value={buildMode}
-              onChange={(e) => setBuildMode(e.target.value)}
-              className="mt-1 w-full bg-bg-surface border border-border-subtle rounded-md px-2 py-2 text-sm"
-            >
-              <option value="quick">quick (single fastest)</option>
-              <option value="balanced">balanced (single + better routing)</option>
-              <option value="deep">deep (parallel workers + synthesis)</option>
-            </select>
+              onChange={val => setBuildMode(val)}
+              options={[
+                { value: 'quick', label: 'quick (single fastest)' },
+                { value: 'balanced', label: 'balanced (single + better routing)' },
+                { value: 'deep', label: 'deep (parallel workers + synthesis)' }
+              ]}
+            />
           </label>
 
-          <label className="text-xs text-text-sec md:col-span-3">
-            Agent Model
-            <select
+          <label className="text-xs text-text-sec md:col-span-3 flex flex-col">
+            <span className={agentId === 'auto' ? 'opacity-60' : ''}>Agent Model</span>
+            <Select
+              className={cn("mt-1 w-full", agentId === 'auto' && "opacity-60 pointer-events-none")}
               value={selectedModel || ''}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value === '__custom__') {
+              onChange={val => {
+                if (val === '__custom__') {
                   const custom = window.prompt('Enter model ID for this agent (for example: gemini-3.1-pro-preview)');
                   const next = String(custom || '').trim();
                   if (next) saveAgentModelPreference(agentId, next);
                   return;
                 }
-                saveAgentModelPreference(agentId, value);
+                saveAgentModelPreference(agentId, val);
               }}
-              disabled={agentId === 'auto'}
-              className="mt-1 w-full bg-bg-surface border border-border-subtle rounded-md px-2 py-2 text-sm disabled:opacity-60"
-            >
-              <option value="">default (agent CLI default)</option>
-              <option value="__custom__">custom model ID…</option>
-              {(modelOptionsByAgent[agentId] || []).map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name || model.id}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: 'default (agent CLI default)' },
+                { value: '__custom__', label: 'custom model ID…' },
+                ...(modelOptionsByAgent[agentId] || []).map(m => ({ value: m.id, label: m.name || m.id }))
+              ]}
+            />
             {agentId === 'auto' ? (
               <span className="block mt-1 text-[10px] text-text-faint">Pick a concrete agent to lock model selection.</span>
             ) : null}
@@ -1370,7 +1361,6 @@ export default function CoreConsole({ workspace }) {
             {[
               { id: 'preview', label: 'Preview', Icon: Monitor },
               { id: 'git', label: 'Git', Icon: GitBranch },
-              { id: 'terminals', label: 'Terminals', Icon: Terminal },
             ].map(({ id, label, Icon }) => (
               <button
                 key={id}
@@ -1400,11 +1390,11 @@ export default function CoreConsole({ workspace }) {
               <div className="text-xs text-text-faint">
                 {previewEnabled
                   ? previewStatus === 'ready'
-                    ? `Live preview detected at ${previewUrl}`
+                    ? `Live preview available at ${previewUrl}`
                     : previewStatus === 'loading'
-                      ? 'Checking for a running dev server...'
+                      ? 'Checking for a running local server...'
                       : previewStatus === 'empty'
-                        ? 'No dev server found. Start npm run dev in your project to enable preview.'
+                        ? 'No running local server found. Start the app dev script for this project, then refresh.'
                         : previewStatus === 'offline'
                           ? 'Daemon offline. Connect first to use live preview.'
                           : previewStatus === 'error'
@@ -1432,44 +1422,6 @@ export default function CoreConsole({ workspace }) {
             </div>
           ) : null}
 
-          {dockTab === 'terminals' ? (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="text-xs text-text-sec">{terminals.length} active terminal(s)</div>
-                <button
-                  onClick={refreshTerminals}
-                  disabled={termLoading || !online}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-xs text-text-faint hover:text-text-sec disabled:opacity-50"
-                >
-                  <RefreshCw size={11} className={termLoading ? 'animate-spin' : ''} />
-                  Refresh
-                </button>
-              </div>
-              {terminals.length === 0 ? (
-                <div className="text-xs text-text-faint">No active terminals right now.</div>
-              ) : (
-                <div className="space-y-1 max-h-[260px] overflow-y-auto">
-                  {terminals.map((t) => (
-                    <div key={t.id} className="flex items-center justify-between gap-2 bg-bg-elevated border border-border-subtle rounded px-2 py-1.5">
-                      <div className="text-xs text-text-sec">
-                        <span className="font-mono text-text-pri">#{t.id}</span>
-                        <span className="ml-2">pid {t.pid ?? 'n/a'}</span>
-                        <span className="ml-2">{t.ageSec ?? 0}s</span>
-                      </div>
-                      <button
-                        onClick={() => killTerminal(t.id)}
-                        disabled={killingId === t.id}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded border border-danger/30 text-xs text-danger hover:bg-danger/10 disabled:opacity-50"
-                      >
-                        {killingId === t.id ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
-                        Kill
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : null}
         </div>
 
         {lastOrderId ? (
