@@ -2,8 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { 
   User, Mail, Calendar, MessageSquare, Flame, Bot, Trophy,
   Zap, TrendingUp, Star, Check, Lock, ArrowLeft, Trash2, LogOut,
-  Save, AlertTriangle, Search, UserPlus, Loader2, Github,
-  Twitter, Globe, MapPin, Link as LinkIcon, Users, Activity, Terminal
+  Save, AlertTriangle, Github,
+  Globe, Users, Activity, Terminal
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS } from '../../lib/agents.js';
@@ -30,16 +30,11 @@ export default function ProfilePage({ user, navigate, onSignOut }) {
   const githubUsername = user?.user_metadata?.user_name || user?.user_metadata?.preferred_username || user?.email?.split('@')[0] || '';
   
   const [displayName, setDisplayName] = useState(() => profile.displayName || githubUsername);
+  const [collegeName, setCollegeName] = useState(() => profile.collegeName || '');
+  const [competitionTrack, setCompetitionTrack] = useState(() => profile.competitionTrack || '');
   const [remoteProfile, setRemoteProfile] = useState(null);
   const [saved, setSaved] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [followers, setFollowers] = useState(0);
-  const [following, setFollowing] = useState(0);
-  
-  // Community Search State
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searchLoading, setSearchLoading] = useState(false);
 
   const messages = useMemo(() => readJSON(STORAGE_KEY, []), []);
   const usage = useMemo(() => readJSON(USAGE_KEY, {}), []);
@@ -79,58 +74,16 @@ export default function ProfilePage({ user, navigate, onSignOut }) {
     };
   }, [user?.id]);
 
-  // Load follower counts
-  useEffect(() => {
-    if (!isSupabaseConfigured() || !user?.id) return;
-    async function loadFollows() {
-      try {
-        const { count: f1 } = await supabase.from('soupz_relationships').select('*', { count: 'exact', head: true }).eq('followed_id', user.id);
-        const { count: f2 } = await supabase.from('soupz_relationships').select('*', { count: 'exact', head: true }).eq('follower_id', user.id);
-        setFollowers(f1 || 0);
-        setFollowing(f2 || 0);
-      } catch (err) { console.error('Follower fetch error', err); }
-    }
-    loadFollows();
-  }, [user?.id]);
-
-  // Search effect
-  useEffect(() => {
-    if (!searchQuery.trim() || !isSupabaseConfigured()) {
-      setSearchResults([]);
-      return;
-    }
-    const delayDebounce = setTimeout(async () => {
-      setSearchLoading(true);
-      try {
-        const { data } = await supabase
-          .from('soupz_profiles')
-          .select('id, display_name, avatar_url')
-          .ilike('display_name', `%${searchQuery}%`)
-          .neq('id', user?.id)
-          .limit(5);
-        setSearchResults(data || []);
-      } catch (err) {
-        console.error('Search failed', err);
-      } finally {
-        setSearchLoading(false);
-      }
-    }, 400);
-    return () => clearTimeout(delayDebounce);
-  }, [searchQuery, user?.id]);
-
-  async function handleAddFriend(friendId, friendName) {
-    if (!isSupabaseConfigured() || !user?.id) return;
-    try {
-      await supabase.from('soupz_relationships').upsert({ follower_id: user.id, followed_id: friendId, status: 'friend' });
-      alert(`Added ${friendName} as friend!`);
-      setFollowing(f => f + 1); // Optimistically update
-      setSearchQuery('');
-    } catch (err) { console.error(err); }
-  }
-
   async function handleSaveProfile() {
     const trimmed = displayName.trim();
-    localStorage.setItem(PROFILE_KEY, JSON.stringify({ ...profile, displayName: trimmed }));
+    const trimmedCollege = collegeName.trim();
+    const trimmedTrack = competitionTrack.trim();
+    localStorage.setItem(PROFILE_KEY, JSON.stringify({
+      ...profile,
+      displayName: trimmed,
+      collegeName: trimmedCollege,
+      competitionTrack: trimmedTrack,
+    }));
 
     if (isSupabaseConfigured() && user?.id) {
       try {
@@ -231,10 +184,12 @@ export default function ProfilePage({ user, navigate, onSignOut }) {
           <div className="bg-bg-surface border border-border-subtle p-5 rounded-xl shadow-soft relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-16 h-16 bg-text-pri/5 rounded-full -mr-4 -mt-4 transition-transform group-hover:scale-110" />
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] text-text-faint font-bold uppercase tracking-widest">Neural Links</span>
+              <span className="text-[10px] text-text-faint font-bold uppercase tracking-widest">Profile Completeness</span>
               <Users size={14} className="text-text-sec" />
             </div>
-            <p className="text-2xl font-mono font-bold text-text-pri">{followers + following}</p>
+            <p className="text-2xl font-mono font-bold text-text-pri">
+              {[displayName, user?.email, collegeName, competitionTrack].filter(Boolean).length}/4
+            </p>
           </div>
         </div>
 
@@ -247,6 +202,36 @@ export default function ProfilePage({ user, navigate, onSignOut }) {
                <h3 className="text-xs font-bold text-accent uppercase tracking-[0.2em] mb-4">Pilot Identification</h3>
                
                <div className="space-y-4">
+                 <div>
+                   <p className="text-[10px] text-text-faint uppercase font-bold mb-1">Display Name</p>
+                   <input
+                     type="text"
+                     value={displayName}
+                     onChange={(e) => setDisplayName(e.target.value)}
+                     placeholder="How your team should identify you"
+                     className="w-full bg-bg-elevated border border-border-mid rounded text-xs px-3 py-2 font-mono text-text-pri focus:border-accent outline-none transition-colors placeholder:text-text-faint"
+                   />
+                 </div>
+                 <div>
+                   <p className="text-[10px] text-text-faint uppercase font-bold mb-1">College</p>
+                   <input
+                     type="text"
+                     value={collegeName}
+                     onChange={(e) => setCollegeName(e.target.value)}
+                     placeholder="e.g. IIT Bombay"
+                     className="w-full bg-bg-elevated border border-border-mid rounded text-xs px-3 py-2 font-mono text-text-pri focus:border-accent outline-none transition-colors placeholder:text-text-faint"
+                   />
+                 </div>
+                 <div>
+                   <p className="text-[10px] text-text-faint uppercase font-bold mb-1">Competition Track</p>
+                   <input
+                     type="text"
+                     value={competitionTrack}
+                     onChange={(e) => setCompetitionTrack(e.target.value)}
+                     placeholder="e.g. AI Productivity"
+                     className="w-full bg-bg-elevated border border-border-mid rounded text-xs px-3 py-2 font-mono text-text-pri focus:border-accent outline-none transition-colors placeholder:text-text-faint"
+                   />
+                 </div>
                  <div>
                    <p className="text-[10px] text-text-faint uppercase font-bold mb-1">GitHub Endpoint</p>
                    <a href={`https://github.com/${githubUsername}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-text-sec hover:text-accent font-mono transition-colors">
@@ -267,37 +252,27 @@ export default function ProfilePage({ user, navigate, onSignOut }) {
                      </p>
                    </div>
                  )}
+                 <button
+                   onClick={handleSaveProfile}
+                   className={cn(
+                     'w-full flex items-center justify-center gap-2 px-4 py-2 rounded border text-[10px] font-bold uppercase tracking-widest transition-all cursor-pointer',
+                     saved
+                       ? 'bg-success/10 border-success/30 text-success'
+                       : 'bg-accent/10 border-accent/30 text-accent hover:bg-accent hover:text-white'
+                   )}
+                 >
+                   {saved ? <Check size={12} /> : <Save size={12} />}
+                   {saved ? 'Saved' : 'Save Profile'}
+                 </button>
                </div>
             </div>
 
             <div className="bg-bg-surface border border-warning/20 p-6 rounded-xl relative overflow-hidden">
               <div className="absolute top-0 left-0 w-1 h-full bg-warning" />
-              <h3 className="text-xs font-bold text-warning uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
-                 <Search size={14} /> Establish Links
-              </h3>
-              <div className="relative mb-4">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Scan network..."
-                  className="w-full bg-bg-elevated border border-border-mid rounded text-xs pl-3 pr-8 py-2 font-mono text-text-pri focus:border-warning outline-none transition-colors placeholder:text-text-faint"
-                />
-                {searchLoading && <Loader2 size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-warning animate-spin" />}
-              </div>
-              <div className="space-y-2">
-                {searchResults.map(res => (
-                  <div key={res.id} className="flex items-center justify-between bg-bg-elevated border border-border-subtle p-2 rounded hover:border-warning/50 transition-colors">
-                    <span className="text-[11px] font-mono font-bold text-text-pri truncate">{res.display_name}</span>
-                    <button
-                      onClick={() => handleAddFriend(res.id, res.display_name)}
-                      className="text-[10px] bg-warning/10 text-warning px-2 py-1 rounded border border-warning/20 hover:bg-warning hover:text-white transition-colors uppercase font-bold tracking-wider cursor-pointer"
-                    >
-                      Connect
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <h3 className="text-xs font-bold text-warning uppercase tracking-[0.2em] mb-3">Competition Mode</h3>
+              <p className="text-[11px] text-text-sec leading-relaxed">
+                Keep this profile focused on identity and project context for judging. Social discovery and follow actions are intentionally hidden in competition mode.
+              </p>
             </div>
 
             <div className="bg-bg-surface border border-danger/20 p-6 rounded-xl relative overflow-hidden group">

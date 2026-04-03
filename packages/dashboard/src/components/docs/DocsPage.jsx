@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { BookOpen, ExternalLink, Search, Loader2, RefreshCw, Compass, Command } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { BookOpen, ExternalLink, Search, Loader2, RefreshCw, Compass, Command, ArrowRight, Hash, Link as LinkIcon } from 'lucide-react';
 import { cn } from '../../lib/cn';
 
 const REPO_WEB_BASE = 'https://github.com/Soham-Prajapati/soupz-stall/blob/main/';
@@ -72,7 +72,131 @@ function toGitHubUrl(path) {
   return `${REPO_WEB_BASE}${path}`;
 }
 
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function slugifyHeading(text = '') {
+  return String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'section';
+}
+
+function parseMarkdown(markdown = '') {
+  const lines = String(markdown || '').split('\n');
+  const html = [];
+  const outline = [];
+  let inCode = false;
+  let codeLang = '';
+  let codeLines = [];
+  let listType = null;
+
+  const closeList = () => {
+    if (!listType) return;
+    html.push(listType === 'ol' ? '</ol>' : '</ul>');
+    listType = null;
+  };
+
+  const inline = (value) => escapeHtml(value)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>');
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || '');
+    const trimmed = line.trim();
+
+    if (inCode) {
+      if (/^```/.test(trimmed)) {
+        html.push(`<pre><code class="language-${escapeHtml(codeLang)}">${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+        inCode = false;
+        codeLang = '';
+        codeLines = [];
+      } else {
+        codeLines.push(line);
+      }
+      continue;
+    }
+
+    if (/^```/.test(trimmed)) {
+      closeList();
+      inCode = true;
+      codeLang = trimmed.slice(3).trim();
+      codeLines = [];
+      continue;
+    }
+
+    if (!trimmed) {
+      closeList();
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = heading[1].length;
+      const title = heading[2].trim();
+      const id = slugifyHeading(title);
+      outline.push({ level, title, id });
+      html.push(`<h${level} id="${id}">${inline(title)}</h${level}>`);
+      continue;
+    }
+
+    const ul = trimmed.match(/^[-*+]\s+(.+)$/);
+    if (ul) {
+      if (listType !== 'ul') {
+        closeList();
+        html.push('<ul>');
+        listType = 'ul';
+      }
+      html.push(`<li>${inline(ul[1])}</li>`);
+      continue;
+    }
+
+    const ol = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (ol) {
+      if (listType !== 'ol') {
+        closeList();
+        html.push('<ol>');
+        listType = 'ol';
+      }
+      html.push(`<li>${inline(ol[1])}</li>`);
+      continue;
+    }
+
+    const blockquote = trimmed.match(/^>\s+(.+)$/);
+    if (blockquote) {
+      closeList();
+      html.push(`<blockquote><p>${inline(blockquote[1])}</p></blockquote>`);
+      continue;
+    }
+
+    if (/^---+$/.test(trimmed)) {
+      closeList();
+      html.push('<hr />');
+      continue;
+    }
+
+    closeList();
+    html.push(`<p>${inline(trimmed)}</p>`);
+  }
+
+  closeList();
+  if (inCode) {
+    html.push(`<pre><code class="language-${escapeHtml(codeLang)}">${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+  }
+
+  return { html: html.join('\n'), outline };
+}
+
 export default function DocsPage({ navigate, workspace }) {
+  const searchInputRef = useRef(null);
   const [query, setQuery] = useState('');
   const [selectedPath, setSelectedPath] = useState(DOC_INDEX[0].path);
   const [content, setContent] = useState('');
@@ -95,12 +219,22 @@ export default function DocsPage({ navigate, workspace }) {
     [selectedPath],
   );
 
+  const renderedDoc = useMemo(() => parseMarkdown(content), [content]);
+
+  const pageSummary = useMemo(() => {
+    const headings = renderedDoc.outline.map((item) => item.title);
+    return headings.length ? headings.slice(0, 3).join(' · ') : selectedDoc.desc;
+  }, [renderedDoc.outline, selectedDoc.desc]);
+
   const loadDoc = async (path) => {
     if (!path) return;
     setLoading(true);
     setError('');
     try {
-      const text = await workspace?.readFile?.(path);
+      let text = await workspace?.readFile?.(path);
+      if (typeof text !== 'string' || !text.trim()) {
+        text = await workspace?.getGitFileVersion?.(path, 'HEAD');
+      }
       if (typeof text !== 'string' || !text.trim()) {
         throw new Error('Document content unavailable from workspace API.');
       }
@@ -128,6 +262,14 @@ export default function DocsPage({ navigate, workspace }) {
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
+              onClick={() => searchInputRef.current?.focus()}
+              className="px-3 py-1.5 text-xs rounded-md border border-border-subtle bg-bg-surface hover:bg-bg-elevated inline-flex items-center gap-1"
+              title="Search docs"
+            >
+              <Search size={12} /> Search
+            </button>
+            <button
+              type="button"
               onClick={() => navigate?.('/dashboard')}
               className="px-3 py-1.5 text-xs rounded-md border border-border-subtle bg-bg-surface hover:bg-bg-elevated"
             >
@@ -153,11 +295,12 @@ export default function DocsPage({ navigate, workspace }) {
 
       <main className="px-4 md:px-8 pt-6">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-5">
-          <aside className="lg:col-span-4 xl:col-span-3 rounded-xl border border-border-subtle bg-bg-surface overflow-hidden h-fit">
+          <aside className="lg:col-span-3 rounded-xl border border-border-subtle bg-bg-surface overflow-hidden h-fit">
             <div className="p-4 border-b border-border-subtle">
               <div className="relative">
                 <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-faint" />
                 <input
+                  ref={searchInputRef}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Find docs..."
@@ -190,7 +333,7 @@ export default function DocsPage({ navigate, workspace }) {
             </div>
           </aside>
 
-          <section className="lg:col-span-8 xl:col-span-9 rounded-xl border border-border-subtle bg-bg-surface overflow-hidden min-h-[70dvh]">
+          <section className="lg:col-span-6 rounded-xl border border-border-subtle bg-bg-surface overflow-hidden min-h-[70dvh]">
             <div className="px-4 py-3 border-b border-border-subtle flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <h1 className="text-base font-semibold truncate">{selectedDoc.title}</h1>
@@ -218,14 +361,13 @@ export default function DocsPage({ navigate, workspace }) {
             </div>
 
             <div className="p-4 space-y-4">
-              <div className="rounded-lg border border-border-subtle bg-bg-base p-3">
-                <div className="text-[11px] uppercase tracking-wider text-text-faint mb-2 inline-flex items-center gap-1.5">
-                  <Compass size={12} /> Search Scopes
+              <div className="rounded-lg border border-border-subtle bg-bg-base p-4 flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+                  <Compass size={14} className="text-accent" />
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-text-sec">
-                  <div className="rounded border border-border-subtle bg-bg-surface px-2 py-1.5">Sidebar Search: workspace text search across files.</div>
-                  <div className="rounded border border-border-subtle bg-bg-surface px-2 py-1.5">Editor Find: in-file search for current editor only.</div>
-                  <div className="rounded border border-border-subtle bg-bg-surface px-2 py-1.5 inline-flex items-center gap-1.5"><Command size={12} /> Command Palette: actions, files, and commands.</div>
+                <div className="min-w-0">
+                  <div className="text-[11px] uppercase tracking-wider text-text-faint mb-1">Reading Path</div>
+                  <p className="text-sm text-text-sec leading-relaxed">{pageSummary}</p>
                 </div>
               </div>
 
@@ -250,12 +392,79 @@ export default function DocsPage({ navigate, workspace }) {
                   )}
                 </div>
               ) : (
-                <pre className="rounded-lg border border-border-subtle bg-bg-base p-4 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-text-sec overflow-auto max-h-[70dvh]">
-                  {content}
-                </pre>
+                <article
+                  className={cn(
+                    'docs-render prose prose-invert max-w-none rounded-lg border border-border-subtle bg-bg-base p-5 text-[13px] leading-7 text-text-sec overflow-auto max-h-[75dvh]',
+                    '[&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:text-text-pri [&_h1]:mt-6 [&_h1]:mb-3 [&_h1]:scroll-mt-24',
+                    '[&_h2]:text-xl [&_h2]:font-semibold [&_h2]:text-text-pri [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:scroll-mt-24',
+                    '[&_h3]:text-lg [&_h3]:font-semibold [&_h3]:text-text-pri [&_h3]:mt-4 [&_h3]:mb-2 [&_h3]:scroll-mt-24',
+                    '[&_p]:my-3 [&_a]:text-accent [&_a:hover]:text-accent-hover [&_a]:underline [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-6 [&_ol]:pl-6',
+                    '[&_li]:my-1 [&_blockquote]:border-l-2 [&_blockquote]:border-border-mid [&_blockquote]:pl-4 [&_blockquote]:text-text-faint',
+                    '[&_pre]:my-4 [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-border-subtle [&_pre]:bg-bg-elevated [&_pre]:p-4 [&_code]:rounded [&_code]:bg-bg-elevated [&_code]:px-1.5 [&_code]:py-0.5'
+                  )}
+                  dangerouslySetInnerHTML={{ __html: renderedDoc.html }}
+                />
               )}
             </div>
           </section>
+
+          <aside className="lg:col-span-3 rounded-xl border border-border-subtle bg-bg-surface overflow-hidden h-fit sticky top-[88px]">
+            <div className="p-4 border-b border-border-subtle">
+              <div className="text-[11px] uppercase tracking-wider text-text-faint mb-2 inline-flex items-center gap-1.5">
+                <Hash size={12} /> On this page
+              </div>
+              <div className="space-y-1 max-h-[30dvh] overflow-y-auto pr-1">
+                {renderedDoc.outline.length > 0 ? renderedDoc.outline.map((item) => (
+                  <a
+                    key={`${item.id}-${item.title}`}
+                    href={`#${item.id}`}
+                    className={cn(
+                      'flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-bg-elevated transition-colors',
+                      item.level === 1 ? 'text-text-pri font-medium' : item.level === 2 ? 'text-text-sec pl-3' : 'text-text-faint pl-6'
+                    )}
+                  >
+                    <ArrowRight size={12} className="text-accent shrink-0" />
+                    <span className="truncate">{item.title}</span>
+                  </a>
+                )) : (
+                  <div className="text-sm text-text-faint">No headings detected in this document.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <div className="rounded-lg border border-border-subtle bg-bg-base p-3 text-xs text-text-sec leading-relaxed">
+                <div className="text-[11px] uppercase tracking-wider text-text-faint mb-2 inline-flex items-center gap-1.5">
+                  <Search size={12} /> Move Around
+                </div>
+                <div className="space-y-2">
+                  <div className="inline-flex items-center gap-1.5"><Command size={12} /> Use the search bar to jump across docs.</div>
+                  <div className="inline-flex items-center gap-1.5"><LinkIcon size={12} /> Use the outline to jump inside this page.</div>
+                  <div className="inline-flex items-center gap-1.5"><Compass size={12} /> Open source links when available.</div>
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <button
+                  type="button"
+                  onClick={() => searchInputRef.current?.focus()}
+                  className="px-3 py-2 rounded-md border border-border-subtle bg-bg-base hover:bg-bg-elevated text-sm text-text-pri inline-flex items-center justify-center gap-2"
+                >
+                  <Search size={13} /> Search docs
+                </button>
+                {SHOW_SOURCE_LINKS ? (
+                  <a
+                    href={toGitHubUrl(selectedDoc.path)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-2 rounded-md border border-border-subtle bg-bg-base hover:bg-bg-elevated text-sm text-text-pri inline-flex items-center justify-center gap-2"
+                  >
+                    Open source <ExternalLink size={13} />
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          </aside>
         </div>
       </main>
     </div>

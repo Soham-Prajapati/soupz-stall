@@ -23,7 +23,7 @@ routing_keywords:
 auth_command: "gh auth login"
 logout_command: "gh auth logout"
 status_command: "gh auth status"
-build_args: ["exec", "--dangerously-bypass-approvals-and-sandbox", "{prompt}"]
+build_args: ["exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "{prompt}"]
 free_model: "gpt-5.1-codex-mini"
 grade: 82
 usage_count: 0

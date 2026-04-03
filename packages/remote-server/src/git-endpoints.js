@@ -158,6 +158,29 @@ app.get('/api/changes/diff', requireAuth, (req, res) => {
     }
 });
 
+// AUTHENTICATED: Read file content at a git ref (for center diff compare view)
+app.get('/api/git/file-version', requireAuth, (req, res) => {
+    const file = (req.query.file || '').toString().trim();
+    const ref = (req.query.ref || 'HEAD').toString().trim();
+    const cwd = resolveWorkingDir(req.query.root || req.query.cwd);
+
+    if (!file) return res.status(400).json({ error: 'Missing file path' });
+    if (!/^[\w./@-]+$/.test(ref)) return res.status(400).json({ error: 'Invalid ref' });
+
+    try {
+        const safeFile = file.replace(/"/g, '\\"');
+        const safeRef = ref.replace(/"/g, '\\"');
+        const content = execSync(`git --no-pager show "${safeRef}:${safeFile}"`, {
+            cwd,
+            timeout: 6000,
+            encoding: 'utf8',
+        });
+        res.json({ file, ref, content: content || '', exists: true });
+    } catch {
+        res.json({ file, ref, content: '', exists: false });
+    }
+});
+
 // POST /api/git/stage — stage a file (authenticated)
 app.post('/api/git/stage', requireAuth, (req, res) => {
     const { path: filePath, root } = req.body;

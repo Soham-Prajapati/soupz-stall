@@ -62,7 +62,12 @@ function normalizeAgentCliDefaults(meta = {}) {
         const standaloneCodex = resolveFirstBinary(['codex', 'codex-cli', 'openai-codex']);
         if (standaloneCodex) {
             normalized.binary = standaloneCodex;
-            normalized.build_args = ['exec', '--dangerously-bypass-approvals-and-sandbox', '{prompt}'];
+            normalized.build_args = [
+                'exec',
+                '--dangerously-bypass-approvals-and-sandbox',
+                '--skip-git-repo-check',
+                '{prompt}',
+            ];
         }
     }
 

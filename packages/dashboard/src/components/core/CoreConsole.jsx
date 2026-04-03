@@ -4,6 +4,7 @@ import { trackEvent } from '../../lib/instrumentation.js';
 import { cancelOrder, checkAgentAvailability, getAgentModels } from '../../lib/daemon';
 import { CLI_AGENTS } from '../../lib/agents';
 import PreviewPanel from '../shared/PreviewPanel';
+import './CoreConsole.css';
 
 const GitPanel = lazy(() => import('../git/GitPanel'));
 
@@ -163,7 +164,7 @@ export default function CoreConsole({ workspace }) {
     setPreviewStatus('loading');
     setPreviewError('');
     try {
-      const result = await workspace.getDevServerUrl();
+      const result = await workspace.getDevServerUrl(cwd);
       const nextUrl = result?.url || null;
       setPreviewUrl(nextUrl);
       setPreviewStatus(nextUrl ? 'ready' : 'empty');
@@ -197,7 +198,7 @@ export default function CoreConsole({ workspace }) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [previewEnabled, online]);
+  }, [previewEnabled, online, cwd]);
 
   useEffect(() => {
     agentRuntimeRef.current = agentRuntime;
@@ -957,8 +958,8 @@ export default function CoreConsole({ workspace }) {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_500px_at_10%_-10%,rgba(56,189,248,0.14),transparent),radial-gradient(1000px_500px_at_100%_0%,rgba(99,102,241,0.12),transparent)] bg-bg-base text-text-pri p-4 sm:p-8">
-      <div className="max-w-4xl mx-auto space-y-4">
+    <div className="core-console">
+      <div className="core-console__content">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-md bg-accent/15 border border-accent/30 flex items-center justify-center">
             <Bot size={16} className="text-accent" />

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from 'react';
-import Editor, { loader } from '@monaco-editor/react';
+import Editor, { DiffEditor, loader } from '@monaco-editor/react';
 import ErrorBoundary from '../shared/ErrorBoundary';
 import { useThemeVars } from '../../hooks/useThemeVars';
 import { flattenFilePaths } from '../../lib/tree';
@@ -149,7 +149,6 @@ function renderMarkdownToHtml(markdown = '') {
     const trimmed = line.trim();
     if (!trimmed) {
       closeLists();
-      html.push('<p></p>');
       continue;
     }
 
@@ -192,8 +191,25 @@ function renderMarkdownToHtml(markdown = '') {
       continue;
     }
 
+    const blockquote = trimmed.match(/^>\s+(.+)$/);
+    if (blockquote) {
+      closeLists();
+      html.push(`<blockquote><p>${escapeHtml(blockquote[1])}</p></blockquote>`);
+      continue;
+    }
+
+    if (/^---+$/.test(trimmed)) {
+      closeLists();
+      html.push('<hr />');
+      continue;
+    }
+
     closeLists();
-    const withInlineCode = escapeHtml(trimmed).replace(/`([^`]+)`/g, '<code>$1</code>');
+    const withInlineCode = escapeHtml(trimmed)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>');
     html.push(`<p>${withInlineCode}</p>`);
   }
 
@@ -266,6 +282,8 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
   const [mobileTab, setMobileTab] = useState('chat');
   const [runToast, setRunToast] = useState(null);
   const [markdownPreviewOpen, setMarkdownPreviewOpen] = useState(false);
+  const [gitComparePath, setGitComparePath] = useState('');
+  const [gitCompareBase, setGitCompareBase] = useState('');
 
   const sidebarPanelWidth = useMemo(() => `min(${sidebarWidth}px, 40vw)`, [sidebarWidth]);
   const chatPanelWidth = useMemo(() => `min(${chatWidth}px, 45vw)`, [chatWidth]);
@@ -343,6 +361,11 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
   async function openFile(node) {
     if (!node || node.children) return;
 
+    if (gitComparePath && gitComparePath !== node.path) {
+      setGitComparePath('');
+      setGitCompareBase('');
+    }
+
     if (splitMode && activePane === 'right') {
       setActiveFileRight(node);
     } else {
@@ -382,6 +405,25 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           return next;
         });
       }
+    }
+  }
+
+  async function openGitCompare(filePath = '') {
+    const node = fileNodeFromPath(filePath);
+    if (!node) return;
+
+    await openFile(node);
+    setActivePane('left');
+
+    try {
+      const baseContent = await daemon?.getGitFileVersion?.(node.path, 'HEAD');
+      setGitCompareBase(String(baseContent || ''));
+      setGitComparePath(node.path);
+      setMarkdownPreviewOpen(false);
+    } catch {
+      setGitCompareBase('');
+      setGitComparePath(node.path);
+      setMarkdownPreviewOpen(false);
     }
   }
 
@@ -523,6 +565,10 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                       const node = fileNodeFromPath(filePath);
                       if (!node) return;
                       openFile(node);
+                      setMobileTab('editor');
+                    }}
+                    onCompareFile={(filePath) => {
+                      void openGitCompare(filePath);
                       setMobileTab('editor');
                     }}
                   />
@@ -693,6 +739,9 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                       const node = fileNodeFromPath(filePath);
                       if (!node) return;
                       openFile(node);
+                    }}
+                    onCompareFile={(filePath) => {
+                      void openGitCompare(filePath);
                     }}
                   />
                 </Suspense>
@@ -867,6 +916,19 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             </button>
           )}
 
+          {gitComparePath ? (
+            <button
+              onClick={() => {
+                setGitComparePath('');
+                setGitCompareBase('');
+              }}
+              className="text-accent hover:text-accent-hover transition-colors"
+              title="Exit diff compare"
+            >
+              <Columns size={15} />
+            </button>
+          ) : null}
+
           {/* Terminal toggle */}
           <button
             onClick={() => setTerminalOpen(v => !v)}
@@ -929,10 +991,28 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
               loadingFiles.has(activeFile.path) ? (
                 <FileLoadingSkeleton />
               ) : (
-                markdownPreviewOpen && getLang(activeFile.name) === 'markdown' ? (
+                gitComparePath === activeFile.path ? (
+                  <DiffEditor
+                    original={String(gitCompareBase || '')}
+                    modified={String(fileContents[activeFile.path] || '')}
+                    language={getLang(activeFile.name)}
+                    theme="soupz-dynamic"
+                    onChange={(value) => updateFileContents(activeFile.path, value)}
+                    options={{
+                      readOnly: false,
+                      renderSideBySide: true,
+                      originalEditable: false,
+                      minimap: { enabled: false },
+                      fontSize: 13,
+                      lineHeight: 1.7,
+                      scrollBeyondLastLine: false,
+                      wordWrap: 'off',
+                    }}
+                  />
+                ) : markdownPreviewOpen && getLang(activeFile.name) === 'markdown' ? (
                   <div className="h-full overflow-auto p-6 bg-bg-surface text-text-pri">
                     <div
-                      className="max-w-none text-sm leading-7 [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:mt-6 [&_h1]:mb-3 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-3 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2 [&_p]:my-3 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1 [&_pre]:my-3 [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border-subtle [&_pre]:bg-bg-elevated [&_pre]:p-3 [&_code]:bg-bg-elevated [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_blockquote]:border-l-2 [&_blockquote]:border-border-mid [&_blockquote]:pl-3 [&_blockquote]:text-text-sec"
+                      className="max-w-none text-sm leading-7 [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:mt-6 [&_h1]:mb-3 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-3 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2 [&_p]:my-3 [&_a]:text-accent [&_a:hover]:text-accent-hover [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1 [&_pre]:my-3 [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border-subtle [&_pre]:bg-bg-elevated [&_pre]:p-3 [&_code]:bg-bg-elevated [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_blockquote]:border-l-2 [&_blockquote]:border-border-mid [&_blockquote]:pl-3 [&_blockquote]:text-text-sec [&_hr]:my-4 [&_hr]:border-border-subtle"
                       dangerouslySetInnerHTML={{ __html: markdownPreviewHtml }}
                     />
                   </div>

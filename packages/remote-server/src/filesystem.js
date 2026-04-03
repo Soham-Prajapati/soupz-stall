@@ -211,13 +211,28 @@ app.post('/api/fs/init', requireAuth, async (req, res) => {
 
 // GET /api/dev-server — detect running dev server for live preview (authenticated)
 app.get('/api/dev-server', requireAuth, async (req, res) => {
-    const ports = [3000, 3001, 4200, 5173, 5174, 7534, 8000, 8080, 8888];
+    const preferredPorts = [3000, 3001, 4200, 5173, 5174, 8000, 8080, 8888];
+    const internalPorts = [7534, 7070, 7533];
+    const ports = [...preferredPorts, ...internalPorts];
+    const requestedCwd = String(req.query?.cwd || '').trim().toLowerCase();
+    const isSoupzWorkspace = requestedCwd.includes('/soupz-agents');
+    const filterSoupzSelf = !isSoupzWorkspace;
+    const soupzHtmlSignature = /soupz\s+command\s+studio|soupz\s+core\s+console|soupz\.vercel\.app|content=\"soupz|>\s*soupz\s*<|apple-mobile-web-app-title\"\s+content=\"soupz/i;
+
     const checks = ports.map(async (port) => {
         try {
             const controller = new AbortController();
-            setTimeout(() => controller.abort(), 800);
+            setTimeout(() => controller.abort(), 1200);
             const r = await fetch(`http://localhost:${port}`, { signal: controller.signal });
-            if (r.ok || r.status === 304) return { port, url: `http://localhost:${port}`, detected: true };
+            if (!(r.ok || r.status === 304)) return null;
+
+            const contentType = String(r.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('text/html')) {
+                const body = (await r.text()).slice(0, 6000);
+                if (filterSoupzSelf && soupzHtmlSignature.test(body)) return null;
+            }
+
+            return { port, url: `http://localhost:${port}`, detected: true };
         } catch { /* not running */ }
         return null;
     });

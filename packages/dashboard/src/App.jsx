@@ -742,14 +742,18 @@ export default function App() {
       const { runFile } = await import('./lib/daemon.js');
       return runFile(path, user?.id, activeWorkspaceRoot);
     },
-    async getDevServerUrl() {
-      return getDevServerUrl();
+    async getDevServerUrl(cwd) {
+      return getDevServerUrl(cwd);
     },
     async gitStatus() {
       return getGitStatus(null, user?.id, activeWorkspaceRoot);
     },
     async gitDiff() {
       return getGitDiff(null, user?.id, activeWorkspaceRoot);
+    },
+    async getGitFileVersion(filePath, ref = 'HEAD') {
+      const { getGitFileVersion } = await import('./lib/daemon.js');
+      return getGitFileVersion(filePath, ref, user?.id, activeWorkspaceRoot);
     },
     async gitStage(paths) {
       for (const p of paths) await gitStage(p, user?.id, activeWorkspaceRoot);
@@ -801,7 +805,7 @@ export default function App() {
   if (path === '/core') {
     return (
       <div className="h-[100dvh] min-h-screen flex flex-col bg-bg-base overflow-hidden">
-        <main className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+        <main className="flex-1 flex flex-col min-h-0 overflow-y-auto relative">
           {!workspaceOnline && !!localStorage.getItem('soupz_daemon_token') && (
             <WorkspaceOfflineBanner navigate={navigate} />
           )}
@@ -882,6 +886,15 @@ export default function App() {
   }
 
   const CurrentThemeIcon = THEMES.find(t => t.id === theme)?.icon || Moon;
+  const dashboardSection = path === '/dashboard/chat'
+    ? 'chat'
+    : path === '/dashboard/build'
+      ? 'build'
+      : path === '/dashboard/code'
+        ? 'code'
+        : null;
+  const isDashboardHome = path === '/dashboard';
+  const statusMode = dashboardSection === 'chat' ? 'simple' : dashboardSection === 'build' ? 'builder' : dashboardSection === 'code' ? 'pro' : mode;
 
   return (
     <div className="h-[100dvh] min-h-screen flex flex-col bg-bg-base overflow-hidden">
@@ -898,12 +911,21 @@ export default function App() {
           </div>
         </div>
 
-        {/* Mode toggle */}
-        <div className="flex items-center gap-1 bg-bg-base rounded-xl p-1 border border-border-subtle">
-          <ModeBtn active={mode === 'simple'} onClick={() => setMode('simple')} icon={<Layers size={12} />} label="Chat" />
-          <ModeBtn active={mode === 'builder'} onClick={() => setMode('builder')} icon={<Sparkles size={12} />} label="Build" />
-          <ModeBtn active={mode === 'pro'}    onClick={() => setMode('pro')}    icon={<Code2 size={12} />}  label="Code" />
-        </div>
+        {/* Mode / dashboard navigation */}
+        {path.startsWith('/dashboard') ? (
+          <div className="flex items-center gap-1 bg-bg-base rounded-xl p-1 border border-border-subtle">
+            <ModeBtn active={isDashboardHome} onClick={() => navigate('/dashboard')} icon={<Layers size={12} />} label="Dashboard" />
+            <ModeBtn active={dashboardSection === 'chat'} onClick={() => navigate('/dashboard/chat')} icon={<Layers size={12} />} label="Chat" />
+            <ModeBtn active={dashboardSection === 'build'} onClick={() => navigate('/dashboard/build')} icon={<Sparkles size={12} />} label="Build" />
+            <ModeBtn active={dashboardSection === 'code'} onClick={() => navigate('/dashboard/code')} icon={<Code2 size={12} />} label="Code" />
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 bg-bg-base rounded-xl p-1 border border-border-subtle">
+            <ModeBtn active={mode === 'simple'} onClick={() => setMode('simple')} icon={<Layers size={12} />} label="Chat" />
+            <ModeBtn active={mode === 'builder'} onClick={() => setMode('builder')} icon={<Sparkles size={12} />} label="Build" />
+            <ModeBtn active={mode === 'pro'} onClick={() => setMode('pro')} icon={<Code2 size={12} />} label="Code" />
+          </div>
+        )}
 
         {/* Spacer */}
         <div className="flex-1" />
@@ -1018,7 +1040,60 @@ export default function App() {
           <WorkspaceOfflineBanner navigate={navigate} />
         )}
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-          {mode === 'simple' ? (
+          {isDashboardHome ? (
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6">
+              <div className="mx-auto max-w-6xl grid gap-4 lg:grid-cols-3">
+                <div className="lg:col-span-3 rounded-2xl border border-border-subtle bg-bg-surface p-6">
+                  <p className="text-[11px] uppercase tracking-widest text-text-faint mb-2">Dashboard</p>
+                  <h1 className="text-2xl font-semibold text-text-pri">Choose one workspace.</h1>
+                  <p className="mt-2 text-sm text-text-sec max-w-2xl">Each page is now focused on a single job: chat for conversation, build for prompt-driven assembly, code for editor work. That keeps the UI easier to navigate and reduces clutter.</p>
+                </div>
+                <button onClick={() => navigate('/dashboard/chat')} className="rounded-2xl border border-border-subtle bg-bg-surface p-5 text-left hover:border-accent/30 hover:bg-bg-elevated transition-colors">
+                  <p className="text-xs uppercase tracking-widest text-text-faint mb-2">Chat</p>
+                  <h2 className="text-lg font-semibold text-text-pri">Conversation workspace</h2>
+                  <p className="mt-2 text-sm text-text-sec">Open the lightweight chat page for prompts, answers, and quick task handling.</p>
+                </button>
+                <button onClick={() => navigate('/dashboard/build')} className="rounded-2xl border border-border-subtle bg-bg-surface p-5 text-left hover:border-accent/30 hover:bg-bg-elevated transition-colors">
+                  <p className="text-xs uppercase tracking-widest text-text-faint mb-2">Build</p>
+                  <h2 className="text-lg font-semibold text-text-pri">Project builder</h2>
+                  <p className="mt-2 text-sm text-text-sec">Use the build page for prompt-driven generation without extra panels competing for space.</p>
+                </button>
+                <button onClick={() => navigate('/dashboard/code')} className="rounded-2xl border border-border-subtle bg-bg-surface p-5 text-left hover:border-accent/30 hover:bg-bg-elevated transition-colors">
+                  <p className="text-xs uppercase tracking-widest text-text-faint mb-2">Code</p>
+                  <h2 className="text-lg font-semibold text-text-pri">Editor workspace</h2>
+                  <p className="mt-2 text-sm text-text-sec">Open the IDE view for files, git, terminal, and compare flows.</p>
+                </button>
+              </div>
+            </div>
+          ) : dashboardSection === 'chat' ? (
+            <ErrorBoundary name="Dashboard Chat Page">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
+                <DashboardChatPage
+                  daemon={workspace}
+                  filePaths={flattenedFilePaths}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          ) : dashboardSection === 'build' ? (
+            <ErrorBoundary name="Dashboard Build Page">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
+                <DashboardBuildPage daemon={workspace} />
+              </Suspense>
+            </ErrorBoundary>
+          ) : dashboardSection === 'code' ? (
+            <ErrorBoundary name="Dashboard Pro Page">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
+                <DashboardProPage
+                  daemon={workspace}
+                  fileTree={fileTree}
+                  changedPaths={changedFiles}
+                  onEditorStateChange={setEditorState}
+                  theme={theme}
+                  onOpenCommandPalette={() => setCmdPaletteOpen(true)}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          ) : mode === 'simple' ? (
             <ErrorBoundary name="Dashboard Chat Page">
               <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
                 <DashboardChatPage
@@ -1099,7 +1174,7 @@ export default function App() {
       <StatusBar
         workspaceOnline={workspaceOnline}
         machine={workspaceMachine}
-        mode={mode}
+        mode={statusMode}
         editorState={editorState}
         daemon={workspace}
         rootPath={activeWorkspaceRoot}

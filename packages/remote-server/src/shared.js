@@ -224,7 +224,9 @@ export const AGENT_BINARY_CANDIDATES = {
     ollama: ['ollama'],
 };
 export const OLLAMA_REQUIRED_MODEL = (process.env.SOUPZ_OLLAMA_REQUIRED_MODEL || 'qwen2.5:1.5b').trim();
-const OLLAMA_RUNTIME_CACHE = { at: 0, status: null };
+const OLLAMA_RUNTIME_CACHE = { at: 0, ttlMs: 0, status: null };
+const OLLAMA_READY_CACHE_TTL_MS = 120000;
+const OLLAMA_NOT_READY_CACHE_TTL_MS = 10000;
 const CODEX_MODEL_HINTS = String(
     process.env.SOUPZ_CODEX_MODEL_HINTS ||
     'gpt-5.3-codex,gpt-5.1-codex,gpt-5.1-codex-mini,codex'
@@ -1185,13 +1187,13 @@ export function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
 
     if (agentId === 'ollama') {
         const now = Date.now();
-        if (OLLAMA_RUNTIME_CACHE.status && (now - OLLAMA_RUNTIME_CACHE.at) < 30000) {
+        if (OLLAMA_RUNTIME_CACHE.status && (now - OLLAMA_RUNTIME_CACHE.at) < OLLAMA_RUNTIME_CACHE.ttlMs) {
             return OLLAMA_RUNTIME_CACHE.status;
         }
 
         try {
-            const raw = execSync('curl -s --max-time 1 http://localhost:11434/api/tags 2>/dev/null', {
-                timeout: 2000,
+            const raw = execSync('curl -s --max-time 3 http://localhost:11434/api/tags 2>/dev/null', {
+                timeout: 3500,
                 encoding: 'utf8',
             }).trim();
             const parsed = JSON.parse(raw || '{}');
@@ -1199,17 +1201,24 @@ export function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
                 ? parsed.models.map((m) => String(m?.name || '').trim()).filter(Boolean)
                 : [];
 
-            const hasRequiredModel = models.some((name) => name === OLLAMA_REQUIRED_MODEL || name.startsWith(`${OLLAMA_REQUIRED_MODEL}:`));
+            const requiredModel = OLLAMA_REQUIRED_MODEL;
+            const requiredBase = requiredModel.split(':')[0];
+
+            const hasRequiredModel = requiredModel
+                ? models.some((name) => name === requiredModel || name.startsWith(`${requiredBase}:`))
+                : models.length > 0;
             const state = hasRequiredModel
-                ? { ready: true, reason: 'ready', requiredModel: OLLAMA_REQUIRED_MODEL }
-                : { ready: false, reason: 'ollama_model_missing', requiredModel: OLLAMA_REQUIRED_MODEL, availableModels: models.slice(0, 15) };
+                ? { ready: true, reason: 'ready', requiredModel: requiredModel || null }
+                : { ready: false, reason: 'ollama_model_missing', requiredModel: requiredModel || null, availableModels: models.slice(0, 15) };
 
             OLLAMA_RUNTIME_CACHE.at = now;
+            OLLAMA_RUNTIME_CACHE.ttlMs = state.ready ? OLLAMA_READY_CACHE_TTL_MS : OLLAMA_NOT_READY_CACHE_TTL_MS;
             OLLAMA_RUNTIME_CACHE.status = state;
             return state;
         } catch {
-            const state = { ready: false, reason: 'ollama_not_running', requiredModel: OLLAMA_REQUIRED_MODEL };
+            const state = { ready: false, reason: 'ollama_not_running', requiredModel: OLLAMA_REQUIRED_MODEL || null };
             OLLAMA_RUNTIME_CACHE.at = now;
+            OLLAMA_RUNTIME_CACHE.ttlMs = OLLAMA_NOT_READY_CACHE_TTL_MS;
             OLLAMA_RUNTIME_CACHE.status = state;
             return state;
         }
@@ -1332,6 +1341,18 @@ export function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WO
 
 // ─── runChildAgent ────────────────────────────────────────────────────────────
 
+function isTrustDirectoryFailure(text = '') {
+    const sample = String(text || '').toLowerCase();
+    if (!sample) return false;
+    return (
+        sample.includes('not inside a trusted directory') ||
+        sample.includes('--skip-git-repo-check') ||
+        sample.includes('detected dubious ownership') ||
+        sample.includes('unsafe repository') ||
+        sample.includes('not a git repository')
+    );
+}
+
 export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStderr, runtime, childKey, childMeta, model = null }) {
     const args = [CLI_ENTRY, 'ask', agent, prompt];
     const selectedModel = normalizeModelId(model);
@@ -1343,9 +1364,9 @@ export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, 
         spawnEnv.SOUPZ_MCP_SERVERS = JSON.stringify(mcpServers);
     }
 
-    return await new Promise((resolve) => {
+    const runOnce = async (attemptCwd) => await new Promise((resolveAttempt) => {
         const child = spawn(process.execPath, args, {
-            cwd,
+            cwd: attemptCwd,
             env: spawnEnv,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -1363,7 +1384,7 @@ export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, 
             if (runtime && childKey) {
                 setChildFinished(runtime, childKey, payload.code);
             }
-            resolve(payload);
+            resolveAttempt(payload);
         };
 
         child.stdout.on('data', (chunk) => {
@@ -1381,13 +1402,27 @@ export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, 
         });
 
         child.on('error', (err) => {
-            finish({ code: 1, stdout, stderr: `${stderr}\n${err.message}`.trim(), pid: child.pid, errored: true });
+            finish({ code: 1, stdout, stderr: `${stderr}\n${err.message}`.trim(), pid: child.pid, errored: true, cwd: attemptCwd });
         });
 
         child.on('close', (code) => {
-            finish({ code: code ?? 1, stdout, stderr, pid: child.pid });
+            finish({ code: code ?? 1, stdout, stderr, pid: child.pid, cwd: attemptCwd });
         });
     });
+
+    const primaryCwd = resolve(cwd || REPO_ROOT);
+    const first = await runOnce(primaryCwd);
+    if (first.code === 0) return first;
+
+    const trustFailure = isTrustDirectoryFailure(`${first.stderr || ''}\n${first.stdout || ''}`);
+    const fallbackCwd = resolve(REPO_ROOT);
+    const canRetryFromRoot = trustFailure && primaryCwd !== fallbackCwd;
+
+    if (!canRetryFromRoot) return first;
+
+    onStderr?.(`[auto-retry] ${agent} failed workspace trust checks in ${primaryCwd}; retrying from ${fallbackCwd}\n`, first.pid);
+    const retried = await runOnce(fallbackCwd);
+    return retried;
 }
 
 // ─── Network utilities ────────────────────────────────────────────────────────

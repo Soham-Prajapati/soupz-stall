@@ -66,6 +66,12 @@ function looksLikeRateLimitFailure(text = '') {
     return /\b429\b|rate limit|quota|too many requests|resource exhausted|usage limit/.test(sample);
 }
 
+function looksLikeTrustFailure(text = '') {
+    const sample = String(text || '').toLowerCase();
+    if (!sample) return false;
+    return /not inside a trusted directory|--skip-git-repo-check|detected dubious ownership|unsafe repository|not a git repository/.test(sample);
+}
+
 // ─── Single-agent order execution ─────────────────────────────────────────────
 
 export function startSingleAgentOrder(order, runAgent, mcpServers) {
@@ -180,6 +186,24 @@ export function startSingleAgentOrder(order, runAgent, mcpServers) {
 
     child.on('close', (code) => {
         const duration = Date.now() - spawnStartTime;
+        if (code !== 0 && !runtime.cancelRequested) {
+            const trustSample = `${order.stderr || ''}\n${order.stdout || ''}`.slice(-12000);
+            const currentCwd = resolve(order.cwd || REPO_ROOT);
+            const repoRoot = resolve(REPO_ROOT);
+            if (looksLikeTrustFailure(trustSample) && currentCwd !== repoRoot && !order._trustRetryFromRepoRoot) {
+                order._trustRetryFromRepoRoot = true;
+                order.cwd = repoRoot;
+                pushOrderEvent(order, 'agent.trust_retry', {
+                    agent: runAgent,
+                    exitCode: code,
+                    fromCwd: currentCwd,
+                    retryCwd: repoRoot,
+                });
+                startSingleAgentOrder(order, runAgent, mcpServers);
+                return;
+            }
+        }
+
         if (code !== 0 && duration < 2000 && !order._instantCrashRetried) {
             order._instantCrashRetried = true;
             pushOrderEvent(order, 'agent.instant_crash', { agent: runAgent, duration, exitCode: code });

@@ -1,0 +1,26 @@
+.core-console {
+  min-height: 0;
+  min-height: 100%;
+  overflow: visible;
+  padding: 16px;
+  background:
+    radial-gradient(1200px 500px at 10% -10%, rgba(56, 189, 248, 0.14), transparent),
+    radial-gradient(1000px 500px at 100% 0%, rgba(99, 102, 241, 0.12), transparent),
+    var(--bg-base);
+  color: var(--text-pri);
+}
+
+.core-console__content {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 24px;
+}
+
+@media (min-width: 640px) {
+  .core-console {
+    padding: 24px 28px;
+  }
+}

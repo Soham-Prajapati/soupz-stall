@@ -14,15 +14,8 @@ const STATUS_META = {
   '?': { label: 'NEW', className: 'border-success/40 text-success bg-success/10' },
 };
 
-const CO_AUTHOR_BY_AGENT = {
-  'claude-code': 'Claude Opus 4.6 <noreply@anthropic.com>',
-  'copilot': 'GitHub Copilot <copilot@github.com>',
-  'codex': 'GitHub Copilot <copilot@github.com>',
-};
-
 function resolveCoAuthorIdentity() {
-  const selectedAgent = (localStorage.getItem('soupz_agent') || '').trim();
-  return CO_AUTHOR_BY_AGENT[selectedAgent] || 'Soupz <agent@soupz.vercel.app>';
+  return 'Soupz <agent@soupz.vercel.app>';
 }
 
 function normalizeGitPath(path = '') {
@@ -49,7 +42,7 @@ function dedupeFiles(files = []) {
   return Array.from(map.values());
 }
 
-export default function GitPanel({ daemon, onOpenFile, compact = false }) {
+export default function GitPanel({ daemon, onOpenFile, onCompareFile, compact = false }) {
   const [status, setStatus]     = useState(null);
   const [diff, setDiff]         = useState('');
   const [recentCommits, setRecentCommits] = useState([]);
@@ -338,6 +331,7 @@ export default function GitPanel({ daemon, onOpenFile, compact = false }) {
           files={stagedFiles}
           icon={<Check size={11} className="text-success" />}
           onFileOpen={onOpenFile}
+          onFileCompare={onCompareFile}
           onStageAll={null}
           emptyLabel="No staged changes"
         />
@@ -349,85 +343,14 @@ export default function GitPanel({ daemon, onOpenFile, compact = false }) {
           files={unstagedFiles}
           icon={<Minus size={11} className="text-warning" />}
           onFileOpen={onOpenFile}
+          onFileCompare={onCompareFile}
           onStageAll={unstagedFiles.length ? stageAll : null}
           emptyLabel="Working tree clean"
         />
 
-        {/* Diff viewer */}
-        {diffFiles.length > 0 && (
-          <div className="border-t border-border-subtle">
-            <button
-              onClick={() => setExpandDiff(v => !v)}
-              className="flex items-center gap-1.5 w-full px-3 py-3 sm:py-2 hover:bg-bg-elevated text-text-faint hover:text-text-pri transition-colors min-h-[44px] sm:min-h-0"
-            >
-              {expandDiff ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-              <span className="text-xs font-medium">Diff</span>
-            </button>
-            {expandDiff && (
-              <div className="border-t border-border-subtle/60 flex flex-col sm:flex-row">
-                {compact ? (
-                  <div className="px-3 py-2 border-b border-border-subtle/60 bg-bg-base/40">
-                    <select
-                      value={activeDiff?.id || ''}
-                      onChange={(e) => setActiveDiffId(e.target.value)}
-                      className="w-full bg-bg-elevated border border-border-subtle rounded px-2 py-1.5 text-xs text-text-pri"
-                    >
-                      {diffFiles.map((section) => (
-                        <option key={section.id} value={section.id}>{section.file}</option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div className="sm:w-52 border-b sm:border-b-0 sm:border-r border-border-subtle/60 bg-bg-base/50 max-h-48 sm:max-h-64 overflow-y-auto">
-                    {diffFiles.map(section => (
-                      <button
-                        key={section.id}
-                        onClick={() => setActiveDiffId(section.id)}
-                        className={cn(
-                          'w-full flex items-center gap-2 px-3 py-2 text-[11px] text-left border-l-2 transition-colors',
-                          section.id === activeDiff?.id
-                            ? 'border-accent bg-accent/5 text-text-pri'
-                            : 'border-transparent text-text-sec hover:text-text-pri'
-                        )}
-                      >
-                        <span className="flex-1 truncate font-mono">{section.file}</span>
-                        {section.status && (
-                          <span className={cn(
-                            'text-[9px] font-mono px-1.5 py-0.5 rounded border shrink-0',
-                            STATUS_META[section.status]?.className || 'border-border-subtle text-text-faint'
-                          )}>
-                            {STATUS_META[section.status]?.label || section.status}
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <div className="flex-1 overflow-auto max-h-72 sm:max-h-80 font-mono text-xs">
-                  {(activeDiff?.lines || diff.split('\n')).map((line, i) => (
-                    <div
-                      key={`${activeDiff?.id || 'diff'}-${i}`}
-                      className={cn(
-                        'px-3 py-0.5 whitespace-pre flex gap-3 min-h-[18px]',
-                        line.startsWith('+') && !line.startsWith('+++') ? 'diff-add' : '',
-                        line.startsWith('-') && !line.startsWith('---') ? 'diff-del' : '',
-                        line.startsWith('@@') ? 'diff-hunk' : '',
-                      )}
-                    >
-                      <span className="w-10 text-right text-text-faint/70 select-none">{i + 1}</span>
-                      <span className="flex-1">{line || ' '}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        {diffFiles.length === 0 && (
-          <div className="border-t border-border-subtle px-4 py-6 text-center">
-            <p className="text-[11px] text-text-faint font-ui">Working tree clean — no diff to show.</p>
-          </div>
-        )}
+        <div className="border-t border-border-subtle px-3 py-2.5 text-[11px] text-text-faint">
+          Diff view opens in the center editor when you click a changed file.
+        </div>
 
         {recentCommits.length > 0 && (
           <div className="border-t border-border-subtle">
@@ -461,7 +384,7 @@ export default function GitPanel({ daemon, onOpenFile, compact = false }) {
             <span>Generate</span>
           </button>
         </div>
-        <p className="text-[10px] text-text-faint">Commit uses your local git author plus a Copilot/Claude/Soupz co-author trailer.</p>
+        <p className="text-[10px] text-text-faint">Commit uses your local git author plus: Co-Authored-By: Soupz.</p>
         <textarea
           value={message}
           onChange={e => setMessage(e.target.value)}
@@ -502,7 +425,7 @@ export default function GitPanel({ daemon, onOpenFile, compact = false }) {
   );
 }
 
-function FileSection({ compact = false, label, files, icon, onStageAll, emptyLabel, onFileOpen }) {
+function FileSection({ compact = false, label, files, icon, onStageAll, emptyLabel, onFileOpen, onFileCompare }) {
   const [open, setOpen] = useState(true);
 
   return (
@@ -533,7 +456,13 @@ function FileSection({ compact = false, label, files, icon, onStageAll, emptyLab
             <button
               key={f.path}
               type="button"
-              onClick={() => onFileOpen?.(f.path)}
+              onClick={() => {
+                if (typeof onFileCompare === 'function') {
+                  onFileCompare(f.path);
+                } else {
+                  onFileOpen?.(f.path);
+                }
+              }}
               className="w-full flex items-center gap-2 px-4 sm:px-7 py-2.5 sm:py-1 hover:bg-bg-elevated group/file min-h-[44px] sm:min-h-0 min-w-0 text-left"
             >
               {icon}

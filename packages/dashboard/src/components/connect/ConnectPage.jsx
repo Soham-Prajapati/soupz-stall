@@ -9,6 +9,13 @@ import { trackEvent } from '../../lib/instrumentation.js';
 const LOCAL_DAEMON_PORT = 7533;
 const CODE_TTL_MS = 300_000; // 5 minutes
 
+function formatPairingCode(rawCode = '') {
+  const cleaned = String(rawCode || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 9);
+  if (!cleaned) return '';
+  const groups = cleaned.match(/.{1,3}/g) || [];
+  return groups.join('-').toUpperCase();
+}
+
 function isProbablyMobileDevice() {
   if (typeof window === 'undefined') return false;
   const ua = (window.navigator?.userAgent || '').toLowerCase();
@@ -729,6 +736,7 @@ function AlreadyConnectedState({ hostname, onDashboard, onNewConnection, onShowC
 
 export function ShareCodeView({ code, isComplete, remainingMs, onEnterManually }) {
   const connectUrl = isComplete ? `${window.location.origin}/code?code=${code}` : null;
+  const formattedCode = formatPairingCode(code);
 
   return (
     <div className="flex flex-col items-center gap-5 py-2">
@@ -743,7 +751,7 @@ export function ShareCodeView({ code, isComplete, remainingMs, onEnterManually }
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           {isComplete ? (
             <span className="font-mono text-xl font-bold text-text-pri tracking-widest">
-              {code.slice(0, 4)}-{code.slice(4)}
+              {formattedCode}
             </span>
           ) : (
             <span className="text-text-faint text-sm">Waiting...</span>
@@ -780,6 +788,7 @@ export function ShareCodeView({ code, isComplete, remainingMs, onEnterManually }
 
 function QRConnectMode({ code, remainingMs, onManual, isMobileDevice }) {
   const connectUrl = code.length === 9 ? `${window.location.origin}/code?code=${code}` : null;
+  const formattedCode = formatPairingCode(code);
 
   if (isMobileDevice) {
     return (
@@ -814,7 +823,7 @@ function QRConnectMode({ code, remainingMs, onManual, isMobileDevice }) {
             Scan this QR code with your phone camera
           </p>
           <div className="flex items-center gap-2 text-text-faint text-[11px] font-mono bg-bg-elevated px-3 py-1.5 rounded-md border border-border-subtle">
-            Code: {code.slice(0, 4)}-{code.slice(4)}
+            Code: {formattedCode}
           </div>
         </>
       ) : (

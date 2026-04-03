@@ -61,6 +61,29 @@ let wsUrl      = null;
 const wsChunkHandlers = new Map(); // orderId → (chunk, done) => void
 const wsMessageSubscribers = new Set();
 
+const INTERNAL_TOOL_TRACE_RE = /^\s*↳\s*[a-z_][\w.-]*\s*\.\.\.\s*$/i;
+const BARE_TOOL_TRACE_RE = /^\s*(read_file|write_file|list_directory|list_dir|replace|apply_patch|run_in_terminal|grep_search|file_search|semantic_search|fetch_webpage|get_errors|create_file|create_directory|run_notebook_cell|edit_notebook_file|vscode_[\w.-]+)\s*\.\.\.\s*$/i;
+const TOOL_CALL_HEADER_RE = /^\s*(assistant|tool)\s+to=functions\.[\w.-]+/i;
+
+function sanitizeAgentChunk(chunk) {
+  const text = String(chunk ?? '');
+  if (!text) return '';
+
+  const cleaned = text
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      if (INTERNAL_TOOL_TRACE_RE.test(trimmed)) return false;
+      if (BARE_TOOL_TRACE_RE.test(trimmed)) return false;
+      if (TOOL_CALL_HEADER_RE.test(trimmed)) return false;
+      return true;
+    })
+    .join('\n');
+
+  return cleaned;
+}
+
 function emitWsMessage(msg) {
   for (const handler of wsMessageSubscribers) {
     try {
@@ -203,7 +226,8 @@ export function connectDaemonWS(token) {
 
       if (msg.type === 'agent_chunk') {
         const handler = wsChunkHandlers.get(msg.orderId) || wsChunkHandlers.get('*');
-        handler?.(msg.chunk, false);
+        const safeChunk = sanitizeAgentChunk(msg.chunk);
+        if (safeChunk) handler?.(safeChunk, false);
       } else if (msg.type === 'order_update' && (msg.data?.status === 'completed' || msg.data?.status === 'failed')) {
         const handler = wsChunkHandlers.get(msg.data.id) || wsChunkHandlers.get('*');
         handler?.('', true); // signal done
@@ -274,12 +298,13 @@ export function getWSState() {
  * Detect a running dev server on the connected machine for live preview.
  * @returns {Promise<{ url: string, detected: boolean } | null>}
  */
-export async function getDevServerUrl() {
+export async function getDevServerUrl(cwd = '') {
   const t = getStoredToken();
-  if (!t) return null;
+  if (!t && !isLocalDaemon()) return null;
   try {
-    const res = await fetch(`${getDaemonUrl()}/api/dev-server`, {
-      headers: { 'X-Soupz-Token': t },
+    const suffix = cwd ? `?cwd=${encodeURIComponent(cwd)}` : '';
+    const res = await fetch(`${getDaemonUrl()}/api/dev-server${suffix}`, {
+      headers: t ? { 'X-Soupz-Token': t } : {},
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -556,7 +581,8 @@ export async function sendAgentPrompt(request, userId, onChunk) {
         const commandId = await sendCommand('AGENT_PROMPT', commandPayload, userId);
         if (onChunk) {
           const unsub = subscribeToChunks(commandId, (chunk) => {
-            onChunk(chunk);
+            const safeChunk = sanitizeAgentChunk(chunk);
+            if (safeChunk) onChunk(safeChunk);
           });
           // Relay path has no guaranteed done signal yet; resolve immediately and keep streaming.
           void unsub;
@@ -884,6 +910,21 @@ export async function getGitDiff(filePath, userId, rootPath) {
   const suffix = params.toString() ? `?${params.toString()}` : '';
   if (token() || isLocalDaemon()) return localGet(`/api/changes/diff${suffix}`);
   return sendCommand('GIT_DIFF', { path: filePath, root: rootPath }, userId);
+}
+
+export async function getGitFileVersion(filePath, ref = 'HEAD', userId, rootPath) {
+  const params = new URLSearchParams();
+  if (filePath) params.set('file', filePath);
+  if (ref) params.set('ref', ref);
+  if (rootPath) params.set('root', rootPath);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+
+  if (token() || isLocalDaemon()) {
+    const res = await localGet(`/api/git/file-version${suffix}`);
+    return res?.content || '';
+  }
+
+  return '';
 }
 
 export async function gitStage(filePath, userId, rootPath) {
