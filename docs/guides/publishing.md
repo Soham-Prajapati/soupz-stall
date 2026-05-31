@@ -43,7 +43,7 @@ npm publish
 npm install -g soupz-stall
 
 # Or run without installing
-npx soupz-stall
+npx @shubh_prajapati99/soupz
 ```
 
 ---

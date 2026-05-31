@@ -1,6 +1,6 @@
 # Soupz
 
-**Control your laptop's AI coding tools from any device.** Run `npx soupz-cockpit` (alias `npx soupz`), scan a code, and code from your phone.
+**Control your laptop's AI coding tools from any device.** Run `npx @shubh_prajapati99/soupz`, scan a code, and code from your phone.
 
 Soupz is a local-first AI agent orchestration daemon with a hosted web IDE. It bridges your laptop's AI coding agents (Claude Code, Gemini, Copilot, Ollama, Kiro) to any browser — phone, tablet, or another PC.
 
@@ -8,7 +8,7 @@ Soupz is a local-first AI agent orchestration daemon with a hosted web IDE. It b
 
 ### 1. Install
 ```bash
-npx soupz-cockpit    # alias: npx soupz
+npx @shubh_prajapati99/soupz
 ```
 
 ### 2. Pair
@@ -31,7 +31,7 @@ Open your browser to `https://soupz.vercel.app/code`. Scan the QR code from your
 
 ## Architecture
 
-- **Daemon** — Runs on your laptop (`npx soupz-cockpit`), spawns CLI agents, manages files/git
+- **Daemon** — Runs on your laptop (`npx @shubh_prajapati99/soupz`), spawns CLI agents, manages files/git
 - **Web App** — Hosted at soupz.vercel.app, acts as a remote control
 - **Relay** — Supabase Realtime for remote connections (LAN uses WebSocket)
 - **Pairing** — 9-character OTP or QR code, 5-min auto-refresh

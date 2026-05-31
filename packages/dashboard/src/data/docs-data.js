@@ -27,7 +27,7 @@ Get up and running with Soupz in less than a minute.
 3. Run the following command:
 
 \`\`\`bash
-npx soupz
+npx @shubh_prajapati99/soupz
 \`\`\`
 
 4. You'll receive a 9-character code or a QR code.
@@ -43,12 +43,12 @@ Soupz does not require a permanent global installation, though you can save it i
 The easiest way is using \`npx\`:
 
 \`\`\`bash
-npx soupz
+npx @shubh_prajapati99/soupz
 \`\`\`
 
 If you want to install it globally:
 \`\`\`bash
-npm install -g soupz-cockpit
+npm install -g @shubh_prajapati99/soupz
 \`\`\`
 `
       }

@@ -160,8 +160,10 @@ export function resolveTimeoutMs(value, fallbackMs = 0) {
     return Math.max(0, parsed);
 }
 
+export const DEEP_INPUT_TIMEOUT_MS = Math.max(15000, resolveTimeoutMs(process.env.SOUPZ_DEEP_INPUT_TIMEOUT_MS, 90000));
+export const DEEP_WORKER_TIMEOUT_MS = Math.max(30000, resolveTimeoutMs(process.env.SOUPZ_DEEP_WORKER_TIMEOUT_MS, 180000));
 export const DEEP_SYNTHESIS_TIMEOUT_MS = resolveTimeoutMs(process.env.SOUPZ_DEEP_SYNTHESIS_TIMEOUT_MS, 0);
-export const DEEP_NESTED_ENABLED_DEFAULT = process.env.SOUPZ_DEEP_NESTED_DEFAULT !== 'false';
+export const DEEP_NESTED_ENABLED_DEFAULT = process.env.SOUPZ_DEEP_NESTED_DEFAULT === 'true';
 export const DEEP_NESTED_MAX_PARENTS = Math.max(1, Number.parseInt(process.env.SOUPZ_DEEP_NESTED_MAX_PARENTS || '3', 10) || 3);
 export const DEEP_NESTED_SUBAGENTS_PER_PARENT = Math.max(1, Number.parseInt(process.env.SOUPZ_DEEP_NESTED_SUBAGENTS_PER_PARENT || '2', 10) || 2);
 export const DEEP_NESTED_TIMEOUT_MS = Math.max(5000, Number.parseInt(process.env.SOUPZ_DEEP_NESTED_TIMEOUT_MS || '45000', 10) || 45000);
@@ -302,6 +304,25 @@ export const MAX_DEEP_WORKERS = Math.max(
     DEFAULT_DEEP_WORKERS,
     Number.parseInt(process.env.SOUPZ_DEEP_WORKER_MAX || '64', 10) || 64,
 );
+export const SAFE_DEEP_WORKER_MAX = Math.max(
+    DEFAULT_DEEP_WORKERS,
+    Math.min(
+        MAX_DEEP_WORKERS,
+        Number.parseInt(process.env.SOUPZ_DEEP_WORKER_SAFE_MAX || '8', 10) || 8,
+    ),
+);
+export const ALLOW_UNSAFE_DEEP_WORKERS = process.env.SOUPZ_DEEP_ALLOW_UNSAFE_BURST === 'true';
+
+export function resolveDeepWorkerLimit() {
+    return ALLOW_UNSAFE_DEEP_WORKERS ? MAX_DEEP_WORKERS : SAFE_DEEP_WORKER_MAX;
+}
+
+export function clampDeepWorkerCount(value, fallback = DEFAULT_DEEP_WORKERS) {
+    const parsed = Number.parseInt(value, 10);
+    const base = Number.isFinite(parsed) ? parsed : fallback;
+    const upper = resolveDeepWorkerLimit();
+    return Math.max(1, Math.min(upper, base));
+}
 
 function getAgentRateLimitCooldown(agentId) {
     const entry = agentRateLimitCooldowns.get(agentId);
@@ -994,7 +1015,7 @@ export function inferSpecialistsFromPrompt(prompt = '', count = DEFAULT_DEEP_WOR
 
 export function estimateDeepWorkerCount(prompt = '', requestedWorkerCount = null) {
     if (Number.isFinite(requestedWorkerCount)) {
-        return Math.max(1, Math.min(MAX_DEEP_WORKERS, requestedWorkerCount));
+        return clampDeepWorkerCount(requestedWorkerCount, DEFAULT_DEEP_WORKERS);
     }
 
     const text = String(prompt || '');
@@ -1028,7 +1049,7 @@ export function estimateDeepWorkerCount(prompt = '', requestedWorkerCount = null
     const base = DEFAULT_DEEP_WORKERS;
 
     const estimated = base + sizeScore + structureScore + domainScore;
-    return Math.max(1, Math.min(MAX_DEEP_WORKERS, estimated));
+    return clampDeepWorkerCount(estimated, DEFAULT_DEEP_WORKERS);
 }
 
 export function specialistFocusSummary(specialist) {
@@ -1251,7 +1272,7 @@ export async function resolveAutoRunAgent(prompt, cwd = REPO_ROOT, allowedAgents
 
 export function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WORKERS, cwd = REPO_ROOT, deepPolicy = {}, allowedAgents = null) {
     const { ready, skipped } = getReadyAgentsInPriorityOrder(cwd, allowedAgents);
-    const count = Math.max(1, maxWorkers);
+    const count = clampDeepWorkerCount(maxWorkers, DEFAULT_DEEP_WORKERS);
     const readySet = new Set(ready);
     const workerSlots = [];
     const perAgentCounts = {};
@@ -1305,7 +1326,50 @@ function isTrustDirectoryFailure(text = '') {
     );
 }
 
-export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStderr, runtime, childKey, childMeta, model = null }) {
+function ensureGitSafeDirectory(targetCwd = '') {
+    const safePath = resolve(targetCwd || REPO_ROOT);
+    const quotedPath = JSON.stringify(safePath);
+
+    try {
+        execSync(`git -C ${quotedPath} rev-parse --is-inside-work-tree`, {
+            timeout: 2500,
+            stdio: 'ignore',
+        });
+    } catch {
+        return false;
+    }
+
+    let configured = '';
+    try {
+        configured = String(execSync('git config --global --get-all safe.directory', {
+            timeout: 2500,
+            encoding: 'utf8',
+        }) || '');
+    } catch {
+        configured = '';
+    }
+
+    const entries = configured
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+    if (entries.includes('*') || entries.includes(safePath)) {
+        return true;
+    }
+
+    try {
+        execSync(`git config --global --add safe.directory ${quotedPath}`, {
+            timeout: 2500,
+            stdio: 'ignore',
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStderr, runtime, childKey, childMeta, model = null, timeoutMs = 0 }) {
     const args = [CLI_ENTRY, 'ask', agent, prompt];
     const selectedModel = normalizeModelId(model);
     if (selectedModel) {
@@ -1329,15 +1393,49 @@ export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, 
         let stdout = '';
         let stderr = '';
         let settled = false;
+        let timeoutHandle = null;
+        let killHandle = null;
 
         const finish = (payload) => {
             if (settled) return;
             settled = true;
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            if (killHandle) clearTimeout(killHandle);
             if (runtime && childKey) {
                 setChildFinished(runtime, childKey, payload.code);
             }
             resolveAttempt(payload);
         };
+
+        const timeoutBudget = Math.max(0, Number.parseInt(timeoutMs, 10) || 0);
+        if (timeoutBudget > 0) {
+            timeoutHandle = setTimeout(() => {
+                if (settled) return;
+                try {
+                    child.kill('SIGTERM');
+                } catch {
+                    // Ignore kill failures and rely on close/error events.
+                }
+                killHandle = setTimeout(() => {
+                    if (settled) return;
+                    try {
+                        child.kill('SIGKILL');
+                    } catch {
+                        // Ignore kill failures.
+                    }
+                }, 1500);
+                killHandle.unref?.();
+                finish({
+                    code: 124,
+                    stdout,
+                    stderr: `${stderr}\n[timeout] Agent execution exceeded ${timeoutBudget}ms`.trim(),
+                    pid: child.pid,
+                    timedOut: true,
+                    cwd: attemptCwd,
+                });
+            }, timeoutBudget);
+            timeoutHandle.unref?.();
+        }
 
         child.stdout.on('data', (chunk) => {
             const text = chunk.toString();
@@ -1367,6 +1465,15 @@ export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, 
     if (first.code === 0) return first;
 
     const trustFailure = isTrustDirectoryFailure(`${first.stderr || ''}\n${first.stdout || ''}`);
+    if (trustFailure) {
+        const trusted = ensureGitSafeDirectory(primaryCwd);
+        if (trusted) {
+            onStderr?.(`[auto-retry] ${agent} detected git trust error in ${primaryCwd}; added safe.directory and retrying in place\n`, first.pid);
+            const retriedInPlace = await runOnce(primaryCwd);
+            if (retriedInPlace.code === 0) return retriedInPlace;
+        }
+    }
+
     const fallbackCwd = resolve(REPO_ROOT);
     const canRetryFromRoot = trustFailure && primaryCwd !== fallbackCwd;
 

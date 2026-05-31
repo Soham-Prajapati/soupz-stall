@@ -89,9 +89,9 @@ describe('CLI agent definitions', () => {
     expect(claude.tier).toBe('premium');
   });
 
-  it('ollama is free tier', () => {
-    const ollama = agents.CLI_AGENTS.find(a => a.id === 'ollama');
-    expect(ollama.tier).toBe('free');
+  it('codex is freemium tier', () => {
+    const codex = agents.CLI_AGENTS.find(a => a.id === 'codex');
+    expect(codex.tier).toBe('freemium');
   });
 
   it('gemini has multiple models', () => {
@@ -152,9 +152,9 @@ describe('Agent fallback chain', () => {
   it('falls back when only one agent available', () => {
     const result = routing.selectAgentLocally(
       'deploy to kubernetes',
-      { ollama: true }
+      { gemini: true }
     );
-    expect(result.cliAgent).toBe('ollama');
+    expect(result.cliAgent).toBe('gemini');
   });
 
   it('skips unavailable agents', () => {
@@ -167,7 +167,7 @@ describe('Agent fallback chain', () => {
   });
 
   it('handles all agents available', () => {
-    const all = { gemini: true, codex: true, copilot: true, ollama: true, 'claude-code': true, kiro: true };
+    const all = { gemini: true, codex: true, copilot: true, 'claude-code': true, kiro: true };
     const result = routing.selectAgentLocally('fix the login bug', all);
     expect(result).toBeDefined();
     expect(agents.CLI_AGENTS.map(a => a.id)).toContain(result.cliAgent);

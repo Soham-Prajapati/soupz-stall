@@ -17,7 +17,7 @@ This document is the source of truth for:
 
 A new user must understand, within 9 seconds:
 1. What it is: "Run AI coding agents on your own machine. Control them from any browser."
-2. First action: "Run npx soupz on your machine."
+2. First action: "Run npx @shubh_prajapati99/soupz on your machine."
 3. Outcome: "Pair phone/laptop and start prompting immediately."
 
 Landing copy should always include these three ideas above the fold.
@@ -26,11 +26,11 @@ Landing copy should always include these three ideas above the fold.
 
 ### 1. Website Entry
 - User opens soupz.vercel.app.
-- Primary CTA shows command: npx soupz.
+- Primary CTA shows command: npx @shubh_prajapati99/soupz.
 - Secondary CTA routes to docs/connect flow.
 
 ### 2. Local Daemon Start
-- User runs npx soupz.
+- User runs npx @shubh_prajapati99/soupz.
 - Daemon starts on local port (default 7533).
 - Daemon generates 9-char one-time pairing code and QR.
 - Daemon also computes reachable targets (LAN/tunnel when available).
@@ -138,7 +138,7 @@ Until open-source launch decision:
 
 2. Onboarding clarity
 - Ensure 9-second landing message and first action are unambiguous.
-- Remove conflicting CTAs that distract from npx soupz + pair.
+- Remove conflicting CTAs that distract from npx @shubh_prajapati99/soupz + pair.
 
 3. Runtime consistency
 - Keep agent detection stable under temporary probe/network failures.

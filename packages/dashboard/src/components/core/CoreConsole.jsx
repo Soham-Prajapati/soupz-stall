@@ -1329,7 +1329,7 @@ export default function CoreConsole({ workspace }) {
           )}
 
           <div className="text-xs text-text-faint">
-            {online ? 'Daemon online' : 'Daemon offline. Run npx soupz.'}
+            {online ? 'Daemon online' : 'Daemon offline. Run npx @shubh_prajapati99/soupz.'}
             {lastOrderId ? ` • Order ${lastOrderId}` : ''}
             {buildMode === 'deep' ? ' • mode: parallel orchestration' : ' • mode: single-agent'}
             {lastOrderId ? ` • status: ${orderStatus}` : ''}

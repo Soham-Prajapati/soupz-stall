@@ -20,9 +20,12 @@ import {
     WEB_AGENT_ALIASES,
     MAX_CONCURRENT_ORDERS,
     MAX_DEEP_WORKERS,
+    DEEP_WORKER_TIMEOUT_MS,
     DEEP_NESTED_ENABLED_DEFAULT,
     DEEP_NESTED_MAX_PARENTS,
     DEEP_NESTED_SUBAGENTS_PER_PARENT,
+    DEEP_NESTED_TIMEOUT_MS,
+    DEEP_NESTED_SYNTH_TIMEOUT_MS,
     nextOrderId,
     createOrderRuntime,
     getOrderRuntime,
@@ -49,6 +52,8 @@ import {
     inferExecutionRole,
     inferSpecialistsFromPrompt,
     estimateDeepWorkerCount,
+    clampDeepWorkerCount,
+    resolveDeepWorkerLimit,
     getAgentRuntimeReadiness,
     resolveAgentBinary,
     normalizeModelId,
@@ -356,21 +361,26 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     const previewWorkerCount = estimateDeepWorkerCount(prompt, Number.isFinite(payloadWorkerCount) ? payloadWorkerCount : null);
     const nestedMaxParents = Number.parseInt(req.body?.nestedMaxParents, 10);
     const nestedSubAgentsPerWorker = Number.parseInt(req.body?.nestedSubAgentsPerWorker, 10);
+    const payloadTimeoutMs = Number.parseInt(req.body?.timeoutMs, 10);
+    const payloadSynthesisTimeoutMs = Number.parseInt(req.body?.synthesisTimeoutMs, 10);
+    const payloadNestedTimeoutMs = Number.parseInt(req.body?.nestedTimeoutMs, 10);
+    const payloadNestedSynthesisTimeoutMs = Number.parseInt(req.body?.nestedSynthesisTimeoutMs, 10);
 
     if (Array.isArray(rawAllowedAgents) && allowedAgents && allowedAgents.length === 0) {
         return res.status(400).json({ error: 'No valid allowedAgents were provided' });
     }
     const deepPolicy = {
-        workerCount: Number.isFinite(payloadWorkerCount) ? Math.max(1, Math.min(MAX_DEEP_WORKERS, payloadWorkerCount)) : null,
-        primaryCopies: Number.isFinite(payloadPrimaryCopies) ? Math.max(1, Math.min(MAX_DEEP_WORKERS, payloadPrimaryCopies)) : null,
+        workerCount: Number.isFinite(payloadWorkerCount) ? clampDeepWorkerCount(payloadWorkerCount, 1) : null,
+        primaryCopies: Number.isFinite(payloadPrimaryCopies) ? clampDeepWorkerCount(payloadPrimaryCopies, 1) : null,
         sameAgentOnly,
         useAiPlanner,
         plannerStyle,
         plannerNotes,
-        timeoutMs: 0,
+        timeoutMs: Number.isFinite(payloadTimeoutMs) ? Math.max(0, payloadTimeoutMs) : DEEP_WORKER_TIMEOUT_MS,
+        synthesisTimeoutMs: Number.isFinite(payloadSynthesisTimeoutMs) ? Math.max(0, payloadSynthesisTimeoutMs) : null,
         allowSynthesisFallback: req.body?.allowSynthesisFallback !== false,
         workerCountResolved: previewWorkerCount,
-        workerCountMax: MAX_DEEP_WORKERS,
+        workerCountMax: resolveDeepWorkerLimit(),
         enableNestedDelegation: typeof req.body?.enableNestedDelegation === 'boolean'
             ? req.body.enableNestedDelegation
             : DEEP_NESTED_ENABLED_DEFAULT,
@@ -380,8 +390,8 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         nestedSubAgentsPerWorker: Number.isFinite(nestedSubAgentsPerWorker)
             ? Math.max(1, Math.min(4, nestedSubAgentsPerWorker))
             : DEEP_NESTED_SUBAGENTS_PER_PARENT,
-        nestedTimeoutMs: 0,
-        nestedSynthesisTimeoutMs: 0,
+        nestedTimeoutMs: Number.isFinite(payloadNestedTimeoutMs) ? Math.max(0, payloadNestedTimeoutMs) : DEEP_NESTED_TIMEOUT_MS,
+        nestedSynthesisTimeoutMs: Number.isFinite(payloadNestedSynthesisTimeoutMs) ? Math.max(0, payloadNestedSynthesisTimeoutMs) : DEEP_NESTED_SYNTH_TIMEOUT_MS,
         enableNestedTeamSynthesis: req.body?.enableNestedTeamSynthesis !== false,
     };
     const orderCwd = (req.body?.cwd || '').toString().trim() || REPO_ROOT;

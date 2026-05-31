@@ -596,7 +596,7 @@ export async function sendAgentPrompt(request, userId, onChunk) {
     });
   }
 
-  throw new Error('Not connected — run npx soupz on your machine first');
+  throw new Error('Not connected — run npx @shubh_prajapati99/soupz on your machine first');
 }
 
 // ─── Generic command (Supabase relay) ────────────────────────────────────────

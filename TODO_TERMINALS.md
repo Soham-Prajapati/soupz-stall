@@ -113,7 +113,7 @@ Terminal 2 added a "Connect Database" UI that needs this backend endpoint:
 All 5 UI polish + npm tasks done:
 - [x] T2-10: npm publish prep (v0.2.0, .npmignore, README, 424KB pack, publishConfig)
 - [x] T2-11: AUDIT_AND_USP.md rewrite (23 features moved to FULLY WORKING, pitch-ready)
-- [x] T2-12: Landing page update (real feature cards, "Free to use" badge, npx soupz prominent)
+- [x] T2-12: Landing page update (real feature cards, "Free to use" badge, npx @shubh_prajapati99/soupz prominent)
 - [x] T2-13: Onboarding overlay (3 swipeable cards, framer-motion transitions, dismissible)
 - [x] T2-14: Team execution dashboard (TeamExecutionCard.jsx, structured agent status, progress bar, expandable outputs)
 

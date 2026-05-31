@@ -30,15 +30,17 @@ The daemon generates a 9-character pairing code. Enter this code at `soupz.verce
 Notes:
 - `npm run dev:web` now has resilient startup behavior. If bootstrap token creation fails, it continues in local no-token mode instead of exiting.
 - Pair validation compatibility checks include both `/pair/validate` and `/api/pair`.
-- Free Cloudflare tunnels are enabled by default when `cloudflared` is installed. This prints a public `/code` URL for phone testing outside your local network.
-- Set `SOUPZ_ENABLE_FREE_TUNNELS=0` to disable tunnel startup.
+- Tunnel provider is configurable. Default is auto mode: if a Tailscale URL is configured it is used, otherwise Cloudflare quick tunnel is used.
+- Set `SOUPZ_TUNNEL_PROVIDER=cloudflare|tailscale|auto`.
+- For Tailscale, set `SOUPZ_TAILSCALE_DAEMON_URL` (or `SOUPZ_TUNNEL_URL`) to your Funnel URL.
+- Set `SOUPZ_ENABLE_FREE_TUNNELS=0` to disable all auto tunnel setup.
 - Cloudflare is optional for hosted dashboard usage. It is only needed when your phone is on a different network and must reach your local daemon or local dev server directly without manual port forwarding.
 
 ### Individual processes
 
 ```bash
 # Terminal 1: Daemon only
-npx soupz
+npx @shubh_prajapati99/soupz
 
 # Terminal 2: Web app dev server
 cd packages/dashboard && npm run dev
@@ -153,6 +155,23 @@ SOUPZ_REMOTE_PORT=7533
 # Optional: free tunnel startup (default is 1)
 SOUPZ_ENABLE_FREE_TUNNELS=1
 
+# Optional: tunnel provider selection
+# auto (default), cloudflare, or tailscale
+SOUPZ_TUNNEL_PROVIDER=auto
+
+# Optional: Tailscale Funnel URLs when provider=tailscale
+SOUPZ_TAILSCALE_DAEMON_URL=https://<your-daemon-funnel>.ts.net
+SOUPZ_TAILSCALE_WEB_URL=https://soupz.vercel.app
+
+# Optional: deep orchestration reliability defaults (recommended)
+SOUPZ_DEEP_WORKER_SAFE_MAX=8
+SOUPZ_DEEP_WORKER_TIMEOUT_MS=180000
+SOUPZ_DEEP_INPUT_TIMEOUT_MS=90000
+SOUPZ_DEEP_NESTED_DEFAULT=false
+
+# Advanced only: allow high fanout up to SOUPZ_DEEP_WORKER_MAX
+# SOUPZ_DEEP_ALLOW_UNSAFE_BURST=true
+
 # Optional: Speech-to-text API
 SARVAM_API_KEY=<your-sarvam-key>
 
@@ -212,7 +231,7 @@ The dashboard is deployed on Vercel:
 3. Set environment variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY) in project settings
 4. Vercel auto-deploys on push to `main`
 
-The daemon always runs locally on the user's machine (`npx soupz` or `npm run dev:web`).
+The daemon always runs locally on the user's machine (`npx @shubh_prajapati99/soupz` or `npm run dev:web`).
 
 ## Troubleshooting
 
@@ -224,7 +243,7 @@ cd packages/remote-server && npm install
 
 ### Daemon won't start
 - Check port 7533 is available: `lsof -i :7533`
-- Change port: `SOUPZ_REMOTE_PORT=8000 npx soupz`
+- Change port: `SOUPZ_REMOTE_PORT=8000 npx @shubh_prajapati99/soupz`
 
 ### Pairing code not showing
 - Ensure daemon is running: `npm run dev:web`
@@ -241,6 +260,12 @@ cd packages/remote-server && npm install
 - Ensure tunnel startup is enabled: `SOUPZ_ENABLE_FREE_TUNNELS=1 npm run dev:web`
 - If you intentionally want local-only behavior, disable with `SOUPZ_ENABLE_FREE_TUNNELS=0`
 - After startup, use the printed `https://<subdomain>.trycloudflare.com/code` URL for mobile pairing
+
+### Tailscale tunnel mode
+- Set `SOUPZ_TUNNEL_PROVIDER=tailscale`.
+- Set `SOUPZ_TAILSCALE_DAEMON_URL=https://<your-daemon-funnel>.ts.net`.
+- Optional: set `SOUPZ_TAILSCALE_WEB_URL` (defaults to `SOUPZ_APP_URL` or `https://soupz.vercel.app`).
+- Start normally with `npm run dev:web`; runtime pairing config will use your Tailscale daemon URL.
 
 Compatibility note:
 - `soupz.vercel.app/connect` still works as a legacy alias.

@@ -3,9 +3,7 @@
 ## 1. Start the daemon
 
 ```bash
-npx soupz-cockpit
-# alias:
-# npx soupz
+npx @shubh_prajapati99/soupz
 ```
 
 ## 2. Pair your browser or phone

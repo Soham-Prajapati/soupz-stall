@@ -141,7 +141,7 @@ describe('routing.js exports', () => {
   it('selectAgentLocally returns valid result for design prompt', () => {
     const result = routing.selectAgentLocally(
       'design a beautiful landing page with animations',
-      { gemini: true, copilot: true, ollama: true }
+      { gemini: true, copilot: true, codex: true }
     );
     expect(result).toBeDefined();
     expect(result.cliAgent).toBeDefined();
