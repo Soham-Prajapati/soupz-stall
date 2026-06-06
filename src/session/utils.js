@@ -15,6 +15,9 @@ export function generateSessionName() {
 }
 
 export const UtilsMixin = {
+    addActivePersona(id) { if (!this.activePersonas.includes(id)) this.activePersonas.push(id); },
+    removeActivePersona(id) { this.activePersonas = this.activePersonas.filter((p) => p !== id); },
+
     async handleMcp(input) {
         if (!this.mcpClient) { console.log(chalk.red('  ❌ MCP client not available')); return; }
         const parts = input.replace('/mcp', '').trim().split(/\s+/);
