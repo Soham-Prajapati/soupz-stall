@@ -74,15 +74,18 @@ export function createPairingCode(force = false) {
     if (supabase) {
         const connectTargets = Array.from(new Set([...getLocalIPs(), ...getTunnelBaseUrls()]));
         // Cleanup expired codes in DB
-        supabase.from('soupz_pairing').delete().lt('expires_at', new Date().toISOString()).then(() => {});
+        supabase.from('soupz_pairing').delete().lt('expires_at', new Date().toISOString())
+            .then(({ error }) => { if (error) console.error(`[supabase] cleanup failed: ${error.message}`); })
+            .catch(() => {});
 
-        // Register machine as online
+        // Register machine as online (fails silently if unauthenticated/missing user_id constraint)
         supabase.from('soupz_machines').upsert({
             id: os.hostname(),
             name: os.hostname(),
             last_seen: new Date().toISOString(),
             status: 'online'
-        }).then(() => {});
+        }).then(() => {})
+          .catch(() => {});
 
         supabase
             .from('soupz_pairing')
@@ -96,7 +99,18 @@ export function createPairingCode(force = false) {
                 expires_at: new Date(expiresAt).toISOString(),
             })
             .then(({ error }) => {
-                if (error) console.error(`[supabase] pairing register failed: ${error.message}`);
+                if (error) {
+                    console.error(`[supabase] pairing register failed: ${error.message}`);
+                    if (error.message && error.message.includes('fetch failed')) {
+                        console.error('  → Hint: Your Supabase project might be paused or unreachable. Check your Supabase dashboard.');
+                    }
+                }
+            })
+            .catch(err => {
+                console.error(`[supabase] pairing register error: ${err.message}`);
+                if (err.message && err.message.includes('fetch failed')) {
+                    console.error('  → Hint: Your Supabase project might be paused or unreachable. Check your Supabase dashboard.');
+                }
             });
     }
 
