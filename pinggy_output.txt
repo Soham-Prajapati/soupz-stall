@@ -6,3 +6,12 @@ Your tunnel will expire in 60 minutes. Upgrade to Pinggy Pro to get unrestricted
 http://shigy-2402-3a80-4172-e176-f87e-2592-feeb-61c9.run.pinggy-free.link
 https://shigy-2402-3a80-4172-e176-f87e-2592-feeb-61c9.run.pinggy-free.link
 RB: 0, SB: 0, TC: 0, AC: 0               RB: 395, SB: 0, TC: 1, AC: 1               RB: 395, SB: 0, TC: 1, AC: 1               RB: 395, SB: 0, TC: 1, AC: 0               RB: 395, SB: 0, TC: 2, AC: 1               RB: 395, SB: 560, TC: 1, AC: 1               RB: 395, SB: 560, TC: 1, AC: 0               
+
+
+===========================
+Time exceeded
+===========================
+
+
+
+Connection to a.pinggy.io closed by remote host.

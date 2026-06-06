@@ -1,3 +1,5 @@
+import { CommandsMixin } from './commands.js';
+
 import chalk from 'chalk';
 import { emitKeypressEvents } from 'readline';
 import { homedir } from 'os';
@@ -407,4 +409,4 @@ export class Session {
     }
 }
 
-Object.assign(Session.prototype, MemoryMixin, FleetMixin, UIMixin, CloudMixin, AuthMixin, TodoMixin, UtilsMixin);
+Object.assign(Session.prototype, CommandsMixin, MemoryMixin, FleetMixin, UIMixin, CloudMixin, AuthMixin, TodoMixin, UtilsMixin);
