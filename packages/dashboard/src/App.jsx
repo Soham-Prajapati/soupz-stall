@@ -25,6 +25,7 @@ const CommandPalette = lazy(() => import('./components/shared/CommandPalette.jsx
 const FolderPicker = lazy(() => import('./components/shared/FolderPicker.jsx'));
 const SetupWizard = lazy(() => import('./components/shared/SetupWizard.jsx'));
 const OnboardingChecklist = lazy(() => import('./components/shared/OnboardingChecklist.jsx'));
+const TerminalPage = lazy(() => import('./components/terminal/TerminalPage.jsx'));
 import { supabase, isSupabaseConfigured } from './lib/supabase.js';
 import {
   checkDaemonHealth, subscribeToDaemon, sendAgentPrompt, subscribeDaemonMessages,
@@ -797,6 +798,15 @@ export default function App() {
     return (
       <ErrorBoundary name="Connect Page">
         <Suspense fallback={routeLoader}><ConnectPage getParam={getParam} navigate={navigate} /></Suspense>
+      </ErrorBoundary>
+    );
+  }
+
+  // /terminal route (standalone terminal)
+  if (path === '/terminal') {
+    return (
+      <ErrorBoundary name="Terminal Page">
+        <Suspense fallback={routeLoader}><TerminalPage workspace={workspace} getParam={getParam} /></Suspense>
       </ErrorBoundary>
     );
   }

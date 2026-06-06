@@ -967,3 +967,38 @@ export async function runFile(path, userId, rootPath) {
   if (token() || isLocalDaemon()) return localPost('/api/exec', { path, root: rootPath });
   return sendCommand('RUN_FILE', { path, root: rootPath }, userId);
 }
+
+export async function validateTerminalToken(daemonUrl, token) {
+  const url = daemonUrl.startsWith('http') ? daemonUrl : `http://${daemonUrl}`;
+  const res = await fetch(`${url}/api/terminal/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Validation failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+export async function sendTerminalCommand(daemonUrl, token, command) {
+  const url = daemonUrl.startsWith('http') ? daemonUrl : `http://${daemonUrl}`;
+  const res = await fetch(`${url}/api/terminal/exec`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, command }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Command failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+export function getTerminalPageUrl(daemonUrl, token) {
+  const url = new URL('https://soupz.vercel.app/terminal');
+  url.searchParams.set('token', token);
+  url.searchParams.set('remote', daemonUrl);
+  return url.toString();
+}

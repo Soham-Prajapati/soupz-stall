@@ -92,6 +92,11 @@ export const authenticatedClients = new WeakSet();
 
 export const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+// Terminal sessions: { token: { createdAt, expiresAt, terminalId } }
+// Issued by POST /api/terminal/token; used by POST /api/terminal/exec to write to a PTY.
+export const terminalSessions = new Map();
+export const TERMINAL_SESSION_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+
 // ─── Tunnel URLs ──────────────────────────────────────────────────────────────
 
 export const runtimeTunnelBaseUrls = new Set();

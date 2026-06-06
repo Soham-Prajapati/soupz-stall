@@ -54,6 +54,8 @@ import {
     nextTerminalId,
     terminateTerminal,
     revokeSession,
+    terminalSessions,
+    TERMINAL_SESSION_EXPIRY_MS,
 } from './shared.js';
 
 import { startCodeAutoRefresh, getCurrentCode, getCurrentPairingSnapshot, validatePairingCode } from './pairing.js';
@@ -615,6 +617,71 @@ app.post('/api/exec', requireAuth, async (req, res) => {
     }
 });
 
+// ─── Terminal session endpoints ───────────────────────────────────────────────
+
+// AUTHENTICATED: Issue a new terminal session token (64-char hex, 30-min expiry).
+// The caller should open a WebSocket, create a terminal, and pass this token as
+// terminalToken in the create_terminal message to bind the PTY to this session.
+app.post('/api/terminal/token', requireAuth, (req, res) => {
+    const token = crypto.randomBytes(32).toString('hex');
+    const now = Date.now();
+    terminalSessions.set(token, {
+        createdAt: now,
+        expiresAt: now + TERMINAL_SESSION_EXPIRY_MS,
+        terminalId: null,
+    });
+    return res.json({ token, expiresIn: 1800 });
+});
+
+// PUBLIC: Validate a terminal session token without consuming it.
+// Returns { valid: true, terminalId } or 401.
+app.post('/api/terminal/validate', (req, res) => {
+    const token = String(req.body?.token || '').trim();
+    if (!token) return res.status(400).json({ error: 'Missing token' });
+
+    const session = terminalSessions.get(token);
+    if (!session) return res.status(401).json({ valid: false, error: 'Unknown token' });
+    if (Date.now() > session.expiresAt) {
+        terminalSessions.delete(token);
+        return res.status(401).json({ valid: false, error: 'Token expired' });
+    }
+
+    return res.json({ valid: true, terminalId: session.terminalId });
+});
+
+// PUBLIC: Write a command to the PTY associated with a terminal session token.
+// Body: { token, command }  → writes command + "\n" to the PTY stdin.
+app.post('/api/terminal/exec', (req, res) => {
+    const token = String(req.body?.token || '').trim();
+    const command = String(req.body?.command ?? '');
+
+    if (!token) return res.status(400).json({ error: 'Missing token' });
+    if (command === undefined || command === null) return res.status(400).json({ error: 'Missing command' });
+
+    const session = terminalSessions.get(token);
+    if (!session) return res.status(401).json({ error: 'Unknown terminal token' });
+    if (Date.now() > session.expiresAt) {
+        terminalSessions.delete(token);
+        return res.status(401).json({ error: 'Terminal token expired' });
+    }
+
+    const terminalId = session.terminalId;
+    if (terminalId === null || terminalId === undefined) {
+        return res.status(409).json({ error: 'Terminal not yet associated with this token. Open a WebSocket and send create_terminal with this terminalToken first.' });
+    }
+
+    const terminal = terminals.get(terminalId);
+    if (!terminal) return res.status(404).json({ error: 'Terminal not found or already closed' });
+    if (!terminal.proc) return res.status(409).json({ error: 'Terminal process is not running' });
+
+    try {
+        terminal.proc.write(`${command}\n`);
+        return res.json({ ok: true });
+    } catch (err) {
+        return res.status(500).json({ error: `Failed to write to terminal: ${err.message}` });
+    }
+});
+
 // ─── Local command relay ──────────────────────────────────────────────────────
 
 // POST /command — unified command endpoint for web IDE (no auth for local browser)
@@ -816,6 +883,16 @@ wss.on('connection', (ws, req) => {
                     });
 
                     terminals.set(id, terminal);
+
+                    // If the client passed a terminalToken, bind this PTY's id to that session.
+                    const terminalToken = String(msg.terminalToken || '').trim();
+                    if (terminalToken) {
+                        const tSession = terminalSessions.get(terminalToken);
+                        if (tSession && Date.now() <= tSession.expiresAt) {
+                            tSession.terminalId = id;
+                        }
+                    }
+
                     ws.send(JSON.stringify({ type: 'terminal_created', terminalId: id, pid: proc.pid }));
                     break;
                 }
