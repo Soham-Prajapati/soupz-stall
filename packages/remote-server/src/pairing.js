@@ -78,13 +78,13 @@ export function createPairingCode(force = false) {
             .then(({ error }) => { if (error) console.error(`[supabase] cleanup failed: ${error.message}`); })
             .catch(() => {});
 
-        // Register machine as online
+        // Register machine as online (fails silently if unauthenticated/missing user_id constraint)
         supabase.from('soupz_machines').upsert({
             id: os.hostname(),
             name: os.hostname(),
             last_seen: new Date().toISOString(),
             status: 'online'
-        }).then(({ error }) => { if (error) console.error(`[supabase] machine register failed: ${error.message}`); })
+        }).then(() => {})
           .catch(() => {});
 
         supabase
