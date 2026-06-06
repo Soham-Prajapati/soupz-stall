@@ -242,11 +242,12 @@ async function startDaemon(options) {
 
         // Open browser to the connect page
         const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/code?code=${pairing.code}`;
+        const autoConnectUrl = connectUrl.includes('?') ? `${connectUrl}&auto=1` : `${connectUrl}?auto=1`;
         const { exec } = await import('child_process');
         if (options.open) {
-            if (process.platform === 'darwin') exec(`open "${connectUrl}"`);
-            else if (process.platform === 'linux') exec(`xdg-open "${connectUrl}"`);
-            else if (process.platform === 'win32') exec(`start "${connectUrl}"`);
+            if (process.platform === 'darwin') exec(`open "${autoConnectUrl}"`);
+            else if (process.platform === 'linux') exec(`xdg-open "${autoConnectUrl}"`);
+            else if (process.platform === 'win32') exec(`start "${autoConnectUrl}"`);
         }
 
         // Handle refresh — show updated code with new QR
@@ -297,7 +298,6 @@ async function startDaemon(options) {
     await registry.init();
     const spawner = new AgentSpawner(registry);
     const mcpClient = new MCPClient();
-    await mcpClient.init();
     const compressor = new TokenCompressor();
     const kitchenMonitor = new StallMonitor();
     const memory = new MemoryStore();

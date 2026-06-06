@@ -248,8 +248,10 @@ export default function ConnectPage({ getParam, navigate }) {
     if (remoteHint && typeof window !== 'undefined') {
       window.sessionStorage.removeItem('soupz_auto_remote_hint');
     }
+    // Auto submit if the URL code is valid length
+    const isAuto = getParam?.('auto') === '1';
     if (clean.length === 9) {
-      if (remoteHint || isProbablyMobileDevice()) handleConnect(clean);
+      if (remoteHint || isProbablyMobileDevice() || isAuto) handleConnect(clean);
       else setConnectMode('share');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
