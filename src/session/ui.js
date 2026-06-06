@@ -130,13 +130,7 @@ export const UIMixin = {
 
     eraseDropdownLines() {
         if (!this.dropdownVisible) return;
-        process.stdout.write('\x1b[s');
-        const visCount = Math.min(this.dropdownItems.length, 8);
-        const hasTopMore = this.dropdownScroll > 0;
-        const hasBottomMore = this.dropdownScroll + 8 < this.dropdownItems.length;
-        const totalLines = visCount + (hasTopMore ? 1 : 0) + (hasBottomMore ? 1 : 0);
-        for (let i = 0; i < totalLines + 2; i++) process.stdout.write('\x1b[B\x1b[2K');
-        process.stdout.write('\x1b[u\x1b[J');
+        process.stdout.write('\n\x1b[J\x1b[A');
         this.dropdownVisible = false;
     },
 
@@ -151,20 +145,29 @@ export const UIMixin = {
         if (total <= maxVisible) this.dropdownScroll = 0;
         const start = this.dropdownScroll;
         const end = Math.min(start + maxVisible, total);
-        process.stdout.write('\x1b[s');
-        if (start > 0) process.stdout.write(`\n\x1b[K   ${chalk.dim(`↑ ${start} more`)}`);
+        const linesToDraw = [];
+        if (start > 0) linesToDraw.push(`   ${chalk.dim(`↑ ${start} more`)}`);
         for (let i = start; i < end; i++) {
             const item = this.dropdownItems[i];
             const sel = i === this.dropdownIndex;
-            process.stdout.write('\n\x1b[K');
             const pre = sel ? chalk.hex('#6C63FF')(' ▸ ') : '   ';
             const icon = item.icon ? `${item.icon} ` : '';
             const label = sel ? chalk.bold.hex('#FFD93D')(icon + item.label) : chalk.hex('#CCC')(icon + item.label);
             const desc = item.desc ? (sel ? chalk.hex('#AAA')(` — ${item.desc}`) : chalk.hex('#666')(` — ${item.desc}`)) : '';
-            process.stdout.write(`${pre}${label}${desc}`);
+            linesToDraw.push(`${pre}${label}${desc}`);
         }
-        if (end < total) process.stdout.write(`\n\x1b[K   ${chalk.dim(`↓ ${total - end} more`)}`);
-        process.stdout.write('\x1b[u');
+        if (end < total) linesToDraw.push(`   ${chalk.dim(`↓ ${total - end} more`)}`);
+
+        process.stdout.write('\n\x1b[J'); // move down and clear old dropdown space
+        for (let i = 0; i < linesToDraw.length; i++) {
+            process.stdout.write('\x1b[K' + linesToDraw[i] + (i < linesToDraw.length - 1 ? '\n' : ''));
+        }
+        // move back up to the prompt line
+        if (linesToDraw.length > 0) {
+            process.stdout.write(`\x1b[${linesToDraw.length}A`);
+        }
+        // Ensure cursor is correctly positioned on the prompt
+        this.renderPrompt();
     },
 
     closeDropdown() { this.eraseDropdownLines(); this.dropdownItems = []; this.dropdownIndex = -1; this.dropdownScroll = 0; },
