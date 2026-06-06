@@ -81,6 +81,72 @@ export class Session {
             this.relay.setUser(this.userAuth.user.id || this.userAuth.user.email);
             void this.relay.registerMachine();
         }
+
+        // Wire events
+        this.spinnerTimer = null;
+        this.spinnerFrame = 0;
+
+        this.spawner.on('output', (agentId, parsed) => {
+            if (parsed?.text) {
+                // Stop spinner on first output
+                this.stopSpinner();
+                const a = this.registry.get(agentId);
+                this.getAgentTokens(agentId).out += Math.ceil(parsed.text.length / 4);
+                this.pushToLog({ role: 'assistant', agent: agentId, text: parsed.text, ts: Date.now() });
+                
+                // Supabase Relay: Stream chunk to cloud
+                if (this.currentOrderId) {
+                    void this.relay.pushChunk(this.currentOrderId, parsed.text);
+                }
+
+                // Filter out Copilot verbose usage stats logging
+                // For instance, "Total usage est:" or "API time spent:" or mock AI models usage.
+                const filteredLines = parsed.text.split('\n').filter((l) => {
+                    const text = l.trim();
+                    if (!text) return true;
+                    if (text.match(/Total usage est:|API time spent:|Total session time:|Total code changes:|Breakdown by AI model:/i)) return false;
+                    if (text.match(/^[ \t│\|└L_]+(gpt-|claude-|o3-|gemini-|llama|deepseek|qwen)/i)) return false;
+                    // Filter emoji-prefixed model usage lines (e.g. "🐙  claude-opus-4.6  307.6k in, 4.5k out...")
+                    if (text.match(/\d+\.?\d*k?\s+(in|out),?\s+\d+\.?\d*k?\s+(in|out|cached)/i)) return false;
+                    if (text.match(/Est\.\s+\d+\s+Premium\s+requests/i)) return false;
+                    return true;
+                });
+
+                let firstLinePrinted = false;
+                for (let i = 0; i < filteredLines.length; i++) {
+                    const line = filteredLines[i];
+                    const rendered = typeof this._renderInlineMarkdown === 'function' ? this._renderInlineMarkdown(line) : line;
+                    if (!firstLinePrinted && line.trim()) {
+                        process.stdout.write('\n' + chalk.hex(a?.color || '#888')(`  ${a?.icon || '○'} `) + rendered + '\n');
+                        firstLinePrinted = true;
+                    } else if (line.trim()) {
+                        process.stdout.write(chalk.hex('#555')('  ⎿ ') + rendered + '\n');
+                    } else {
+                        process.stdout.write('\n');
+                    }
+                }
+            }
+        });
+        
+        this.spawner.on('status-change', (agentId, newState) => {
+            if (newState === 'done') {
+                this.stopSpinner();
+                const a = this.registry.get(agentId);
+                const elapsed = a?.startTime ? Date.now() - a.startTime : 0;
+                this.getAgentTokens(agentId).apiTimeMs += elapsed;
+                this.grading?.recordResult(agentId, true, elapsed);
+                this.removeActivePersona(agentId);
+                console.log(chalk.green(`\n  ✔ Done`) + chalk.dim(` (${Math.round(elapsed / 1000)}s)`));
+                console.log(); // Add an extra empty line as gap before prompt
+            }
+            if (newState === 'error') {
+                this.stopSpinner();
+                this.grading?.recordResult(agentId, false, 0);
+                this.removeActivePersona(agentId);
+                console.log(chalk.red('\n  ✖ Error'));
+                console.log(); // Add an extra empty line as gap before prompt
+            }
+        });
     }
 
     _applyModelPrefs() {
