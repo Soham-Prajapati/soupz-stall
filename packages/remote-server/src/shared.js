@@ -1515,8 +1515,8 @@ export function getLocalIPs() {
 
 export function getTunnelBaseUrls() {
     // Accept comma-separated tunnel URLs, for example:
-    // SOUPZ_TUNNEL_URL="https://abc.trycloudflare.com"
-    // SOUPZ_TUNNEL_URLS="https://a.ngrok-free.app,https://b.trycloudflare.com"
+    // SOUPZ_TUNNEL_URL="https://abc.pinggy-free.link"
+    // SOUPZ_TUNNEL_URLS="https://a.ngrok-free.app,https://b.pinggy-free.link"
     const configured = [
         process.env.SOUPZ_TUNNEL_URL || '',
         process.env.SOUPZ_TUNNEL_URLS || '',
@@ -1527,10 +1527,10 @@ export function getTunnelBaseUrls() {
         .map((value) => value.replace(/\/$/, ''));
 
     const all = Array.from(new Set([...configured, ...Array.from(runtimeTunnelBaseUrls)]));
-    // Prioritize Cloudflare tunnels (usually what we want for public access)
+    // Prioritize Pinggy tunnels (usually what we want for public access)
     return all.sort((a, b) => {
-        const aIsCf = a.includes('trycloudflare.com');
-        const bIsCf = b.includes('trycloudflare.com');
+        const aIsCf = a.includes('pinggy-free.link') || a.includes('pinggy.io');
+        const bIsCf = b.includes('pinggy-free.link') || b.includes('pinggy.io');
         if (aIsCf && !bIsCf) return -1;
         if (!aIsCf && bIsCf) return 1;
         return 0;

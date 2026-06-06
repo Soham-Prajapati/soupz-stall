@@ -1067,7 +1067,7 @@ async function registerMachine() {
             name: machineId,
             last_seen: new Date().toISOString(),
             status: 'online',
-            version: '0.1.0-alpha'
+            version: '0.2.0-alpha'
         });
     } catch (err) {
         console.error('  ✖ Machine registration failed:', err.message);

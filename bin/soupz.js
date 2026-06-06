@@ -19,19 +19,53 @@ import chalk from 'chalk';
 import { ensureDirectories } from '../src/config.js';
 import { autoImport } from '../src/auto-import.js';
 
-const VERSION = '0.1.0-alpha';
+const VERSION = '0.2.0-alpha';
 const WEBAPP_URL = process.env.SOUPZ_APP_URL || 'https://soupz.vercel.app';
-const DAEMON_PORT = parseInt(process.env.SOUPZ_REMOTE_PORT || '7533', 10);
+
 
 // Auto-import agents on startup (silent)
 autoImport();
 
-const [,, command, ...args] = process.argv;
+import meow from 'meow';
 
-if (command === '--version' || command === '-v' || command === 'version') {
-    console.log(`soupz v${VERSION}`);
-    process.exit(0);
+const cli = meow(`
+    Usage
+      $ soupz-stall [command] [options]
+
+    Commands
+      agents      List all installed kitchens (agents)
+      auth        Authenticate with Supabase
+      sync        Synchronize database schemas
+      ask         Send a single prompt to the default agent
+
+    Options
+      --cloud, -c                   Start a Pinggy tunnel for internet access
+      --port, -p <port>             Override the default local daemon port (7533)
+      --yolo                        Skip interactive confirmations (dangerously skip permissions)
+      --dangerously-skip-permissions Alias for --yolo
+      --no-open                     Prevent the browser from opening automatically
+      --version, -v                 Print the version
+      --help, -h                    Show this help menu
+`, {
+    importMeta: import.meta,
+    flags: {
+        cloud: { type: 'boolean', shortFlag: 'c' },
+        port: { type: 'string', shortFlag: 'p' },
+        yolo: { type: 'boolean' },
+        dangerouslySkipPermissions: { type: 'boolean' },
+        open: { type: 'boolean', default: true }
+    }
+});
+
+const command = cli.input[0];
+const args = cli.input.slice(1);
+const options = cli.flags;
+
+if (options.yolo || options.dangerouslySkipPermissions) {
+    process.env.SOUPZ_YOLO = '1';
 }
+
+const DAEMON_PORT = parseInt(options.port || process.env.SOUPZ_REMOTE_PORT || '7533', 10);
 
 if (command === 'agents') {
     await listAgents();
@@ -54,15 +88,46 @@ if (command === 'ask') {
 }
 
 // Default: start the local daemon
-await startDaemon();
+await startDaemon(options);
 
 // ─── Daemon ───────────────────────────────────────────────────────────────────
 
-async function startDaemon() {
+async function startDaemon(options) {
     ensureDirectories();
 
-    const header = chalk.hex('#6C63FF').bold('Soupz Cockpit') + chalk.dim(` v${VERSION}`);
+    const header = chalk.hex('#6C63FF').bold('Soupz Daemon') + chalk.dim(` v${VERSION}`);
     console.log(`\n  ${header}\n`);
+
+    
+    let pinggyTunnelProc;
+    if (options.cloud) {
+        console.log(chalk.dim('  🌍 Starting Pinggy tunnel...'));
+        const { spawn } = await import('child_process');
+        pinggyTunnelProc = spawn('ssh', [
+            '-p', '443',
+            `-R0:localhost:${DAEMON_PORT}`,
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'ServerAliveInterval=30',
+            'a.pinggy.io'
+        ], {
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        
+        await new Promise((resolve) => {
+            const onData = (buf) => {
+                const text = buf.toString();
+                const match = text.match(/https:\/\/[a-z0-9-.]+\.pinggy-free\.link/i);
+                if (match) {
+                    process.env.SOUPZ_TUNNEL_URL = match[0];
+                    pinggyTunnelProc.stdout.off('data', onData);
+                    pinggyTunnelProc.stderr.off('data', onData);
+                    resolve();
+                }
+            };
+            pinggyTunnelProc.stdout.on('data', onData);
+            pinggyTunnelProc.stderr.on('data', onData);
+        });
+    }
 
     let startRemoteServer;
     try {
@@ -148,9 +213,11 @@ async function startDaemon() {
     // Open browser to the connect page
         const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/code?code=${pairing.code}`;
     const { exec } = await import('child_process');
-    if (process.platform === 'darwin') exec(`open "${connectUrl}"`);
-    else if (process.platform === 'linux') exec(`xdg-open "${connectUrl}"`);
-    else if (process.platform === 'win32') exec(`start "${connectUrl}"`);
+    if (options.open) {
+        if (process.platform === 'darwin') exec(`open "${connectUrl}"`);
+        else if (process.platform === 'linux') exec(`xdg-open "${connectUrl}"`);
+        else if (process.platform === 'win32') exec(`start "${connectUrl}"`);
+    }
 
     // Handle refresh — show updated code with new QR
     serverInfo.onCodeRefresh?.(async (newPairing) => {

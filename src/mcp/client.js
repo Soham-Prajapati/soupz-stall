@@ -110,7 +110,7 @@ export class MCPClient extends EventEmitter {
             this._send(conn, 'initialize', {
                 protocolVersion: '2024-11-05',
                 capabilities: {},
-                clientInfo: { name: 'soupz-stall', version: '0.1.0-alpha' },
+                clientInfo: { name: 'soupz-stall', version: '0.2.0-alpha' },
             }).then(result => {
                 // Send initialized notification
                 this._notify(conn, 'notifications/initialized', {});
