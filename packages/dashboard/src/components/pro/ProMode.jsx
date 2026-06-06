@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from 'react';
-import Editor, { loader } from '@monaco-editor/react';
+import Editor, { DiffEditor, loader } from '@monaco-editor/react';
 import ErrorBoundary from '../shared/ErrorBoundary';
 import { useThemeVars } from '../../hooks/useThemeVars';
 import { flattenFilePaths } from '../../lib/tree';
@@ -69,7 +69,7 @@ import {
   Files, GitBranch, Settings, ChevronLeft, ChevronRight,
   Play, Loader2, PanelRightClose, PanelRightOpen, X, Package,
   Terminal, Search, Trophy, Code2, Bot, Columns, MessageSquare,
-  Save
+  Save, FileText
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { CLI_AGENTS } from '../../lib/agents';
@@ -100,10 +100,159 @@ function getLang(filename) {
   return LANG_MAP[ext] || 'plaintext';
 }
 
+function escapeHtml(input = '') {
+  return String(input)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderMarkdownToHtml(markdown = '') {
+  const lines = String(markdown || '').split('\n');
+  const html = [];
+  let inCode = false;
+  let inUl = false;
+  let inOl = false;
+
+  const closeLists = () => {
+    if (inUl) {
+      html.push('</ul>');
+      inUl = false;
+    }
+    if (inOl) {
+      html.push('</ol>');
+      inOl = false;
+    }
+  };
+
+  for (const raw of lines) {
+    const line = raw ?? '';
+    if (line.trimStart().startsWith('```')) {
+      closeLists();
+      if (!inCode) {
+        inCode = true;
+        html.push('<pre><code>');
+      } else {
+        inCode = false;
+        html.push('</code></pre>');
+      }
+      continue;
+    }
+
+    if (inCode) {
+      html.push(`${escapeHtml(line)}\n`);
+      continue;
+    }
+
+    const trimmed = line.trim();
+    if (!trimmed) {
+      closeLists();
+      continue;
+    }
+
+    const heading3 = trimmed.match(/^###\s+(.+)$/);
+    const heading2 = trimmed.match(/^##\s+(.+)$/);
+    const heading1 = trimmed.match(/^#\s+(.+)$/);
+    if (heading3 || heading2 || heading1) {
+      closeLists();
+      const level = heading3 ? 'h3' : heading2 ? 'h2' : 'h1';
+      const text = escapeHtml((heading3 || heading2 || heading1)[1]);
+      html.push(`<${level}>${text}</${level}>`);
+      continue;
+    }
+
+    const ul = trimmed.match(/^[-*]\s+(.+)$/);
+    if (ul) {
+      if (inOl) {
+        html.push('</ol>');
+        inOl = false;
+      }
+      if (!inUl) {
+        html.push('<ul>');
+        inUl = true;
+      }
+      html.push(`<li>${escapeHtml(ul[1])}</li>`);
+      continue;
+    }
+
+    const ol = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (ol) {
+      if (inUl) {
+        html.push('</ul>');
+        inUl = false;
+      }
+      if (!inOl) {
+        html.push('<ol>');
+        inOl = true;
+      }
+      html.push(`<li>${escapeHtml(ol[1])}</li>`);
+      continue;
+    }
+
+    const blockquote = trimmed.match(/^>\s+(.+)$/);
+    if (blockquote) {
+      closeLists();
+      html.push(`<blockquote><p>${escapeHtml(blockquote[1])}</p></blockquote>`);
+      continue;
+    }
+
+    if (/^---+$/.test(trimmed)) {
+      closeLists();
+      html.push('<hr />');
+      continue;
+    }
+
+    closeLists();
+    const withInlineCode = escapeHtml(trimmed)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>');
+    html.push(`<p>${withInlineCode}</p>`);
+  }
+
+  closeLists();
+  if (inCode) html.push('</code></pre>');
+
+  return html.join('\n');
+}
+
+function normalizeChangedPath(entry = '') {
+  const raw = String(entry || '').trimEnd();
+  if (!raw) return '';
+  const maybePorcelainPath = raw.length >= 4 ? raw.slice(3).trim() : '';
+  const path = maybePorcelainPath || raw;
+  if (path.includes('->')) {
+    const parts = path.split('->');
+    return parts[parts.length - 1].trim();
+  }
+  return path.trim();
+}
+
+function fileNodeFromPath(filePath = '') {
+  const normalizedPath = normalizeChangedPath(filePath);
+  if (!normalizedPath) return null;
+  const segments = normalizedPath.split('/').filter(Boolean);
+  return {
+    path: normalizedPath,
+    name: segments[segments.length - 1] || normalizedPath,
+  };
+}
+
 export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateChange, theme, onOpenCommandPalette = () => {} }) {
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
   const themeVars = useThemeVars(['--bg-base', '--bg-elevated', '--text-pri', '--text-sec', '--accent', '--border-subtle', '--border-mid', '--border-strong']);
   const flattenedPaths = useMemo(() => flattenFilePaths(fileTree || []), [fileTree]);
+  const changedPathSet = useMemo(() => {
+    const set = new Set();
+    (Array.isArray(changedPaths) ? changedPaths : []).forEach((entry) => {
+      const normalized = normalizeChangedPath(entry);
+      if (normalized) set.add(normalized);
+    });
+    return set;
+  }, [changedPaths]);
 
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     !(typeof window !== 'undefined' && window.innerWidth < 768) && (localStorage.getItem(SIDEBAR_KEY) !== 'false')
@@ -132,9 +281,28 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
   const [terminalMaximized, setTerminalMaximized] = useState(false);
   const [mobileTab, setMobileTab] = useState('chat');
   const [runToast, setRunToast] = useState(null);
+  const [markdownPreviewOpen, setMarkdownPreviewOpen] = useState(false);
+  const [gitComparePath, setGitComparePath] = useState('');
+  const [gitCompareBase, setGitCompareBase] = useState('');
+
+  const sidebarPanelWidth = useMemo(() => `min(${sidebarWidth}px, 40vw)`, [sidebarWidth]);
+  const chatPanelWidth = useMemo(() => `min(${chatWidth}px, 45vw)`, [chatWidth]);
 
   const editorRef = useRef(null);
   const saveTimeoutRef = useRef(null);
+
+  const activeEditorFile = activePane === 'right' && activeFileRight ? activeFileRight : activeFile;
+  const activeEditorLang = getLang(activeEditorFile?.name || '');
+  const canPreviewMarkdown = activeEditorLang === 'markdown' && !!activeEditorFile?.path;
+
+  const markdownPreviewHtml = useMemo(() => {
+    if (!canPreviewMarkdown) return '';
+    try {
+      return renderMarkdownToHtml(String(fileContents[activeEditorFile.path] || ''));
+    } catch {
+      return '<p>Markdown preview unavailable.</p>';
+    }
+  }, [canPreviewMarkdown, activeEditorFile, fileContents]);
 
   useEffect(() => {
     syncMonacoTheme(themeVars);
@@ -147,18 +315,34 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
   }, [openFiles]);
 
   const handleRunActiveFile = async () => {
-    if (!activeFile?.path || !daemon?.runFile) return;
-    setRunToast({ status: 'running', message: `Running ${activeFile.name}...` });
+    if (!activeEditorFile?.path || !daemon?.runFile) return;
+    setRunning(true);
+    setRunToast({ status: 'running', message: `Running ${activeEditorFile.name}...` });
     try {
-      const result = await daemon.runFile(activeFile.path);
-      const message = result?.command ? `Triggered ${result.command}` : 'Run request sent to daemon';
-      setRunToast({ status: 'done', message });
+      const result = await daemon.runFile(activeEditorFile.path);
+      const exitCode = Number.isFinite(result?.exitCode) ? result.exitCode : (result?.ok ? 0 : 1);
+      const firstStdoutLine = String(result?.stdout || '').trim().split('\n').find(Boolean) || '';
+      const firstStderrLine = String(result?.stderr || '').trim().split('\n').find(Boolean) || '';
+      if (result?.ok) {
+        const detail = firstStdoutLine ? ` ${firstStdoutLine.slice(0, 90)}` : '';
+        setRunToast({ status: 'done', message: `Run finished (exit ${exitCode}).${detail}` });
+      } else {
+        const detail = (firstStderrLine || firstStdoutLine || 'Execution failed').slice(0, 120);
+        setRunToast({ status: 'error', message: `Run failed (exit ${exitCode}). ${detail}` });
+      }
     } catch (err) {
       setRunToast({ status: 'error', message: err?.message || 'Failed to run file' });
     } finally {
+      setRunning(false);
       setTimeout(() => setRunToast(null), 5000);
     }
   };
+
+  useEffect(() => {
+    if (!canPreviewMarkdown && markdownPreviewOpen) {
+      setMarkdownPreviewOpen(false);
+    }
+  }, [canPreviewMarkdown, markdownPreviewOpen]);
 
   // Responsive: update isMobile and close panels on mobile
   useEffect(() => {
@@ -176,6 +360,11 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
 
   async function openFile(node) {
     if (!node || node.children) return;
+
+    if (gitComparePath && gitComparePath !== node.path) {
+      setGitComparePath('');
+      setGitCompareBase('');
+    }
 
     if (splitMode && activePane === 'right') {
       setActiveFileRight(node);
@@ -216,6 +405,25 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           return next;
         });
       }
+    }
+  }
+
+  async function openGitCompare(filePath = '') {
+    const node = fileNodeFromPath(filePath);
+    if (!node) return;
+
+    await openFile(node);
+    setActivePane('left');
+
+    try {
+      const baseContent = await daemon?.getGitFileVersion?.(node.path, 'HEAD');
+      setGitCompareBase(String(baseContent || ''));
+      setGitComparePath(node.path);
+      setMarkdownPreviewOpen(false);
+    } catch {
+      setGitCompareBase('');
+      setGitComparePath(node.path);
+      setMarkdownPreviewOpen(false);
     }
   }
 
@@ -289,13 +497,13 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
 
   const lang = getLang(activeFile?.name || '');
 
-  // Cmd+Shift+F to open search panel
+  // Cmd+Shift+F triggers in-editor find to avoid dual search UI confusion.
   useEffect(() => {
     function handleKeyDown(e) {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'f') {
         e.preventDefault();
-        setActiveActivity('search');
-        setSidebarOpen(true);
+        editorRef.current?.focus();
+        editorRef.current?.getAction?.('actions.find')?.run?.();
       }
     }
     window.addEventListener('keydown', handleKeyDown);
@@ -349,7 +557,22 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           {mobileTab === 'git' && (
             <ErrorBoundary name="Git Panel">
               <Suspense fallback={<PanelLoader />}>
-                <div className="h-full overflow-y-auto"><GitPanel daemon={daemon} /></div>
+                <div className="h-full overflow-y-auto">
+                  <GitPanel
+                    daemon={daemon}
+                    compact
+                    onOpenFile={(filePath) => {
+                      const node = fileNodeFromPath(filePath);
+                      if (!node) return;
+                      openFile(node);
+                      setMobileTab('editor');
+                    }}
+                    onCompareFile={(filePath) => {
+                      void openGitCompare(filePath);
+                      setMobileTab('editor');
+                    }}
+                  />
+                </div>
               </Suspense>
             </ErrorBoundary>
           )}
@@ -413,16 +636,19 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
 
   return (
     <div className="flex h-full bg-bg-base overflow-hidden">
-      {/* Activity bar */}
-      <div className="w-12 bg-bg-surface border-r border-border-subtle flex flex-col items-center py-2 gap-1 shrink-0 z-10">
+      {/* Activity rail */}
+      <div className="w-24 bg-bg-surface border-r border-border-subtle flex flex-col py-2 gap-1 shrink-0 z-10">
+        <div className="px-2 pb-2 pt-1 border-b border-border-subtle">
+          <p className="text-[10px] font-ui uppercase tracking-wider text-text-faint">Workspace</p>
+        </div>
         {[
-          { id: 'files',      Icon: Files,     title: 'Explorer' },
-          { id: 'search',     Icon: Search,    title: 'Search' },
-          { id: 'git',        Icon: GitBranch, title: 'Source Control' },
-          { id: 'agents',     Icon: Bot,       title: 'Agent Tasks' },
-          { id: 'stats',      Icon: Trophy,    title: 'Stats & Leaderboard' },
-          { id: 'settings',   Icon: Settings,  title: 'Settings' },
-        ].map(({ id, Icon, title }) => (
+          { id: 'files',      Icon: Files,     title: 'Explorer', label: 'Files' },
+          { id: 'search',     Icon: Search,    title: 'Search', label: 'Search' },
+          { id: 'git',        Icon: GitBranch, title: 'Source Control', label: 'Source' },
+          { id: 'agents',     Icon: Bot,       title: 'Agent Tasks', label: 'Agents' },
+          { id: 'stats',      Icon: Trophy,    title: 'Stats & Leaderboard', label: 'Stats' },
+          { id: 'settings',   Icon: Settings,  title: 'Settings', label: 'Settings' },
+        ].map(({ id, Icon, title, label }) => (
           <button
             key={id}
             onClick={() => {
@@ -435,24 +661,28 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             }}
             title={title}
             className={cn(
-              'w-9 h-9 rounded-md flex items-center justify-center transition-all',
+              'mx-2 rounded-lg px-2 py-2 flex flex-col items-center gap-1 transition-all border',
               activeActivity === id && sidebarOpen
-                ? 'bg-bg-elevated text-text-pri border border-border-subtle'
-                : 'text-text-faint hover:text-text-sec hover:bg-bg-elevated',
+                ? 'bg-accent/12 text-accent border-accent/30'
+                : 'text-text-faint border-transparent hover:text-text-sec hover:bg-bg-elevated hover:border-border-subtle',
             )}
           >
-            <Icon size={18} />
+            <Icon size={16} />
+            <span className="text-[10px] font-ui leading-none">{label}</span>
           </button>
         ))}
       </div>
 
       {/* Sidebar — resizable */}
       {sidebarOpen && (
-        <div style={{ width: sidebarWidth }} className="bg-bg-surface border-r border-border-subtle flex flex-col shrink-0 overflow-hidden">
-          <div className="px-3 py-2 border-b border-border-subtle shrink-0">
-            <span className="text-text-faint text-[11px] font-ui uppercase tracking-wider font-medium">
-              {activeActivity === 'files' ? 'Explorer' : activeActivity === 'search' ? 'Search' : activeActivity === 'git' ? 'Source Control' : activeActivity === 'agents' ? 'Agent Tasks' : activeActivity === 'extensions' ? 'Extensions' : activeActivity === 'stats' ? 'Stats & Leaderboard' : 'Settings'}
-            </span>
+        <div style={{ width: sidebarPanelWidth }} className="bg-bg-surface border-r border-border-subtle flex flex-col shrink-0 overflow-hidden">
+          <div className="px-4 py-3 border-b border-border-subtle shrink-0">
+            <p className="text-text-pri text-sm font-ui font-semibold">
+              {activeActivity === 'files' ? 'Explorer' : activeActivity === 'search' ? 'Search' : activeActivity === 'git' ? 'Source Control' : activeActivity === 'agents' ? 'Agent Tasks' : activeActivity === 'extensions' ? 'Extensions' : activeActivity === 'stats' ? 'Insights' : 'Settings'}
+            </p>
+            <p className="text-text-faint text-[11px] font-ui mt-0.5">
+              {activeActivity === 'files' ? 'Browse and edit project files' : activeActivity === 'search' ? 'Find symbols, text, and files quickly' : activeActivity === 'git' ? 'Review and ship repository changes' : activeActivity === 'agents' ? 'Track worker activity and status' : activeActivity === 'extensions' ? 'Manage capability packs' : activeActivity === 'stats' ? 'Usage and progress snapshots' : 'Editor and agent preferences'}
+            </p>
           </div>
           <div className="flex-1 overflow-y-auto min-h-0">
             {activeActivity === 'files' && (
@@ -502,7 +732,18 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             {activeActivity === 'git' && (
               <ErrorBoundary name="Git Panel">
                 <Suspense fallback={<PanelLoader />}>
-                  <GitPanel daemon={daemon} />
+                  <GitPanel
+                    daemon={daemon}
+                    compact={false}
+                    onOpenFile={(filePath) => {
+                      const node = fileNodeFromPath(filePath);
+                      if (!node) return;
+                      openFile(node);
+                    }}
+                    onCompareFile={(filePath) => {
+                      void openGitCompare(filePath);
+                    }}
+                  />
                 </Suspense>
               </ErrorBoundary>
             )}
@@ -608,7 +849,7 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
                     : 'text-text-faint hover:text-text-sec hover:bg-bg-elevated/50',
                 )}
               >
-                {changedPaths?.includes(f.path) && <span className="w-1 h-1 rounded-full bg-warning" />}
+                {changedPathSet.has(f.path) && <span className="w-1 h-1 rounded-full bg-warning" />}
                 <span>{f.name}</span>
                 <span
                   onClick={e => { e.stopPropagation(); closeFile(f.path); }}
@@ -652,15 +893,41 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
           {/* Run Active File */}
           <button
             onClick={handleRunActiveFile}
-            disabled={!activeFile || running}
+            disabled={!activeEditorFile || running}
             className={cn(
               'text-text-faint hover:text-text-sec transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
               runToast?.status === 'error' && 'text-danger'
             )}
-            title={activeFile ? `Run ${activeFile.name}` : 'Open a file to run'}
+            title={activeEditorFile ? `Run ${activeEditorFile.name}` : 'Open a file to run'}
           >
             <Play size={15} />
           </button>
+
+          {canPreviewMarkdown && (
+            <button
+              onClick={() => setMarkdownPreviewOpen(v => !v)}
+              className={cn(
+                'text-text-faint hover:text-text-sec transition-colors',
+                markdownPreviewOpen && 'text-accent'
+              )}
+              title={markdownPreviewOpen ? 'Show markdown source' : 'Show markdown preview'}
+            >
+              <FileText size={15} />
+            </button>
+          )}
+
+          {gitComparePath ? (
+            <button
+              onClick={() => {
+                setGitComparePath('');
+                setGitCompareBase('');
+              }}
+              className="text-accent hover:text-accent-hover transition-colors"
+              title="Exit diff compare"
+            >
+              <Columns size={15} />
+            </button>
+          ) : null}
 
           {/* Terminal toggle */}
           <button
@@ -724,30 +991,57 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
               loadingFiles.has(activeFile.path) ? (
                 <FileLoadingSkeleton />
               ) : (
-                <Editor
-                  path={activeFile.path}
-                  value={String(fileContents[activeFile.path] || '')}
-                  language={getLang(activeFile.name)}
-                  theme="soupz-dynamic"
-                  onChange={(value) => updateFileContents(activeFile.path, value)}
-                  onMount={handleEditorMount}
-                  options={{
-                    fontSize: 13,
-                    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                    fontLigatures: true,
-                    lineHeight: 1.7,
-                    minimap: { enabled: true, scale: 1, showSlider: 'mouseover' },
-                    scrollBeyondLastLine: false,
-                    padding: { top: 12, bottom: 12 },
-                    renderLineHighlight: 'line',
-                    smoothScrolling: true,
-                    cursorBlinking: 'smooth',
-                    cursorSmoothCaretAnimation: 'on',
-                    roundedSelection: true,
-                    tabSize: 2,
-                    wordWrap: 'off',
-                  }}
-                />
+                gitComparePath === activeFile.path ? (
+                  <DiffEditor
+                    original={String(gitCompareBase || '')}
+                    modified={String(fileContents[activeFile.path] || '')}
+                    language={getLang(activeFile.name)}
+                    theme="soupz-dynamic"
+                    onChange={(value) => updateFileContents(activeFile.path, value)}
+                    options={{
+                      readOnly: false,
+                      renderSideBySide: true,
+                      originalEditable: false,
+                      minimap: { enabled: false },
+                      fontSize: 13,
+                      lineHeight: 1.7,
+                      scrollBeyondLastLine: false,
+                      wordWrap: 'off',
+                    }}
+                  />
+                ) : markdownPreviewOpen && getLang(activeFile.name) === 'markdown' ? (
+                  <div className="h-full overflow-auto p-6 bg-bg-surface text-text-pri">
+                    <div
+                      className="max-w-none text-sm leading-7 [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:mt-6 [&_h1]:mb-3 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-3 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2 [&_p]:my-3 [&_a]:text-accent [&_a:hover]:text-accent-hover [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1 [&_pre]:my-3 [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border-subtle [&_pre]:bg-bg-elevated [&_pre]:p-3 [&_code]:bg-bg-elevated [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_blockquote]:border-l-2 [&_blockquote]:border-border-mid [&_blockquote]:pl-3 [&_blockquote]:text-text-sec [&_hr]:my-4 [&_hr]:border-border-subtle"
+                      dangerouslySetInnerHTML={{ __html: markdownPreviewHtml }}
+                    />
+                  </div>
+                ) : (
+                  <Editor
+                    path={activeFile.path}
+                    value={String(fileContents[activeFile.path] || '')}
+                    language={getLang(activeFile.name)}
+                    theme="soupz-dynamic"
+                    onChange={(value) => updateFileContents(activeFile.path, value)}
+                    onMount={handleEditorMount}
+                    options={{
+                      fontSize: 13,
+                      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                      fontLigatures: true,
+                      lineHeight: 1.7,
+                      minimap: { enabled: true, scale: 1, showSlider: 'mouseover' },
+                      scrollBeyondLastLine: false,
+                      padding: { top: 12, bottom: 12 },
+                      renderLineHighlight: 'line',
+                      smoothScrolling: true,
+                      cursorBlinking: 'smooth',
+                      cursorSmoothCaretAnimation: 'on',
+                      roundedSelection: true,
+                      tabSize: 2,
+                      wordWrap: 'off',
+                    }}
+                  />
+                )
               )
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-text-faint bg-bg-surface/30">
@@ -852,10 +1146,23 @@ export default function ProMode({ daemon, fileTree, changedPaths, onEditorStateC
             direction="horizontal"
             onResize={(delta) => setChatWidth(prev => Math.max(260, Math.min(600, prev - delta)))}
           />
-          <div style={{ width: chatWidth }} className="border-l border-border-subtle flex flex-col shrink-0 min-h-0">
+          <div style={{ width: chatPanelWidth }} className="border-l border-border-subtle flex flex-col shrink-0 min-h-0 overflow-hidden">
             <SimpleMode daemon={daemon} compact={chatWidth < 360} filePaths={flattenedPaths} />
           </div>
         </>
+      )}
+
+      {runToast && (
+        <div
+          className={cn(
+            'absolute bottom-6 right-6 px-3 py-2 rounded border text-xs font-ui shadow-soft bg-bg-surface flex items-center gap-2 z-30',
+            runToast.status === 'error' && 'border-danger/40 text-danger',
+            runToast.status === 'done' && 'border-success/40 text-success',
+            runToast.status === 'running' && 'border-accent/40 text-accent'
+          )}
+        >
+          {runToast.message}
+        </div>
       )}
     </div>
   );
@@ -1011,21 +1318,8 @@ function AgentsSettings() {
                 onChange={e => setTemperature(agent.id, parseFloat(e.target.value))}
                 className="w-full h-1 bg-bg-elevated rounded appearance-none cursor-pointer accent-accent"
               />
-        </div>
-
-        {runToast && (
-          <div
-            className={cn(
-              'absolute bottom-6 right-6 px-3 py-2 rounded border text-xs font-ui shadow-soft bg-bg-surface flex items-center gap-2',
-              runToast.status === 'error' && 'border-danger/40 text-danger',
-              runToast.status === 'done' && 'border-success/40 text-success',
-              runToast.status === 'running' && 'border-accent/40 text-accent'
-            )}
-          >
-            {runToast.message}
+            </div>
           </div>
-        )}
-      </div>
         );
       })}
     </div>

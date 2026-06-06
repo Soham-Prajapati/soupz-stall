@@ -15,6 +15,14 @@ Read `CLAUDE.md` first for project conventions and architecture.
 4. **If you create new tasks** during your work, add them to this file under your terminal's section.
 5. **Read this file BEFORE starting** to see what's already been completed by other terminals.
 
+Canonical multi-session prompt workflow is now documented in root `.copilot.md` and this task tracker.
+
+## HOTFIX LOG (APR 2, 2026)
+- [x] Fixed runtime crash in Pairing modal import path by using daemon namespace import + safe fallback URL resolution.
+- [x] Fixed ProMode crash (`runToast is not defined`) by moving toast render out of `AgentsSettings` and back into `ProMode` scope.
+- [x] Fixed Core Console status confusion: agents now display `ready` vs `setup` vs `missing` based on detailed runtime health (installed + ready + reason).
+- [x] Dev cache guard added: service worker now auto-unregisters on localhost to avoid stale module export mismatches after refactors.
+
 ---
 
 ## TERMINAL 1: COMPLETED
@@ -105,7 +113,7 @@ Terminal 2 added a "Connect Database" UI that needs this backend endpoint:
 All 5 UI polish + npm tasks done:
 - [x] T2-10: npm publish prep (v0.2.0, .npmignore, README, 424KB pack, publishConfig)
 - [x] T2-11: AUDIT_AND_USP.md rewrite (23 features moved to FULLY WORKING, pitch-ready)
-- [x] T2-12: Landing page update (real feature cards, "Free to use" badge, npx soupz prominent)
+- [x] T2-12: Landing page update (real feature cards, "Free to use" badge, npx @shubh_prajapati99/soupz prominent)
 - [x] T2-13: Onboarding overlay (3 swipeable cards, framer-motion transitions, dismissible)
 - [x] T2-14: Team execution dashboard (TeamExecutionCard.jsx, structured agent status, progress bar, expandable outputs)
 
@@ -470,12 +478,12 @@ All agents are done modifying index.js. NOW it's safe to split:
 
 ## TERMINAL 2 (BATCH 4): New Features
 
-### T2-19: Keyboard shortcuts overlay
+### [x] T2-19: Keyboard shortcuts overlay
 - Cmd+/ or Cmd+Shift+K to show shortcuts panel
 - List all shortcuts, searchable
 - packages/dashboard/src/components/shared/KeyboardShortcuts.jsx
 
-### T2-20: Toast notification system
+### [x] T2-20: Toast notification system
 - Order completed/failed, rate limit fallback, achievement, daemon disconnect/reconnect
 - Auto-dismiss 5s, notification queue
 - packages/dashboard/src/components/shared/NotificationToast.jsx
@@ -486,7 +494,7 @@ All agents are done modifying index.js. NOW it's safe to split:
 - Sync: theme, mode, agent prefs, model tier, enabled agents
 
 ### T2-22: QR deep-link + auto-pair experience — ✅ DONE
-- Pairing QR + terminal link now include `remote=<daemon>` so mobile cameras open `soupz.vercel.app/connect?code=...` with the daemon URL embedded.
+- Pairing QR + terminal link now include `remote=<daemon>` so mobile cameras open `soupz.vercel.app/code?code=...` with the daemon URL embedded.
 - ConnectPage auto-submits whenever the link originated from a QR (session flag) or when the user is on mobile, and gracefully falls back if the daemon can't be reached.
 - `/pair` and `/pair/current` expose the preferred remote base and the CLI prints the deep link so scanning immediately authorizes the phone session.
 
@@ -596,3 +604,103 @@ These WILL change. T1-15 adds dynamic model discovery at runtime.
 - Fallback: gpt-4.1 (always available, free)
 
 This means: even without standalone Claude Code, users get Claude-level reasoning through Copilot's model access. Soupz automatically uses the best models available.
+
+---
+
+## TERMINAL BATCH 6 (FOUR-DAY SHIP MODE): Parallel Sessions
+
+Purpose: run these in parallel sessions (`Session 1..6`) within a strict four-day stabilization window before demo day.
+
+### Session 1 — Pairing + Connectivity Reliability
+- [x] Migrate all public pairing surfaces to `/code` (keep `/connect` alias).
+- [x] Add pairing diagnostics panel (`why pairing failed`, `last endpoint attempted`, `network hint`).
+- [x] Add tunnel readiness checks and clear failure messages when remote pairing is unavailable.
+- [x] Add automated smoke test: generate code -> validate -> auth WS -> create one order.
+
+### Session 2 — Mobile UI Stack and Overflow Guardrails
+- [x] Audit and fix z-index layering collisions (modals, dropdowns, toasts, command palette, terminal).
+- [x] Add mobile overflow constraints for chat header, git panel, and side drawers.
+- [x] Add visual regression snapshots for 360px, 390px, 430px widths.
+- [x] Ship a shared overlay stacking convention doc and constants.
+
+Notes:
+- Added scripted mobile captures via `npm run snapshot:mobile` (`scripts/mobile-viewport-snapshots.mjs`) for `/`, `/code`, `/dashboard` at 360/390/430 widths.
+
+### Session 3 — Documentation and Demo Readiness
+- [x] Keep architecture docs runtime-accurate (API map, lifecycle, failure paths, guardrails).
+- [x] Create one canonical docs index and remove duplicate/outdated pointers.
+- [x] Add troubleshooting matrix by provider (Gemini/Codex/Copilot/Claude/Ollama/Kiro).
+- [x] Add "demo script" page with deterministic steps and fallback plans.
+
+### Session 4 — CI/CD and Safe Release Workflow
+- [x] Enforce PR-only deploy path (no direct deploy from broken local branch state).
+- [x] Add CI checks for dashboard build + daemon syntax + tests + critical docs link check.
+- [x] Add release branch convention: `release/*` and hotfix flow.
+- [x] Add Vercel pre-deploy smoke command and rollback note.
+
+### Session 5 — Product UX/Value Validation
+- [x] Remove low-value settings that confuse users (especially secret entry in browser UI).
+- [x] Build usage instrumentation for first-run friction points.
+- [x] Add onboarding checklist focused on user outcomes, not feature count.
+- [x] Gather external feedback loop plan (Discord, issues triage, review mining automation).
+
+### Session 6 — Hackathon PS Throughput Benchmark
+- [x] Standardize problem-statement formatting pipeline (`hack_ps.md` in normalized structure).
+- [x] Add benchmark flow: raw PS -> plan -> build -> pitch package output.
+- [x] Track quality metrics vs manual single-agent baseline.
+- [x] Publish claim policy: when to say 5x/10x and what evidence is required.
+
+---
+
+## TERMINAL BATCH 7 (DEADLINE MODE): Consumer Reliability and Transparency
+
+Purpose: replace generic 5-task plans with explicit, audit-ready parallel streams.
+
+### Low-RAM Mode (Use 3 Sessions Max)
+- Session A: Routing + Pairing Reliability
+  - Batch 7 Session 1 + Session 3
+- Session B: Model Governance + Ollama + Supabase
+  - Batch 7 Session 2 + Session 4 + Session 5
+- Session C: Docs + Packaging + Final Gates
+  - Batch 7 Session 6 + build/test/standalone checks
+
+This mode keeps concurrency practical on laptops while preserving delivery order.
+
+### Session 1 — Routing Transparency and Bias Control
+- [x] Replace provider-priority classifier paths with deterministic scorecard routing.
+- [x] Expose route confidence + scorecard evidence in API payloads and order events.
+- [x] Add `/api/routing/explain` endpoint and document response contract.
+- [x] Verify explicit user agent override still bypasses auto routing.
+- [x] Keep Codex and Copilot as separate routing identities even when they share transport tooling.
+- [x] Include Codex-vs-Copilot readiness reasons in `/api/agents` and `/api/system/check-clis`.
+
+### Session 2 — Model Governance and Benchmarks
+- [x] Create prompt pack (`benchmarks/model-eval-prompts.json`) covering architecture/debug/devops/security/UI/product.
+- [x] Add benchmark runner script for multi-agent output capture.
+- [x] Add manual grading rubric (correctness/feasibility/transparency/completeness/readiness).
+- [x] Publish claim policy requiring benchmark evidence before any 5x/10x claims.
+- [x] Clarify usage-limit semantics in dashboard metadata (Gemini quota, Ollama unlimited local).
+
+### Session 3 — Pairing and Tunnel Reliability
+- [x] Default free tunnel startup to enabled state (`SOUPZ_ENABLE_FREE_TUNNELS=1` default behavior).
+- [x] Add explicit diagnostics when tunnel bootstrap fails (binary missing, timeout, endpoint mismatch).
+- [x] Verify generated links always use hosted `/code?code=...&remote=...` pattern.
+- [x] Add end-to-end pairing smoke check (pair -> validate -> authenticated WS -> first order).
+
+### Session 4 — Ollama Reliability and Local Cost Controls
+- [x] Guard runtime readiness so Ollama is selected only when daemon is running and required model is installed.
+- [x] Change heavy default model pulls to smaller baseline model for first-run reliability.
+- [x] Ensure crash fallback chain skips runtime-unready agents.
+- [x] Add setup doc for required local model list and startup command.
+
+### Session 5 — Supabase Integrity and Cleanup
+- [x] Audit all core tables for foreign keys and RLS gaps.
+- [x] Publish cleanup SQL playbook for test-data flush (dry run + delete + verification).
+- [x] Add data retention checks for `soupz_orders`, `soupz_commands`, `soupz_responses`.
+- [x] Verify profile/settings schema supports sync without orphaned records.
+
+### Session 6 — Docs, Packaging, and Owner Ops
+- [x] Update README + project overview with canonical architecture and model-governance docs.
+- [x] Add owner checklist for account auth, model prep, smoke tests, and launch gates.
+- [x] Ensure run artifacts (`.soupz-runs`, benchmark outputs) are ignored in git.
+- [x] Publish daily execution checklist for final 4-day stabilization sprint (`docs/guides/FOUR_DAY_STABILIZATION_CHECKLIST.md`).

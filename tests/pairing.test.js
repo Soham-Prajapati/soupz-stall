@@ -1,18 +1,24 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
-describe('Pairing Code', () => {
-  it('generates 9-character alphanumeric numeric code', () => {
-    const code = Array.from({ length: 8 }, () => Math.floor(Math.random() * 10)).join('');
-    expect(code).toHaveLength(8);
-    expect(/^\d{8}$/.test(code)).toBe(true);
+function readSource(relativePath) {
+  return readFileSync(join(process.cwd(), relativePath), 'utf8');
+}
+
+describe('Pairing Flow Contract', () => {
+  it('uses 9-character pairing codes in connect UI flow', () => {
+    const connectPage = readSource('packages/dashboard/src/components/connect/ConnectPage.jsx');
+    expect(connectPage).toContain('code.length === 9');
   });
 
-  it('codes are unique across generations', () => {
-    const codes = new Set();
-    for (let i = 0; i < 100; i++) {
-      codes.add(Array.from({ length: 8 }, () => Math.floor(Math.random() * 10)).join(''));
-    }
-    // With 100M possible codes, 100 should all be unique
-    expect(codes.size).toBe(100);
+  it('builds hosted pairing URL on /code route in daemon', () => {
+    const pairing = readSource('packages/remote-server/src/pairing.js');
+    expect(pairing).toContain('return `${base}/code?${params.toString()}`');
+  });
+
+  it('prints /code URL from CLI bootstrap output', () => {
+    const cli = readSource('bin/soupz.js');
+    expect(cli).toContain('/code?code=${pairing.code}');
   });
 });

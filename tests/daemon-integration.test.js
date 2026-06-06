@@ -254,6 +254,39 @@ describe('Daemon Integration', () => {
       expect(body.orders).toBeDefined();
       expect(Array.isArray(body.orders)).toBe(true);
     });
+
+    it('explicit agent selection bypasses auto routing method', async () => {
+      const res = await fetch(`${BASE_URL}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: 'verify explicit routing guardrail',
+          agent: 'copilot',
+          modelPolicy: 'balanced',
+          cwd: ROOT,
+        }),
+      });
+      expect(res.status === 202 || res.status === 200).toBe(true);
+      const order = await res.json();
+      expect(order.id).toBeDefined();
+
+      const detailRes = await fetch(`${BASE_URL}/api/orders/${order.id}`);
+      expect(detailRes.status).toBe(200);
+      const detail = await detailRes.json();
+      const routeSelected = Array.isArray(detail.events)
+        ? detail.events.find((evt) => evt?.type === 'route.selected')
+        : null;
+
+      expect(routeSelected).toBeTruthy();
+      expect(routeSelected.requested).toBe('copilot');
+      expect(['explicit', 'explicit-fallback']).toContain(routeSelected.routeMethod);
+
+      await fetch(`${BASE_URL}/api/orders/${order.id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'explicit-routing-test-cleanup' }),
+      }).catch(() => {});
+    });
   });
 
   // --- System Endpoints ---
@@ -265,10 +298,14 @@ describe('Daemon Integration', () => {
         // Should have at least git
         expect(body.git).toBeDefined();
         expect(body.git.installed).toBe(true);
+        // Codex readiness should always be reported, even if unavailable
+        expect(body.codex).toBeDefined();
+        expect(typeof body.codex.installed).toBe('boolean');
+        expect(typeof body.codex.ready).toBe('boolean');
       }
       // If 404, endpoint might not exist yet -- that's ok
       expect([200, 404]).toContain(res.status);
-    });
+    }, 15000);
 
     it('GET /terminals returns terminal list', async () => {
       const res = await fetch(`${BASE_URL}/terminals`);

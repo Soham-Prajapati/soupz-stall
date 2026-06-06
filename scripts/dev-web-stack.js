@@ -19,8 +19,12 @@ const DASHBOARD_PORT = process.env.SOUPZ_DASHBOARD_PORT || '5173';
 const REPO_ROOT = join(__dirname, '..');
 const DASHBOARD_DIR = join(REPO_ROOT, 'packages/dashboard');
 const REMOTE_ENTRY = join(REPO_ROOT, 'packages/remote-server/src/index.js');
-const ENABLE_FREE_TUNNELS = (process.env.SOUPZ_ENABLE_FREE_TUNNELS || '').trim() === '1';
+const tunnelFlagRaw = (process.env.SOUPZ_ENABLE_FREE_TUNNELS || '1').trim().toLowerCase();
+const ENABLE_FREE_TUNNELS = !['0', 'false', 'off', 'no'].includes(tunnelFlagRaw);
 const TUNNEL_TIMEOUT_MS = 30000;
+const TUNNEL_PROVIDER = (process.env.SOUPZ_TUNNEL_PROVIDER || 'auto').trim().toLowerCase();
+const TAILSCALE_DAEMON_URL = String(process.env.SOUPZ_TAILSCALE_DAEMON_URL || process.env.SOUPZ_TUNNEL_URL || '').trim().replace(/\/$/, '');
+const TAILSCALE_WEB_URL = String(process.env.SOUPZ_TAILSCALE_WEB_URL || process.env.SOUPZ_APP_URL || '').trim().replace(/\/$/, '');
 
 function hasCmd(cmd) {
   const out = spawnSync('sh', ['-lc', `command -v ${cmd}`], { stdio: 'ignore' });
@@ -203,10 +207,34 @@ async function startFreeTunnels(webPort) {
   log(`Web tunnel:    ${webTunnelUrl}`);
   log('');
   log('Phone testing URL (fresh local build):');
-  log(`${webTunnelUrl}/connect`);
+  log(`${webTunnelUrl}/code`);
   log('');
 
   return { daemonTunnelUrl, webTunnelUrl };
+}
+
+async function startTailscaleTunnelConfig() {
+  if (!TAILSCALE_DAEMON_URL) {
+    log('Tailscale provider selected, but no daemon tunnel URL is configured.');
+    log('Set SOUPZ_TAILSCALE_DAEMON_URL (or SOUPZ_TUNNEL_URL) to your Tailscale Funnel HTTPS URL.');
+    return null;
+  }
+
+  const webTunnelUrl = TAILSCALE_WEB_URL || 'https://soupz.vercel.app';
+  await updatePairingRuntimeConfig({
+    webappUrl: webTunnelUrl,
+    tunnelUrls: [TAILSCALE_DAEMON_URL],
+  });
+
+  log('Using Tailscale tunnel provider.');
+  log(`Daemon tunnel: ${TAILSCALE_DAEMON_URL}`);
+  log(`Web app URL:    ${webTunnelUrl}`);
+  log('');
+  log('Phone testing URL:');
+  log(`${webTunnelUrl}/code`);
+  log('');
+
+  return { daemonTunnelUrl: TAILSCALE_DAEMON_URL, webTunnelUrl };
 }
 
 async function startBackend() {
@@ -331,9 +359,17 @@ process.on('SIGTERM', shutdown);
       } catch {
         // Keep configured fallback port.
       }
-      await startFreeTunnels(webPort);
+      const provider = TUNNEL_PROVIDER === 'auto'
+        ? (TAILSCALE_DAEMON_URL ? 'tailscale' : 'cloudflare')
+        : TUNNEL_PROVIDER;
+
+      if (provider === 'tailscale') {
+        await startTailscaleTunnelConfig();
+      } else {
+        await startFreeTunnels(webPort);
+      }
     } else {
-      log('Free tunnel setup disabled. Set SOUPZ_ENABLE_FREE_TUNNELS=1 to auto-start cloudflared.');
+      log('Free tunnel setup disabled by SOUPZ_ENABLE_FREE_TUNNELS. Set it to 1 (default) to auto-start cloudflared.');
     }
     log('Dev stack running. Press Ctrl+C to stop both backend and dashboard.');
   } catch (err) {

@@ -8,7 +8,6 @@ const AGENTS = {
   auto:   { label: 'Auto',    icon: '🤖', desc: 'Let the orchestrator pick' },
   gemini: { label: 'Gemini',  icon: '🔮', desc: 'Research, design, frontend' },
   copilot:{ label: 'Copilot', icon: '🐙', desc: 'Coding, shell, DevOps' },
-  ollama: { label: 'Ollama',  icon: '🦙', desc: 'Local, private, offline' },
 };
 
 function getDaemonUrl() {

@@ -85,7 +85,7 @@ async function startDaemon() {
     const QRCode = (await import('qrcode')).default;
 
     async function printPairingBlock(pairing) {
-        const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/connect?code=${pairing.code}`;
+        const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/code?code=${pairing.code}`;
         const tunnelUrl = process.env.SOUPZ_TUNNEL_URL || process.env.SOUPZ_TUNNEL_URLS || '';
 
         // Generate ASCII QR code for terminal
@@ -111,7 +111,17 @@ async function startDaemon() {
             console.log(chalk.dim('  Phone can connect over internet using this tunnel target.\n'));
         }
 
-        // Live countdown
+        const shouldAnimateCountdown =
+            process.stdout.isTTY
+            && process.env.TERM !== 'dumb'
+            && process.env.SOUPZ_SHOW_CODE_TIMER === '1';
+
+        if (!shouldAnimateCountdown) {
+            console.log(chalk.dim(`  Code expires in ${pairing.expiresIn}s. Set SOUPZ_SHOW_CODE_TIMER=1 to show animated timer.`));
+            return null;
+        }
+
+        // Optional live countdown (disabled by default to avoid noisy terminals).
         const expiresAt = Date.now() + pairing.expiresIn * 1000;
         const countdownInterval = setInterval(() => {
             const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
@@ -136,7 +146,7 @@ async function startDaemon() {
     console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
 
     // Open browser to the connect page
-        const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/connect?code=${pairing.code}`;
+        const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/code?code=${pairing.code}`;
     const { exec } = await import('child_process');
     if (process.platform === 'darwin') exec(`open "${connectUrl}"`);
     else if (process.platform === 'linux') exec(`xdg-open "${connectUrl}"`);
@@ -173,7 +183,20 @@ async function handleAsk([agentId, promptStr, ...restArgs]) {
     await registry.init();
 
     const spawner = new AgentSpawner(registry);
-    const fullPrompt = [promptStr, ...restArgs].join(' ');
+
+    let forcedModel = null;
+    const promptTokens = [];
+    for (let i = 0; i < restArgs.length; i++) {
+        const token = restArgs[i];
+        if (token === '--model' && restArgs[i + 1]) {
+            forcedModel = String(restArgs[i + 1] || '').trim() || null;
+            i += 1;
+            continue;
+        }
+        promptTokens.push(token);
+    }
+
+    const fullPrompt = [promptStr, ...promptTokens].join(' ');
 
     // The remote-server reads stdout/stderr directly
     spawner.on('output', (id, data) => {
@@ -182,7 +205,7 @@ async function handleAsk([agentId, promptStr, ...restArgs]) {
     });
 
     try {
-        await spawner.run(agentId, fullPrompt, process.cwd());
+        await spawner.run(agentId, fullPrompt, process.cwd(), { model: forcedModel });
     } catch (e) {
         process.stderr.write(`\n✖ Agent error: ${e.message}\n`);
         process.exit(1);

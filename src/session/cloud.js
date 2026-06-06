@@ -36,6 +36,22 @@ export const CloudMixin = {
         }
 
         const log = silent ? () => {} : (...a) => console.log(...a);
+        const providerRaw = String(process.env.SOUPZ_TUNNEL_PROVIDER || 'auto').trim().toLowerCase();
+        const tailscaleUrl = String(process.env.SOUPZ_TAILSCALE_DAEMON_URL || process.env.SOUPZ_TUNNEL_URL || '').trim().replace(/\/$/, '');
+        const provider = providerRaw === 'auto'
+            ? (tailscaleUrl ? 'tailscale' : 'cloudflare')
+            : providerRaw;
+
+        if (provider === 'tailscale') {
+            if (!tailscaleUrl) {
+                log(chalk.red('\n  ✖ Tailscale tunnel selected, but no URL configured. Set SOUPZ_TAILSCALE_DAEMON_URL.'));
+                return;
+            }
+            this._tunnel = { proc: null, url: tailscaleUrl };
+            log(chalk.green(`\n  🌍 Tailscale Tunnel Active: ${chalk.bold(tailscaleUrl)}`));
+            log(chalk.dim('     Use this URL on your phone/tablet to connect from anywhere.\n'));
+            return;
+        }
 
         try {
             execSync('which cloudflared', { stdio: 'ignore' });

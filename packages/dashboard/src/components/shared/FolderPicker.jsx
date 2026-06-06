@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
   Folder, FolderOpen, ChevronLeft, GitBranch, X, Loader2,
-  ArrowRight, Home, Plus, Github, Database, Check,
+  ArrowRight, Home, Plus, Github, Check,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { listDirectories, initProject } from '../../lib/daemon';
+import { OVERLAY_Z } from '../../lib/overlayZ.js';
 
 export default function FolderPicker({ open, onClose, onSelect }) {
   const [loading, setLoading] = useState(false);
@@ -13,7 +14,7 @@ export default function FolderPicker({ open, onClose, onSelect }) {
 
   // Project Init Flow state
   const [step, setStep] = useState('list'); // 'list', 'naming', 'integrations'
-  const [newProject, setNewProject] = useState({ name: '', supabase: false, github: false });
+  const [newProject, setNewProject] = useState({ name: '', github: false });
   const [isCreating, setIsCreating] = useState(false);
 
   async function loadDir(path) {
@@ -40,7 +41,6 @@ export default function FolderPicker({ open, onClose, onSelect }) {
       const result = await initProject({
         name: newProject.name,
         path: data?.current,
-        supabase: newProject.supabase,
         github: newProject.github
       });
       if (result && result.path) {
@@ -48,7 +48,7 @@ export default function FolderPicker({ open, onClose, onSelect }) {
         onClose();
         // Reset state for next time
         setStep('list');
-        setNewProject({ name: '', supabase: false, github: false });
+        setNewProject({ name: '', github: false });
       }
     } catch (e) {
       setError(e.message);
@@ -67,7 +67,7 @@ export default function FolderPicker({ open, onClose, onSelect }) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+    <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: OVERLAY_Z.folderPicker }}>
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
@@ -238,25 +238,6 @@ export default function FolderPicker({ open, onClose, onSelect }) {
                 {newProject.github && <Check size={14} className="text-accent" />}
               </button>
 
-              <button
-                onClick={() => setNewProject({ ...newProject, supabase: !newProject.supabase })}
-                className={cn(
-                  "w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left",
-                  newProject.supabase ? "bg-success/5 border-success/50" : "bg-bg-surface border-border-subtle hover:border-border-mid"
-                )}
-              >
-                <div className={cn(
-                  "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
-                  newProject.supabase ? "bg-success text-white" : "bg-bg-elevated text-text-faint"
-                )}>
-                  <Database size={16} />
-                </div>
-                <div className="flex-1">
-                  <div className="text-xs font-ui font-medium text-text-pri">Supabase</div>
-                  <div className="text-[10px] text-text-faint">Setup database & auth schema</div>
-                </div>
-                {newProject.supabase && <Check size={14} className="text-success" />}
-              </button>
             </div>
 
             {error && <p className="mt-4 text-[10px] text-danger">{error}</p>}

@@ -1,21 +1,29 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Check, Loader2, RefreshCw, Send, Trash2, Square } from 'lucide-react';
-import { cancelOrder, checkAgentAvailability } from '../../lib/daemon';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Bot, Check, GitBranch, Loader2, Monitor, RefreshCw, Send, Square, Terminal, Trash2 } from 'lucide-react';
+import { trackEvent } from '../../lib/instrumentation.js';
+import { cancelOrder, checkAgentAvailability, getAgentModels } from '../../lib/daemon';
+import { CLI_AGENTS } from '../../lib/agents';
+import PreviewPanel from '../shared/PreviewPanel';
+import Select from '../shared/Select';
+import './CoreConsole.css';
+
+const GitPanel = lazy(() => import('../git/GitPanel'));
 
 const CORE_AGENTS = [
   { id: 'auto', label: 'Auto (Smart Route)' },
   { id: 'gemini', label: 'Gemini' },
+  { id: 'codex', label: 'Codex' },
   { id: 'copilot', label: 'Copilot' },
-  { id: 'ollama', label: 'Ollama' },
   { id: 'claude-code', label: 'Claude Code' },
   { id: 'kiro', label: 'Kiro' },
 ];
 
-const TESTING_CWD = '/Users/shubh/Developer/ai-testing';
+const DEFAULT_CWD = '.';
 const ACTIVE_ORDER_SESSION_KEY = 'soupz.core.activeOrderId';
+const AGENT_MODEL_PREFS_KEY = 'soupz_agent_models';
 
 const BENCHMARK_PROMPT = [
-  'Build a complete mini project inside /Users/shubh/Developer/ai-testing/multi-agent-benchmark.',
+  'Build a complete mini project inside the current working directory under ./multi-agent-benchmark.',
   'Create these files with production-quality content: README.md, index.html, style.css, app.js, and run-report.md.',
   'Project spec: responsive task board app (add, edit, delete, filter, localStorage persistence, keyboard accessibility).',
   'Include a clear architecture section in README and a testing checklist in run-report.md.',
@@ -24,7 +32,7 @@ const BENCHMARK_PROMPT = [
 ].join(' ');
 
 const DEEP_STRESS_PROMPT = [
-  'Create a production-grade mini product inside /Users/shubh/Developer/ai-testing/deep-stress-suite.',
+  'Create a production-grade mini product inside the current working directory under ./deep-stress-suite.',
   'Build 3 artifacts: (1) a full web app (index.html, style.css, app.js), (2) a concise architecture doc (ARCHITECTURE.md), and (3) a QA + risk report (QA-RISKS.md).',
   'Web app spec: kanban + note board hybrid with add/edit/delete, drag-and-drop between columns, filters, search, localStorage persistence, and keyboard accessibility.',
   'Architecture doc must include data model, component boundaries, and tradeoff decisions.',
@@ -34,7 +42,7 @@ const DEEP_STRESS_PROMPT = [
 ].join(' ');
 
 const DEEP_COMPLEX_PROMPT = [
-  'Create an advanced production mini product inside /Users/shubh/Developer/ai-testing/parallel-systems-lab.',
+  'Create an advanced production mini product inside the current working directory under ./parallel-systems-lab.',
   'Deliver artifacts: index.html, style.css, app.js, ARCHITECTURE.md, TEST_PLAN.md, and PERFORMANCE_NOTES.md.',
   'Feature spec: multi-column planning workspace with drag-drop, inline editing, markdown notes, advanced filtering, undo/redo, and localStorage persistence with migration versioning.',
   'Include keyboard-first accessibility, optimistic UI updates, graceful empty/error states, and a clear in-app activity log.',
@@ -56,14 +64,31 @@ const HACKATHON_RADIATOR_ROUTES_PROMPT = [
 
 const ENABLED_CORE_AGENTS_KEY = 'soupz_enabled_core_agents';
 
+const RUNTIME_REASON_LABELS = {
+  not_installed: 'CLI not installed',
+  missing_cli: 'CLI not installed',
+  auth_required: 'Sign-in required',
+  login_required: 'Sign-in required',
+  setup_required: 'Setup required',
+  config_missing: 'Configuration missing',
+  unavailable: 'Unavailable',
+};
+
+function formatRuntimeReason(reason = '') {
+  if (!reason) return '';
+  if (RUNTIME_REASON_LABELS[reason]) return RUNTIME_REASON_LABELS[reason];
+  return reason.replace(/[_-]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
 export default function CoreConsole({ workspace }) {
   const [agentId, setAgentId] = useState('auto');
   const [buildMode, setBuildMode] = useState('quick');
   const [useAiPlanner, setUseAiPlanner] = useState(true);
+  const [mixedMode, setMixedMode] = useState(true);
   const [plannerStyle, setPlannerStyle] = useState('balanced');
   const [plannerNotes, setPlannerNotes] = useState('');
   const [showPlannerSettings, setShowPlannerSettings] = useState(false);
-  const [cwd, setCwd] = useState(TESTING_CWD);
+  const [cwd, setCwd] = useState(workspace?.rootPath || DEFAULT_CWD);
   const [prompt, setPrompt] = useState('');
   const [output, setOutput] = useState('');
   const [running, setRunning] = useState(false);
@@ -99,25 +124,188 @@ export default function CoreConsole({ workspace }) {
   const [termError, setTermError] = useState('');
   const [killingId, setKillingId] = useState(null);
   const [agentAvailability, setAgentAvailability] = useState({});
+  const [agentRuntime, setAgentRuntime] = useState({});
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState('');
+  const [agentModelPrefs, setAgentModelPrefs] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(AGENT_MODEL_PREFS_KEY) || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
+  const [discoveredModels, setDiscoveredModels] = useState({});
+  const [dockTab, setDockTab] = useState('preview');
+  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewStatus, setPreviewStatus] = useState('idle');
+  const [previewError, setPreviewError] = useState('');
   const outputRef = useRef(null);
   const questionPanelRef = useRef(null);
   const completionMarkedRef = useRef(false);
   const knownWorkersRef = useRef([]);
+  const agentRuntimeRef = useRef({});
   const online = !!workspace?.online;
 
+  useEffect(() => {
+    if (!workspace?.rootPath) return;
+    setCwd((prev) => (prev && prev !== DEFAULT_CWD ? prev : workspace.rootPath));
+  }, [workspace?.rootPath]);
+
+  async function refreshDockPreview() {
+    if (!workspace?.getDevServerUrl || !online || !previewEnabled) {
+      setPreviewUrl(null);
+      setPreviewStatus(online ? 'disabled' : 'offline');
+      setPreviewError('');
+      return;
+    }
+
+    setPreviewStatus('loading');
+    setPreviewError('');
+    try {
+      const result = await workspace.getDevServerUrl(cwd);
+      const nextUrl = result?.url || null;
+      setPreviewUrl(nextUrl);
+      setPreviewStatus(nextUrl ? 'ready' : 'empty');
+    } catch (err) {
+      setPreviewUrl(null);
+      setPreviewStatus('error');
+      setPreviewError(err?.message || 'Failed to detect local server');
+    }
+  }
+
+  useEffect(() => {
+    if (!previewEnabled || !online) {
+      if (!online) {
+        setPreviewStatus('offline');
+        setPreviewUrl(null);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    let timer = null;
+
+    const poll = async () => {
+      if (cancelled) return;
+      await refreshDockPreview();
+      if (!cancelled) timer = setTimeout(poll, 15000);
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [previewEnabled, online, cwd]);
+
+  useEffect(() => {
+    agentRuntimeRef.current = agentRuntime;
+  }, [agentRuntime]);
+
   const readyAgents = useMemo(
-    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentAvailability[a.id]).map(a => a.label),
-    [agentAvailability],
+    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentRuntime[a.id]?.ready).map(a => a.label),
+    [agentRuntime],
+  );
+
+  const installedAgents = useMemo(
+    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentRuntime[a.id]?.installed).map(a => a.label),
+    [agentRuntime],
   );
 
   const missingAgents = useMemo(
-    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentAvailability[a.id] === false).map(a => a.label),
-    [agentAvailability],
+    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentRuntime[a.id]?.installed === false).map(a => a.label),
+    [agentRuntime],
   );
 
-  const autoAgentsEmpty = agentId === 'auto' && enabledAgents.length === 0;
+  const setupAgents = useMemo(
+    () => CORE_AGENTS.filter(a => a.id !== 'auto' && agentRuntime[a.id]?.installed && !agentRuntime[a.id]?.ready).map(a => a.label),
+    [agentRuntime],
+  );
+
+  const setupAgentDetails = useMemo(
+    () => CORE_AGENTS
+      .filter(a => a.id !== 'auto' && agentRuntime[a.id]?.installed && !agentRuntime[a.id]?.ready)
+      .map((a) => ({
+        label: a.label,
+        reason: formatRuntimeReason(agentRuntime[a.id]?.reason),
+        hint: agentRuntime[a.id]?.hint || '',
+      })),
+    [agentRuntime],
+  );
+
+  const missingAgentDetails = useMemo(
+    () => CORE_AGENTS
+      .filter(a => a.id !== 'auto' && agentRuntime[a.id]?.installed === false)
+      .map((a) => ({
+        label: a.label,
+        reason: formatRuntimeReason(agentRuntime[a.id]?.reason),
+        hint: agentRuntime[a.id]?.hint || '',
+      })),
+    [agentRuntime],
+  );
+
+  const enabledReadyAgents = useMemo(
+    () => enabledAgents.filter(id => agentRuntime[id]?.ready),
+    [enabledAgents, agentRuntime],
+  );
+
+  const autoAgentsEmpty = agentId === 'auto' && enabledReadyAgents.length === 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadModels() {
+      try {
+        const agents = await getAgentModels();
+        if (!cancelled && agents && typeof agents === 'object') {
+          setDiscoveredModels(agents);
+        }
+      } catch {
+        // Keep static model fallback list.
+      }
+    }
+    void loadModels();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const modelOptionsByAgent = useMemo(() => {
+    const byAgent = {};
+    for (const agent of CLI_AGENTS) {
+      const staticModels = Array.isArray(agent.models)
+        ? agent.models.map((m) => ({ id: m.id, name: m.name || m.id }))
+        : [];
+      const discovered = Array.isArray(discoveredModels?.[agent.id]?.available)
+        ? discoveredModels[agent.id].available.map((id) => ({ id, name: id }))
+        : [];
+      const combined = [...staticModels, ...discovered];
+      const seen = new Set();
+      byAgent[agent.id] = combined.filter((entry) => {
+        const id = String(entry?.id || '').trim();
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+    }
+    return byAgent;
+  }, [discoveredModels]);
+
+  const selectedModel = agentId !== 'auto' ? (agentModelPrefs?.[agentId] || '') : '';
+
+  function saveAgentModelPreference(agentKey, modelId) {
+    setAgentModelPrefs((prev) => {
+      const next = { ...(prev || {}) };
+      if (!agentKey || !modelId) {
+        delete next[agentKey];
+      } else {
+        next[agentKey] = modelId;
+      }
+      localStorage.setItem(AGENT_MODEL_PREFS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
 
   function persistEnabledAgents(list) {
     const sanitized = list.filter(id => id !== 'auto');
@@ -127,7 +315,7 @@ export default function CoreConsole({ workspace }) {
   }
 
   function toggleAgent(agentIdToToggle) {
-    if (agentIdToToggle !== 'auto' && agentAvailability[agentIdToToggle] === false) {
+    if (agentIdToToggle !== 'auto' && agentRuntime[agentIdToToggle]?.installed === false) {
       return;
     }
     setEnabledAgents(prev => {
@@ -142,7 +330,7 @@ export default function CoreConsole({ workspace }) {
 
   function toggleAllAgents(enable) {
     const next = enable
-      ? CORE_AGENTS.filter(a => a.id !== 'auto' && agentAvailability[a.id] !== false).map(a => a.id)
+      ? CORE_AGENTS.filter(a => a.id !== 'auto' && agentRuntime[a.id]?.installed !== false).map(a => a.id)
       : [];
     setEnabledAgents(next);
     persistEnabledAgents(next);
@@ -156,16 +344,52 @@ export default function CoreConsole({ workspace }) {
       try {
         const avail = await checkAgentAvailability();
         if (!active) return;
-        const normalized = CORE_AGENTS.reduce((acc, agent) => {
+        const hasSignals = Object.keys(avail?.detailed || {}).length > 0 || Object.keys(avail?.simple || {}).length > 0;
+        if (!hasSignals) {
+          setAvailabilityError('Agent probe unavailable. Keeping last known status.');
+          return;
+        }
+        const readyMap = avail?.simple || avail || {};
+        const detailed = avail?.detailed || {};
+        const prevRuntime = agentRuntimeRef.current || {};
+
+        const runtime = CORE_AGENTS.reduce((acc, agent) => {
           if (agent.id === 'auto') return acc;
-          const map = avail?.simple || avail;
-          acc[agent.id] = Boolean(map?.[agent.id]);
+          const detail = detailed?.[agent.id] || {};
+          const prev = prevRuntime?.[agent.id] || {};
+          const hasReadyKey = Object.prototype.hasOwnProperty.call(readyMap || {}, agent.id);
+          const installed = typeof detail.installed === 'boolean'
+            ? detail.installed
+            : typeof detail.ready === 'boolean'
+              ? detail.ready
+              : hasReadyKey
+                ? Boolean(readyMap?.[agent.id])
+                : (typeof prev.installed === 'boolean' ? prev.installed : false);
+          const ready = typeof detail.ready === 'boolean'
+            ? detail.ready
+            : hasReadyKey
+              ? Boolean(readyMap?.[agent.id])
+              : (typeof prev.ready === 'boolean' ? prev.ready : false);
+          acc[agent.id] = {
+            installed,
+            ready,
+            reason: detail.reason || prev.reason || '',
+            hint: detail.hint || prev.hint || '',
+          };
           return acc;
         }, {});
+
+        const normalized = CORE_AGENTS.reduce((acc, agent) => {
+          if (agent.id === 'auto') return acc;
+          acc[agent.id] = Boolean(runtime[agent.id]?.ready);
+          return acc;
+        }, {});
+
         setAgentAvailability(normalized);
+        setAgentRuntime(runtime);
         setEnabledAgents(prev => {
-          const filtered = prev.filter(id => id !== 'auto' && (normalized[id] || normalized[id] === undefined));
-          const fallback = Object.keys(normalized).filter(id => normalized[id]);
+          const filtered = prev.filter(id => id !== 'auto' && runtime[id]?.installed !== false);
+          const fallback = Object.keys(runtime).filter(id => runtime[id]?.ready);
           const next = filtered.length ? filtered : fallback;
           const same = next.length === prev.length && next.every(id => prev.includes(id));
           if (same) return prev;
@@ -395,8 +619,10 @@ export default function CoreConsole({ workspace }) {
           prompt: text,
           agentId,
           allowedAgents: agentId === 'auto' ? enabledAgents : undefined,
-          sameAgentOnly: buildMode === 'deep' && agentId !== 'auto',
+          sameAgentOnly: buildMode === 'deep' && !mixedMode,
           buildMode,
+          selectedModel: selectedModel || undefined,
+          agentModels: agentModelPrefs,
           cwd,
           orchestrationMode: buildMode === 'deep' ? 'parallel' : 'single',
           useAiPlanner,
@@ -517,6 +743,11 @@ export default function CoreConsole({ workspace }) {
             : `\n\n[core] Prompt failed. exitCode=${detail.exitCode ?? 'unknown'}${filesLine}`;
         setOutput((prev) => prev + finalLine);
         setOrderError(detail.status === 'failed' ? ((detail.stderr || '').slice(-400) || 'Execution failed') : '');
+        
+        if (detail.status === 'completed' && buildMode === 'deep') {
+          window.dispatchEvent(new CustomEvent('soupz_complete_onboarding_item', { detail: { id: 'deep_run' } }));
+          trackEvent('deep_run_completed', { orderId: lastOrderId });
+        }
       }
 
       const hasLaneBuffers = detail?.laneBuffers && typeof detail.laneBuffers === 'object';
@@ -727,8 +958,8 @@ export default function CoreConsole({ workspace }) {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_500px_at_10%_-10%,rgba(56,189,248,0.14),transparent),radial-gradient(1000px_500px_at_100%_0%,rgba(99,102,241,0.12),transparent)] bg-bg-base text-text-pri p-4 sm:p-8">
-      <div className="max-w-4xl mx-auto space-y-4">
+    <div className="core-console">
+      <div className="core-console__content">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-md bg-accent/15 border border-accent/30 flex items-center justify-center">
             <Bot size={16} className="text-accent" />
@@ -741,22 +972,35 @@ export default function CoreConsole({ workspace }) {
           </div>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div className="border border-border-subtle/60 rounded-md bg-bg-surface/60 p-3 space-y-3">
+        <div className="border border-border-subtle/70 rounded-md bg-bg-surface/80 px-3 py-2 flex flex-wrap items-center gap-2 text-xs">
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border ${online ? 'border-success/30 text-success bg-success/10' : 'border-warning/30 text-warning bg-warning/10'}`}>
+            {online ? 'Daemon Online' : 'Daemon Offline'}
+          </span>
+          <span className="text-text-faint">Status Bar:</span>
+          <span className="text-text-sec">Gemini {agentRuntime.gemini?.ready ? 'ready' : 'setup'}</span>
+          <span className="text-text-sec">Copilot {agentRuntime.copilot?.ready ? 'ready' : 'setup'}</span>
+          <span className="text-text-sec">Codex {agentRuntime.codex?.ready ? 'ready' : 'setup'}</span>
+          <span className="text-text-faint">|</span>
+          <span className="text-text-sec">Ready agents: {readyAgents.length}</span>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-3">
+          <div className="border border-border-subtle/60 rounded-md bg-bg-surface/60 p-3 space-y-3 md:col-span-2">
             <div>
               <label className="text-xs text-text-sec block mb-1">Agent</label>
-              <select
+              <Select
                 value={agentId}
-                onChange={(e) => setAgentId(e.target.value)}
-                className="w-full bg-bg-surface border border-border-subtle rounded-md px-2 py-2 text-sm"
-              >
-                {CORE_AGENTS.map((a) => (
-                  <option key={a.id} value={a.id} disabled={a.id !== 'auto' && agentAvailability[a.id] === false}>
-                    {a.label}
-                    {a.id !== 'auto' && agentAvailability[a.id] === false ? ' (install first)' : ''}
-                  </option>
-                ))}
-              </select>
+                onChange={val => setAgentId(val)}
+                className="w-full"
+                options={CORE_AGENTS.map((a) => {
+                  const info = agentRuntime[a.id];
+                  const labelSuffix = a.id === 'auto' ? '' :
+                    !info?.installed ? ' (not installed)' :
+                    !info?.ready ? ` (${String(info.reason || 'not ready').replace(/_/g, ' ')})` :
+                    ' (ready)';
+                  return { value: a.id, label: `${a.label}${labelSuffix}`, disabled: a.id !== 'auto' && info?.installed === false };
+                }).filter(o => !o.disabled)}
+              />
             </div>
             
             {agentId === 'auto' && (
@@ -782,13 +1026,18 @@ export default function CoreConsole({ workspace }) {
                 </div>
                 <div className="space-y-1">
                   {CORE_AGENTS.filter(a => a.id !== 'auto').map(a => {
-                    const available = agentAvailability[a.id] !== false;
+                    const status = agentRuntime[a.id] || { installed: agentAvailability[a.id] !== false, ready: Boolean(agentAvailability[a.id]) };
+                    const installed = status.installed !== false;
+                    const ready = !!status.ready;
+                    const reasonLabel = formatRuntimeReason(status.reason);
                     const enabled = enabledAgents.includes(a.id);
+                    const statusLabel = !installed ? 'missing' : ready ? 'ready' : 'setup';
+                    const statusClass = !installed ? 'text-warning' : ready ? 'text-success' : 'text-amber-400';
                     return (
                       <button
                         key={a.id}
                         type="button"
-                        disabled={!available}
+                        disabled={!installed}
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleAgent(a.id);
@@ -804,9 +1053,17 @@ export default function CoreConsole({ workspace }) {
                         >
                           {enabled && <Check size={9} className="text-bg-base" />}
                         </span>
-                        <span className="flex-1">{a.label}</span>
-                        <span className={`text-[10px] font-mono uppercase ${available ? 'text-success' : 'text-warning'}`}>
-                          {available ? 'ready' : 'missing'}
+                        <span className="flex-1 min-w-0">
+                          <span className="block truncate">{a.label}</span>
+                          {!ready && (reasonLabel || status.hint) ? (
+                            <span className="block text-[10px] text-text-faint truncate">
+                              {reasonLabel || 'Unavailable'}
+                              {status.hint ? ` - ${status.hint}` : ''}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className={`text-[10px] font-mono uppercase ${statusClass}`} title={status.reason || status.hint || ''}>
+                          {statusLabel}
                         </span>
                       </button>
                     );
@@ -816,16 +1073,36 @@ export default function CoreConsole({ workspace }) {
                   <div>
                     {availabilityLoading
                       ? 'Detecting installed CLIs…'
-                      : readyAgents.length
-                        ? `Detected: ${readyAgents.join(', ')}`
+                      : installedAgents.length
+                        ? `Installed: ${installedAgents.join(', ')}`
                         : 'No CLI agents detected yet.'}
                     {availabilityError && <span className="text-warning ml-2">{availabilityError}</span>}
                   </div>
+                  {readyAgents.length > 0 && (
+                    <div className="text-success">
+                      Ready: {readyAgents.join(', ')}
+                    </div>
+                  )}
+                  {setupAgents.length > 0 && (
+                    <div className="text-amber-400">
+                      Needs setup/auth: {setupAgents.join(', ')}
+                    </div>
+                  )}
+                  {setupAgentDetails.slice(0, 2).map((detail) => (
+                    <div key={`setup-${detail.label}`} className="text-[10px] text-amber-300">
+                      {detail.label}: {detail.reason || 'Setup required'}{detail.hint ? ` - ${detail.hint}` : ''}
+                    </div>
+                  ))}
                   {missingAgents.length > 0 && (
                     <div className="text-warning">
                       Missing: {missingAgents.join(', ')} — runs will skip these until installed.
                     </div>
                   )}
+                  {missingAgentDetails.slice(0, 2).map((detail) => (
+                    <div key={`missing-${detail.label}`} className="text-[10px] text-warning/90">
+                      {detail.label}: {detail.reason || 'CLI not installed'}{detail.hint ? ` - ${detail.hint}` : ''}
+                    </div>
+                  ))}
                   {autoAgentsEmpty && (
                     <div className="text-warning">Select at least one ready agent so auto mode can run.</div>
                   )}
@@ -836,15 +1113,41 @@ export default function CoreConsole({ workspace }) {
 
           <label className="text-xs text-text-sec">
             Build Mode
-            <select
+            <Select
+              className="mt-1 w-full"
               value={buildMode}
-              onChange={(e) => setBuildMode(e.target.value)}
-              className="mt-1 w-full bg-bg-surface border border-border-subtle rounded-md px-2 py-2 text-sm"
-            >
-              <option value="quick">quick (single fastest)</option>
-              <option value="balanced">balanced (single + better routing)</option>
-              <option value="deep">deep (parallel workers + synthesis)</option>
-            </select>
+              onChange={val => setBuildMode(val)}
+              options={[
+                { value: 'quick', label: 'quick (single fastest)' },
+                { value: 'balanced', label: 'balanced (single + better routing)' },
+                { value: 'deep', label: 'deep (parallel workers + synthesis)' }
+              ]}
+            />
+          </label>
+
+          <label className="text-xs text-text-sec md:col-span-3 flex flex-col">
+            <span className={agentId === 'auto' ? 'opacity-60' : ''}>Agent Model</span>
+            <Select
+              className={cn("mt-1 w-full", agentId === 'auto' && "opacity-60 pointer-events-none")}
+              value={selectedModel || ''}
+              onChange={val => {
+                if (val === '__custom__') {
+                  const custom = window.prompt('Enter model ID for this agent (for example: gemini-3.1-pro-preview)');
+                  const next = String(custom || '').trim();
+                  if (next) saveAgentModelPreference(agentId, next);
+                  return;
+                }
+                saveAgentModelPreference(agentId, val);
+              }}
+              options={[
+                { value: '', label: 'default (agent CLI default)' },
+                { value: '__custom__', label: 'custom model ID…' },
+                ...(modelOptionsByAgent[agentId] || []).map(m => ({ value: m.id, label: m.name || m.id }))
+              ]}
+            />
+            {agentId === 'auto' ? (
+              <span className="block mt-1 text-[10px] text-text-faint">Pick a concrete agent to lock model selection.</span>
+            ) : null}
           </label>
         </div>
 
@@ -865,10 +1168,17 @@ export default function CoreConsole({ workspace }) {
                   onChange={(e) => setUseAiPlanner(e.target.checked)}
                 />
                 AI planner enabled
-              </label>
-              <button
-                type="button"
-                onClick={() => setShowPlannerSettings((prev) => !prev)}
+                </label>
+                <label className="flex items-center gap-2 text-xs text-text-sec" title="Allow different agents to be used for different sub-tasks in parallel.">
+                <input
+                  type="checkbox"
+                  checked={mixedMode}
+                  onChange={(e) => setMixedMode(e.target.checked)}
+                />
+                Mixed-agent fanout
+                </label>
+                <button
+                type="button"                onClick={() => setShowPlannerSettings((prev) => !prev)}
                 className="px-2 py-1 rounded-md text-xs bg-bg-elevated border border-border-subtle text-text-sec hover:text-text-pri"
               >
                 {showPlannerSettings ? 'Hide planner options' : 'Show planner options'}
@@ -945,16 +1255,16 @@ export default function CoreConsole({ workspace }) {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => {
-              setCwd(TESTING_CWD);
+              setCwd(workspace?.rootPath || DEFAULT_CWD);
               setPrompt(BENCHMARK_PROMPT);
             }}
             className="px-2 py-1 rounded-md text-xs bg-bg-elevated border border-border-subtle text-text-sec hover:text-text-pri"
           >
-            Use AI-Testing Benchmark Prompt
+            Use Benchmark Prompt
           </button>
           <button
             onClick={() => {
-              setCwd(TESTING_CWD);
+              setCwd(workspace?.rootPath || DEFAULT_CWD);
               setBuildMode('deep');
               setPrompt(DEEP_STRESS_PROMPT);
             }}
@@ -964,7 +1274,7 @@ export default function CoreConsole({ workspace }) {
           </button>
           <button
             onClick={() => {
-              setCwd(TESTING_CWD);
+              setCwd(workspace?.rootPath || DEFAULT_CWD);
               setBuildMode('deep');
               setPrompt(DEEP_COMPLEX_PROMPT);
             }}
@@ -974,7 +1284,7 @@ export default function CoreConsole({ workspace }) {
           </button>
           <button
             onClick={() => {
-              setCwd(TESTING_CWD);
+              setCwd(workspace?.rootPath || DEFAULT_CWD);
               setBuildMode('deep');
               setPrompt(HACKATHON_RADIATOR_ROUTES_PROMPT);
             }}
@@ -1019,12 +1329,99 @@ export default function CoreConsole({ workspace }) {
           )}
 
           <div className="text-xs text-text-faint">
-            {online ? 'Daemon online' : 'Daemon offline. Run npx soupz.'}
+            {online ? 'Daemon online' : 'Daemon offline. Run npx @shubh_prajapati99/soupz.'}
             {lastOrderId ? ` • Order ${lastOrderId}` : ''}
             {buildMode === 'deep' ? ' • mode: parallel orchestration' : ' • mode: single-agent'}
             {lastOrderId ? ` • status: ${orderStatus}` : ''}
             {lastOrderId ? ` • events: ${orderEventCount}` : ''}
           </div>
+        </div>
+
+        <div className="bg-bg-surface/80 border border-border-subtle/60 rounded-md p-3 space-y-3">
+          <div className="flex flex-wrap items-center gap-2 justify-between">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-text-faint">Cockpit Workspace Dock</div>
+              <div className="text-xs text-text-sec">Preview, Git, and terminal visibility in one place.</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !previewEnabled;
+                setPreviewEnabled(next);
+                if (next) void refreshDockPreview();
+              }}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-xs ${previewEnabled ? 'border-accent/40 text-accent bg-accent/10' : 'border-border-subtle text-text-faint hover:text-text-sec'}`}
+            >
+              <Monitor size={12} />
+              {previewEnabled ? 'Preview On' : 'Preview Off'}
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              { id: 'preview', label: 'Preview', Icon: Monitor },
+              { id: 'git', label: 'Git', Icon: GitBranch },
+            ].map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setDockTab(id)}
+                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded border text-xs ${dockTab === id ? 'border-accent/40 text-accent bg-accent/10' : 'border-border-subtle text-text-faint hover:text-text-sec'}`}
+              >
+                <Icon size={12} />
+                {label}
+              </button>
+            ))}
+            {dockTab === 'preview' ? (
+              <button
+                type="button"
+                onClick={() => void refreshDockPreview()}
+                disabled={!previewEnabled || !online}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-xs text-text-faint hover:text-text-sec disabled:opacity-50"
+              >
+                <RefreshCw size={11} className={previewStatus === 'loading' ? 'animate-spin' : ''} />
+                Refresh Preview
+              </button>
+            ) : null}
+          </div>
+
+          {dockTab === 'preview' ? (
+            <div className="space-y-2">
+              <div className="text-xs text-text-faint">
+                {previewEnabled
+                  ? previewStatus === 'ready'
+                    ? `Live preview available at ${previewUrl}`
+                    : previewStatus === 'loading'
+                      ? 'Checking for a running local server...'
+                      : previewStatus === 'empty'
+                        ? 'No running local server found. Start the app dev script for this project, then refresh.'
+                        : previewStatus === 'offline'
+                          ? 'Daemon offline. Connect first to use live preview.'
+                          : previewStatus === 'error'
+                            ? `Preview error: ${previewError || 'unknown error'}`
+                            : 'Preview is enabled.'
+                  : 'Preview is off. Toggle Preview On to show live app output.'}
+              </div>
+              <div className="h-[320px]">
+                {previewEnabled ? (
+                  <PreviewPanel previewUrl={previewUrl} onRefresh={() => void refreshDockPreview()} />
+                ) : (
+                  <div className="h-full rounded-lg border border-border-subtle bg-bg-elevated/40 flex items-center justify-center text-xs text-text-faint">
+                    Preview disabled
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {dockTab === 'git' ? (
+            <div className="rounded-md border border-border-subtle bg-bg-elevated/40 max-h-[380px] overflow-y-auto">
+              <Suspense fallback={<div className="p-3 text-xs text-text-faint">Loading Git panel...</div>}>
+                <GitPanel daemon={workspace} compact />
+              </Suspense>
+            </div>
+          ) : null}
+
         </div>
 
         {lastOrderId ? (

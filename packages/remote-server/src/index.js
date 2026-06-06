@@ -1,8 +1,8 @@
 // index.js — lean entry point: CORS, system routes, WebSocket, server bootstrap
 
-import { execSync, spawn } from 'child_process';
-import { resolve, extname } from 'path';
-import { readFile, writeFile, stat } from 'fs/promises';
+import { execSync, spawn, spawnSync } from 'child_process';
+import { dirname, extname, join, resolve } from 'path';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import os from 'os';
 import crypto from 'crypto';
@@ -38,7 +38,10 @@ import {
     registerFleet,
     unregisterFleet,
     selectAgent,
+    explainAgentSelection,
     isAgentInstalled,
+    resolveAgentBinary,
+    getAgentRuntimeReadiness,
     getInstalledAgentsInPriorityOrder,
     getReadyAgentsInPriorityOrder,
     resolveAutoRunAgent,
@@ -51,6 +54,8 @@ import {
     nextTerminalId,
     terminateTerminal,
     revokeSession,
+    terminalSessions,
+    TERMINAL_SESSION_EXPIRY_MS,
 } from './shared.js';
 
 import { startCodeAutoRefresh, getCurrentCode, getCurrentPairingSnapshot, validatePairingCode } from './pairing.js';
@@ -95,35 +100,102 @@ app.get('/health/full', requireAuth, (req, res) => {
 // AUTHENTICATED: Check installed CLIs for the onboarding flow
 app.get('/api/system/check-clis', requireAuth, (req, res) => {
     const clis = {
-        gemini: { bin: 'gemini', versionCmd: 'gemini --version' },
-        claude: { bin: 'claude', versionCmd: 'claude --version' },
-        copilot: { bin: 'gh', versionCmd: 'gh --version' },
-        supabase: { bin: 'supabase', versionCmd: 'supabase --version' },
-        vercel: { bin: 'vercel', versionCmd: 'vercel --version' },
-        git: { bin: 'git', versionCmd: 'git --version' },
+        gemini: {
+            bin: 'gemini',
+            versionCmd: 'gemini --version',
+            installable: true,
+            hint: 'Install via npm install -g @google/gemini-cli.',
+        },
+        claude: {
+            bin: 'claude',
+            versionCmd: 'claude --version',
+            installable: true,
+            hint: 'Install via npm install -g @anthropic-ai/claude-code.',
+        },
+        copilot: {
+            bin: null,
+            versionCmd: null,
+            installable: true,
+            hint: 'Install Copilot CLI or GitHub CLI + gh-copilot extension.',
+        },
+        codex: {
+            bin: null,
+            versionCmd: null,
+            installable: true,
+            hint: 'Install Codex CLI or GitHub CLI + gh-copilot extension.',
+        },
+        supabase: {
+            bin: 'supabase',
+            versionCmd: 'supabase --version',
+            installable: true,
+            hint: 'Install with Homebrew or npm globally.',
+        },
+        vercel: {
+            bin: 'vercel',
+            versionCmd: 'vercel --version',
+            installable: true,
+            hint: 'Install via npm install -g vercel.',
+        },
+        git: {
+            bin: 'git',
+            versionCmd: 'git --version',
+            installable: false,
+            hint: 'Install Git manually using your OS package manager.',
+        },
     };
 
     const results = {};
     for (const [key, meta] of Object.entries(clis)) {
+        const resolvedBinary = (key === 'copilot' || key === 'codex')
+            ? resolveAgentBinary(key)
+            : meta.bin;
+        const versionCmd = (key === 'copilot' || key === 'codex')
+            ? (resolvedBinary ? `${resolvedBinary} --version` : null)
+            : meta.versionCmd;
+
         try {
-            execSync(`which ${meta.bin}`, { timeout: 1000 });
-            results[key] = { installed: true, ready: key !== 'copilot' };
+            if (!resolvedBinary) throw new Error('not-installed');
+            execSync(`command -v "${resolvedBinary}"`, { timeout: 1000, stdio: 'ignore' });
+            results[key] = {
+                installed: true,
+                ready: !['copilot', 'codex'].includes(key),
+                installable: meta.installable !== false,
+                hint: meta.hint,
+            };
+            results[key].binary = resolvedBinary;
             try {
                 const versionEnv = { ...process.env };
                 if (meta.bin === 'supabase') versionEnv.SUPABASE_HIDE_UPDATE_MESSAGE = '1';
-                const versionOutput = execSync(meta.versionCmd, { timeout: 1500, env: versionEnv }).toString().trim();
-                results[key].version = versionOutput.split('\n')[0];
+                if (versionCmd) {
+                    const versionOutput = execSync(versionCmd, { timeout: 1500, env: versionEnv }).toString().trim();
+                    results[key].version = versionOutput.split('\n')[0];
+                }
             } catch { /* version lookup optional */ }
-            if (key === 'copilot') {
-                try {
-                    const exts = execSync('gh extension list 2>/dev/null', { timeout: 3000 }).toString();
-                    results[key].ready = exts.includes('copilot');
-                } catch {
-                    results[key].ready = false;
+            if (key === 'copilot' || key === 'codex') {
+                const state = getAgentRuntimeReadiness(key);
+                results[key].ready = !!state.ready;
+
+                if (!state.ready) {
+                    if (state.reason === 'gh_not_logged_in') {
+                        results[key].hint = 'GitHub CLI auth missing: run gh auth login.';
+                    } else if (state.reason === 'copilot_extension_missing') {
+                        results[key].hint = 'Install/auth gh-copilot extension: gh extension install github/gh-copilot then gh auth login.';
+                    } else if (state.reason === 'codex_model_unavailable') {
+                        results[key].hint = 'Codex lane is separate from Copilot and needs Codex-capable models in gh copilot models output.';
+                    } else {
+                        results[key].hint = `Runtime not ready (${state.reason || 'unknown'}).`;
+                    }
+                } else if (key === 'codex' && state.reason === 'codex_models_probe_unavailable') {
+                    results[key].hint = 'Codex is treated separately from Copilot. Model probe is unavailable, so runtime checks occur at execution time.';
                 }
             }
         } catch {
-            results[key] = { installed: false, ready: false };
+            results[key] = {
+                installed: false,
+                ready: false,
+                installable: meta.installable !== false,
+                hint: meta.hint,
+            };
         }
     }
     res.json(results);
@@ -131,96 +203,168 @@ app.get('/api/system/check-clis', requireAuth, (req, res) => {
 
 // AUTHENTICATED: Manage CLI (Install/Uninstall)
 app.post('/api/system/manage-cli', requireAuth, (req, res) => {
-    const { action, cli } = req.body;
+    const requestedAction = String(req.body?.action || '').trim();
+    const action = requestedAction === 'update' ? 'install' : requestedAction;
+    const cli = String(req.body?.cli || '').trim();
 
-    const packages = {
-        gemini: '@google/gemini-cli',
-        claude: '@anthropic-ai/claude-code',
-        supabase: 'supabase',
-        vercel: 'vercel',
-        copilot: '@github/copilot'
+    const commands = {
+        install: {
+            gemini: [
+                { cmd: 'npm', args: ['install', '-g', '@google/gemini-cli'] },
+            ],
+            codex: [
+                { cmd: 'gh', args: ['extension', 'install', 'github/gh-copilot'] },
+            ],
+            claude: [
+                { cmd: 'npm', args: ['install', '-g', '@anthropic-ai/claude-code'] },
+            ],
+            vercel: [
+                { cmd: 'npm', args: ['install', '-g', 'vercel'] },
+            ],
+            supabase: [
+                { cmd: 'brew', args: ['install', 'supabase/tap/supabase'] },
+                { cmd: 'npm', args: ['install', '-g', 'supabase'] },
+            ],
+            copilot: [
+                { cmd: 'gh', args: ['extension', 'install', 'github/gh-copilot'] },
+            ],
+        },
+        uninstall: {
+            gemini: [
+                { cmd: 'npm', args: ['uninstall', '-g', '@google/gemini-cli'] },
+            ],
+            codex: [
+                { cmd: 'gh', args: ['extension', 'remove', 'github/gh-copilot'] },
+            ],
+            claude: [
+                { cmd: 'npm', args: ['uninstall', '-g', '@anthropic-ai/claude-code'] },
+            ],
+            vercel: [
+                { cmd: 'npm', args: ['uninstall', '-g', 'vercel'] },
+            ],
+            supabase: [
+                { cmd: 'brew', args: ['uninstall', 'supabase'] },
+                { cmd: 'npm', args: ['uninstall', '-g', 'supabase'] },
+            ],
+            copilot: [
+                { cmd: 'gh', args: ['extension', 'remove', 'github/gh-copilot'] },
+            ],
+        },
     };
 
-    if (!packages[cli] && cli !== 'copilot') {
-        return res.status(400).json({ error: 'Unsupported CLI' });
+    if (!commands[action]) {
+        return res.status(400).json({ error: 'Invalid action. Use install, uninstall, or update.' });
     }
 
-    try {
-        if (action === 'install') {
-            if (cli === 'copilot') {
-                execSync('gh extension install github/gh-copilot', { stdio: 'inherit' });
-            } else if (cli === 'supabase') {
-                execSync('brew install supabase/tap/supabase || npm install -g supabase', { stdio: 'inherit' });
-            } else {
-                execSync(`npm install -g ${packages[cli]}`, { stdio: 'inherit' });
-            }
-        } else if (action === 'uninstall') {
-            if (cli === 'copilot') {
-                execSync('gh extension remove github/gh-copilot', { stdio: 'inherit' });
-            } else if (cli === 'supabase') {
-                execSync('brew uninstall supabase || npm uninstall -g supabase', { stdio: 'inherit' });
-            } else {
-                execSync(`npm uninstall -g ${packages[cli]}`, { stdio: 'inherit' });
-            }
-        } else {
-            return res.status(400).json({ error: 'Invalid action' });
-        }
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+    if (cli === 'git') {
+        return res.status(400).json({
+            error: 'Git install is not managed by Soupz. Install Git manually with your OS package manager.',
+            manual: true,
+        });
     }
+
+    const attempts = commands[action][cli];
+    if (!attempts || attempts.length === 0) {
+        return res.status(400).json({ error: `Unsupported CLI: ${cli}` });
+    }
+
+    const failures = [];
+    for (const attempt of attempts) {
+        const run = spawnSync(attempt.cmd, attempt.args, {
+            encoding: 'utf8',
+            timeout: 120000,
+            env: process.env,
+        });
+
+        const stdout = String(run.stdout || '').trim();
+        const stderr = String(run.stderr || '').trim();
+
+        if (run.status === 0) {
+            return res.json({
+                success: true,
+                output: stdout || `${cli} ${action} completed.`,
+            });
+        }
+
+        failures.push({
+            command: `${attempt.cmd} ${attempt.args.join(' ')}`,
+            code: run.status,
+            error: run.error?.message || stderr || stdout || 'Unknown failure',
+        });
+    }
+
+    const primaryError = failures[0]?.error || `${action} failed`;
+    return res.status(500).json({
+        error: `Failed to ${action} ${cli}: ${primaryError}`,
+        attempts: failures,
+    });
 });
 
 // PUBLIC: List available CLI agents with detailed status
 app.get('/api/agents', (req, res) => {
-    const binaries = {
-        gemini: 'gemini',
-        claude: 'claude',
-        gh: 'gh',
-        kiro: 'kiro-cli',
-        ollama: 'ollama',
+    const installs = {
+        gemini: isAgentInstalled('gemini'),
+        codex: isAgentInstalled('codex'),
+        'claude-code': isAgentInstalled('claude-code'),
+        copilot: isAgentInstalled('copilot'),
+        kiro: isAgentInstalled('kiro'),
     };
 
-    const results = {};
-    for (const [key, bin] of Object.entries(binaries)) {
-        try {
-            execSync(`${bin} --version`, { timeout: 1500, stdio: 'ignore' });
-            results[key] = true;
-        } catch {
-            results[key] = false;
-        }
-    }
-
-    let ollamaRunning = false;
-    if (results.ollama) {
-        try {
-            execSync('curl -s --max-time 1 http://localhost:11434/api/tags > /dev/null 2>&1', { timeout: 2000 });
-            ollamaRunning = true;
-        } catch { /* ollama installed but not running */ }
-    }
-
-    let copilotReady = false;
-    if (results.gh) {
-        try {
-            const exts = execSync('gh extension list 2>/dev/null', { timeout: 3000 }).toString();
-            copilotReady = exts.includes('copilot');
-        } catch { /* gh installed but copilot extension missing */ }
-    }
+    const runtime = {
+        gemini: getAgentRuntimeReadiness('gemini'),
+        codex: getAgentRuntimeReadiness('codex'),
+        'claude-code': getAgentRuntimeReadiness('claude-code'),
+        copilot: getAgentRuntimeReadiness('copilot'),
+        kiro: getAgentRuntimeReadiness('kiro'),
+    };
 
     const agentStatus = {
-        gemini:        { installed: results.gemini, ready: results.gemini, tier: 'free' },
-        'claude-code': { installed: results.claude, ready: results.claude, tier: 'premium' },
-        copilot:       { installed: results.gh, ready: copilotReady, tier: 'freemium' },
-        kiro:          { installed: results.kiro, ready: results.kiro, tier: 'premium', reliability: 'low' },
-        ollama:        { installed: results.ollama, ready: ollamaRunning, tier: 'free' },
+        gemini: {
+            installed: installs.gemini,
+            ready: runtime.gemini.ready,
+            tier: 'free',
+            usagePolicy: 'free-tier-quota',
+            reason: runtime.gemini.reason,
+        },
+        codex: {
+            installed: installs.codex,
+            ready: runtime.codex.ready,
+            tier: 'freemium',
+            usagePolicy: 'plan-quota',
+            lane: 'codex-reasoning',
+            reason: runtime.codex.reason,
+        },
+        'claude-code': {
+            installed: installs['claude-code'],
+            ready: runtime['claude-code'].ready,
+            tier: 'premium',
+            usagePolicy: 'subscription',
+            reason: runtime['claude-code'].reason,
+        },
+        copilot: {
+            installed: installs.copilot,
+            ready: runtime.copilot.ready,
+            tier: 'freemium',
+            usagePolicy: 'plan-quota',
+            lane: 'copilot-workflow',
+            reason: runtime.copilot.reason,
+        },
+        kiro: {
+            installed: installs.kiro,
+            ready: runtime.kiro.ready,
+            tier: 'premium',
+            usagePolicy: 'subscription',
+            reliability: 'low',
+            reason: runtime.kiro.reason,
+        },
     };
 
     const simple = {
-        gemini:        results.gemini,
-        'claude-code': results.claude,
-        copilot:       copilotReady,
-        kiro:          results.kiro,
-        ollama:        ollamaRunning,
+        gemini: runtime.gemini.ready,
+        codex: runtime.codex.ready,
+        'claude-code': runtime['claude-code'].ready,
+        copilot: runtime.copilot.ready,
+        kiro: runtime.kiro.ready,
     };
 
     if (req.query.detailed === 'true') {
@@ -255,96 +399,287 @@ app.post('/api/models/refresh', requireAuth, async (req, res) => {
     }
 });
 
-// PUBLIC: Classify a prompt to best agent (uses best available free model)
+// PUBLIC: Classify a prompt using deterministic transparent routing logic.
 app.post('/api/classify', async (req, res) => {
     const { prompt, availableAgents = [] } = req.body || {};
     if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
 
-    const agentList = availableAgents.length ? availableAgents : ['claude-code', 'gemini', 'copilot', 'kiro', 'ollama'];
+    const agentList = availableAgents.length ? availableAgents : ['claude-code', 'gemini', 'codex', 'copilot', 'kiro'];
     const specialistList = ['dev', 'architect', 'ai-engineer', 'devops', 'security', 'designer', 'ux-designer', 'researcher', 'analyst', 'strategist', 'pm', 'contentwriter', 'techwriter'];
 
-    const classifyPrompt = `Task classifier. Reply with ONLY JSON, no explanation.
-Given this task: "${prompt.slice(0, 300)}"
-Pick the best: cliAgent (one of: ${agentList.join(', ')}) and specialist (one of: ${specialistList.join(', ')})
-Reply ONLY with: {"cliAgent":"...","specialist":"..."}`;
+    const lower = String(prompt || '').toLowerCase();
+    let specialist = 'dev';
+    if (/\b(architecture|module|boundary|tradeoff|system design)\b/.test(lower)) specialist = 'architect';
+    else if (/\b(devops|infra|docker|k8s|deploy|pipeline|aws|gcp|azure|terraform)\b/.test(lower)) specialist = 'devops';
+    else if (/\b(security|auth|privacy|threat|compliance|abuse)\b/.test(lower)) specialist = 'security';
+    else if (/\b(ui|ux|design|layout|visual|prototype|accessibility)\b/.test(lower)) specialist = 'designer';
+    else if (/\b(research|benchmark|compare|analysis|market|insight)\b/.test(lower)) specialist = 'researcher';
+    else if (/\b(strategy|positioning|roadmap|go-to-market|pitch|plan)\b/.test(lower)) specialist = 'strategist';
+    else if (/\b(product|mvp|scope|milestone|timeline|prioritization)\b/.test(lower)) specialist = 'pm';
+    else if (/\b(write|copy|blog|documentation|doc|content)\b/.test(lower)) specialist = 'contentwriter';
 
-    // Try gh copilot first (free model, most capable)
-    try {
-        const out = execSync(
-            `gh copilot suggest ${JSON.stringify(classifyPrompt)} --target shell 2>/dev/null`,
-            { timeout: 5000, encoding: 'utf8' }
-        ).trim();
-        const match = out.match(/\{[\s\S]*?\}/);
-        if (match) {
-            const parsed = JSON.parse(match[0]);
-            if (agentList.includes(parsed.cliAgent) && specialistList.includes(parsed.specialist)) {
-                return res.json({ ...parsed, method: 'copilot' });
-            }
-        }
-    } catch { /* fall through */ }
+    if (!specialistList.includes(specialist)) specialist = specialistList[0] || 'dev';
 
-    // Try Gemini CLI
-    try {
-        const out = execSync(
-            `gemini -p ${JSON.stringify(classifyPrompt)} 2>/dev/null`,
-            { timeout: 5000, encoding: 'utf8' }
-        ).trim();
-        const match = out.match(/\{[\s\S]*?\}/);
-        if (match) {
-            const parsed = JSON.parse(match[0]);
-            if (agentList.includes(parsed.cliAgent) && specialistList.includes(parsed.specialist)) {
-                return res.json({ ...parsed, method: 'gemini' });
-            }
-        }
-    } catch { /* fall through */ }
+    const explained = explainAgentSelection(prompt, agentList);
 
-    // Try Ollama
-    try {
-        const controller = new AbortController();
-        setTimeout(() => controller.abort(), 2000);
-        const r = await fetch('http://localhost:11434/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: 'qwen2.5:0.5b', prompt: classifyPrompt, stream: false, options: { temperature: 0, num_predict: 64 } }),
-            signal: controller.signal,
-        });
-        if (r.ok) {
-            const data = await r.json();
-            const match = (data.response || '').match(/\{[\s\S]*?\}/);
-            if (match) {
-                const parsed = JSON.parse(match[0]);
-                if (agentList.includes(parsed.cliAgent)) {
-                    return res.json({ ...parsed, method: 'ollama' });
-                }
-            }
-        }
-    } catch { /* fall through */ }
+    return res.json({
+        cliAgent: explained.agent,
+        specialist,
+        method: explained.method,
+        confidence: explained.confidence,
+        justification: explained.justification,
+    });
+});
 
-    return res.status(503).json({ error: 'No classifier available', method: 'local' });
+// AUTHENTICATED: Explain routing decision for transparency/debugging
+app.post('/api/routing/explain', requireAuth, async (req, res) => {
+    const prompt = (req.body?.prompt || '').toString().trim();
+    if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
+
+    const cwd = (req.body?.cwd || REPO_ROOT).toString();
+    const allowed = normalizeAllowedAgents(req.body?.allowedAgents);
+    const readyState = getReadyAgentsInPriorityOrder(cwd, allowed);
+    const pool = readyState.ready.length > 0
+        ? readyState.ready
+        : (readyState.installed.length > 0 ? readyState.installed : ['gemini']);
+
+    const explained = explainAgentSelection(prompt, pool);
+    return res.json({
+        selected: explained.agent,
+        method: explained.method,
+        confidence: explained.confidence,
+        justification: explained.justification,
+        installed: readyState.installed,
+        ready: readyState.ready,
+        skipped: readyState.skipped,
+    });
 });
 
 // ─── File execution ───────────────────────────────────────────────────────────
 
+function runProcess(command, args, { cwd, timeoutMs = 120000, maxOutputBytes = 512000 } = {}) {
+    return new Promise((resolvePromise) => {
+        const startedAt = Date.now();
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+        let timedOut = false;
+
+        const child = spawn(command, args, {
+            cwd,
+            env: process.env,
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        const timer = setTimeout(() => {
+            timedOut = true;
+            try { child.kill('SIGTERM'); } catch {}
+            setTimeout(() => {
+                try { child.kill('SIGKILL'); } catch {}
+            }, 1500).unref?.();
+        }, timeoutMs);
+
+        const append = (target, chunk) => {
+            const text = chunk.toString();
+            if (target.length >= maxOutputBytes) return target;
+            return (target + text).slice(0, maxOutputBytes);
+        };
+
+        child.stdout.on('data', (chunk) => {
+            stdout = append(stdout, chunk);
+        });
+
+        child.stderr.on('data', (chunk) => {
+            stderr = append(stderr, chunk);
+        });
+
+        child.on('error', (err) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolvePromise({
+                exitCode: 1,
+                stdout,
+                stderr: `${stderr}\n${err.message}`.trim(),
+                timedOut,
+                durationMs: Date.now() - startedAt,
+            });
+        });
+
+        child.on('close', (code) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolvePromise({
+                exitCode: code ?? 1,
+                stdout,
+                stderr,
+                timedOut,
+                durationMs: Date.now() - startedAt,
+            });
+        });
+    });
+}
+
 // POST /api/exec — Run a file with the appropriate runtime (authenticated)
-app.post('/api/exec', requireAuth, (req, res) => {
+app.post('/api/exec', requireAuth, async (req, res) => {
     const { path: filePath, root } = req.body;
     if (!filePath) return res.status(400).json({ error: 'Missing path' });
 
-    const cwd = root || REPO_ROOT || process.cwd();
+    const cwd = resolve(root || REPO_ROOT || process.cwd());
     const fullPath = resolve(cwd, filePath);
+
+    if (!fullPath.startsWith(cwd)) {
+        return res.status(403).json({ error: 'Access denied' });
+    }
 
     if (!existsSync(fullPath)) return res.status(404).json({ error: 'File not found' });
 
     const ext = extname(filePath).toLowerCase();
-    let cmd = '';
-    if (ext === '.js') cmd = 'node';
-    else if (ext === '.py') cmd = 'python3';
-    else if (ext === '.sh') cmd = 'bash';
-    else if (ext === '.rb') cmd = 'ruby';
-    else if (ext === '.go') cmd = 'go run';
-    else if (ext === '.rs') cmd = 'cargo run';
 
-    res.json({ ok: true, command: `${cmd} ${filePath}`.trim() });
+    const runResultPayload = (commandString, result, extras = {}) => {
+        const exitCode = Number.isFinite(result?.exitCode) ? result.exitCode : 1;
+        return {
+            ok: exitCode === 0 && !result?.timedOut,
+            command: commandString,
+            exitCode,
+            timedOut: !!result?.timedOut,
+            durationMs: Number.isFinite(result?.durationMs) ? result.durationMs : 0,
+            stdout: result?.stdout || '',
+            stderr: result?.stderr || '',
+            ...extras,
+        };
+    };
+
+    try {
+        if (ext === '.js' || ext === '.mjs' || ext === '.cjs') {
+            const result = await runProcess('node', [fullPath], { cwd: dirname(fullPath) });
+            return res.json(runResultPayload(`node ${filePath}`, result));
+        }
+
+        if (ext === '.py') {
+            const result = await runProcess('python3', [fullPath], { cwd: dirname(fullPath) });
+            return res.json(runResultPayload(`python3 ${filePath}`, result));
+        }
+
+        if (ext === '.sh') {
+            const result = await runProcess('bash', [fullPath], { cwd: dirname(fullPath) });
+            return res.json(runResultPayload(`bash ${filePath}`, result));
+        }
+
+        if (ext === '.rb') {
+            const result = await runProcess('ruby', [fullPath], { cwd: dirname(fullPath) });
+            return res.json(runResultPayload(`ruby ${filePath}`, result));
+        }
+
+        if (ext === '.go') {
+            const result = await runProcess('go', ['run', fullPath], { cwd: dirname(fullPath) });
+            return res.json(runResultPayload(`go run ${filePath}`, result));
+        }
+
+        if (ext === '.c' || ext === '.cpp' || ext === '.cc' || ext === '.cxx') {
+            const tempDir = await mkdtemp(join(os.tmpdir(), 'soupz-run-'));
+            const binName = os.platform() === 'win32' ? 'run.exe' : 'run.out';
+            const binaryPath = join(tempDir, binName);
+            const compiler = ext === '.c' ? 'gcc' : 'g++';
+
+            const compile = await runProcess(compiler, [fullPath, '-o', binaryPath], {
+                cwd: dirname(fullPath),
+                timeoutMs: 180000,
+            });
+
+            if (compile.exitCode !== 0 || compile.timedOut) {
+                await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+                return res.json(runResultPayload(`${compiler} ${filePath} -o ${binName}`, compile, {
+                    phase: 'compile',
+                }));
+            }
+
+            const execute = await runProcess(binaryPath, [], {
+                cwd: dirname(fullPath),
+                timeoutMs: 180000,
+            });
+            await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+
+            return res.json(runResultPayload(`${compiler} ${filePath} -o ${binName} && ${binName}`, execute, {
+                phase: 'execute',
+                compileStdout: compile.stdout,
+                compileStderr: compile.stderr,
+            }));
+        }
+
+        return res.status(400).json({
+            error: `Unsupported file type: ${ext || 'unknown'}`,
+            supported: ['.js', '.mjs', '.cjs', '.py', '.sh', '.rb', '.go', '.c', '.cpp', '.cc', '.cxx'],
+        });
+    } catch (err) {
+        return res.status(500).json({ error: err?.message || 'Failed to execute file' });
+    }
+});
+
+// ─── Terminal session endpoints ───────────────────────────────────────────────
+
+// AUTHENTICATED: Issue a new terminal session token (64-char hex, 30-min expiry).
+// The caller should open a WebSocket, create a terminal, and pass this token as
+// terminalToken in the create_terminal message to bind the PTY to this session.
+app.post('/api/terminal/token', requireAuth, (req, res) => {
+    const token = crypto.randomBytes(32).toString('hex');
+    const now = Date.now();
+    terminalSessions.set(token, {
+        createdAt: now,
+        expiresAt: now + TERMINAL_SESSION_EXPIRY_MS,
+        terminalId: null,
+    });
+    return res.json({ token, expiresIn: 1800 });
+});
+
+// PUBLIC: Validate a terminal session token without consuming it.
+// Returns { valid: true, terminalId } or 401.
+app.post('/api/terminal/validate', (req, res) => {
+    const token = String(req.body?.token || '').trim();
+    if (!token) return res.status(400).json({ error: 'Missing token' });
+
+    const session = terminalSessions.get(token);
+    if (!session) return res.status(401).json({ valid: false, error: 'Unknown token' });
+    if (Date.now() > session.expiresAt) {
+        terminalSessions.delete(token);
+        return res.status(401).json({ valid: false, error: 'Token expired' });
+    }
+
+    return res.json({ valid: true, terminalId: session.terminalId });
+});
+
+// PUBLIC: Write a command to the PTY associated with a terminal session token.
+// Body: { token, command }  → writes command + "\n" to the PTY stdin.
+app.post('/api/terminal/exec', (req, res) => {
+    const token = String(req.body?.token || '').trim();
+    const command = String(req.body?.command ?? '');
+
+    if (!token) return res.status(400).json({ error: 'Missing token' });
+    if (command === undefined || command === null) return res.status(400).json({ error: 'Missing command' });
+
+    const session = terminalSessions.get(token);
+    if (!session) return res.status(401).json({ error: 'Unknown terminal token' });
+    if (Date.now() > session.expiresAt) {
+        terminalSessions.delete(token);
+        return res.status(401).json({ error: 'Terminal token expired' });
+    }
+
+    const terminalId = session.terminalId;
+    if (terminalId === null || terminalId === undefined) {
+        return res.status(409).json({ error: 'Terminal not yet associated with this token. Open a WebSocket and send create_terminal with this terminalToken first.' });
+    }
+
+    const terminal = terminals.get(terminalId);
+    if (!terminal) return res.status(404).json({ error: 'Terminal not found or already closed' });
+    if (!terminal.proc) return res.status(409).json({ error: 'Terminal process is not running' });
+
+    try {
+        terminal.proc.write(`${command}\n`);
+        return res.json({ ok: true });
+    } catch (err) {
+        return res.status(500).json({ error: `Failed to write to terminal: ${err.message}` });
+    }
 });
 
 // ─── Local command relay ──────────────────────────────────────────────────────
@@ -548,6 +883,16 @@ wss.on('connection', (ws, req) => {
                     });
 
                     terminals.set(id, terminal);
+
+                    // If the client passed a terminalToken, bind this PTY's id to that session.
+                    const terminalToken = String(msg.terminalToken || '').trim();
+                    if (terminalToken) {
+                        const tSession = terminalSessions.get(terminalToken);
+                        if (tSession && Date.now() <= tSession.expiresAt) {
+                            tSession.terminalId = id;
+                        }
+                    }
+
                     ws.send(JSON.stringify({ type: 'terminal_created', terminalId: id, pid: proc.pid }));
                     break;
                 }
@@ -844,7 +1189,7 @@ async function executeCommand(cmd) {
                 let changedFiles = [];
                 try {
                     const out = execSync('git status --porcelain', { cwd: root, timeout: 3000 }).toString();
-                    changedFiles = out.split('\n').filter(Boolean).map(l => l.slice(3).trim());
+                    changedFiles = out.split('\n').map((line) => line.trimEnd()).filter(Boolean);
                 } catch { /* not a git repo */ }
                 result = { tree, changedFiles };
                 break;
@@ -874,20 +1219,52 @@ async function executeCommand(cmd) {
                 const cwd = payload.path || REPO_ROOT;
                 const out = execSync('git status --porcelain', { cwd, timeout: 5000 }).toString();
                 const lines = out.split('\n').map((l) => l.trimEnd()).filter(Boolean);
-                const staged = [];
-                const unstaged = [];
+                const staged = new Map();
+                const unstaged = new Map();
+                const files = new Map();
+
+                const normalizePorcelainPath = (path = '') => {
+                    const cleaned = String(path || '').trim();
+                    if (!cleaned) return '';
+                    if (cleaned.includes('->')) {
+                        const parts = cleaned.split('->');
+                        return parts[parts.length - 1].trim();
+                    }
+                    return cleaned;
+                };
+
+                const upsert = (map, path, type) => {
+                    if (!path) return;
+                    map.set(path, { path, type: type || 'M' });
+                };
+
                 lines.forEach((line) => {
                     const statusCode = line.slice(0, 2);
-                    const path = line.slice(3).trim();
+                    const path = normalizePorcelainPath(line.slice(3).trim());
                     const indexStatus = statusCode[0];
                     const workTreeStatus = statusCode[1];
-                    if (indexStatus !== ' ' && indexStatus !== '?') staged.push({ path, type: indexStatus });
-                    if (workTreeStatus !== ' ' && workTreeStatus !== '?') unstaged.push({ path, type: workTreeStatus });
-                    if (statusCode === '??') unstaged.push({ path, type: 'U' });
+                    if (indexStatus !== ' ' && indexStatus !== '?') upsert(staged, path, indexStatus);
+                    if (workTreeStatus !== ' ' && workTreeStatus !== '?') upsert(unstaged, path, workTreeStatus);
+                    if (statusCode === '??') upsert(unstaged, path, 'U');
+
+                    const unifiedType = statusCode === '??'
+                        ? 'U'
+                        : (workTreeStatus !== ' ' && workTreeStatus !== '?')
+                            ? workTreeStatus
+                            : (indexStatus !== ' ' && indexStatus !== '?')
+                                ? indexStatus
+                                : 'M';
+                    upsert(files, path, unifiedType);
                 });
                 let branch = 'main';
                 try { branch = execSync('git branch --show-current', { cwd, timeout: 2000 }).toString().trim() || 'main'; } catch {}
-                result = { staged, unstaged, branch, porcelain: lines };
+                result = {
+                    staged: Array.from(staged.values()),
+                    unstaged: Array.from(unstaged.values()),
+                    files: Array.from(files.values()),
+                    branch,
+                    porcelain: lines,
+                };
                 break;
             }
 
@@ -935,8 +1312,17 @@ async function executeCommand(cmd) {
             case 'AGENT_PROMPT': {
                 let resolvedAgentId = payload.agentId;
                 if (resolvedAgentId === 'auto') {
-                    const available = ['claude-code', 'gemini', 'copilot', 'ollama'].filter(id => {
-                        try { execSync(`which ${id === 'claude-code' ? 'claude' : id}`, { timeout: 1000 }); return true; }
+                    const agentBinaryMap = {
+                        'claude-code': 'claude',
+                        gemini: 'gemini',
+                        codex: 'gh',
+                        copilot: 'gh',
+                    };
+                    const available = ['claude-code', 'gemini', 'codex', 'copilot'].filter(id => {
+                        try {
+                            execSync(`which ${agentBinaryMap[id] || id}`, { timeout: 1000 });
+                            return true;
+                        }
                         catch { return false; }
                     });
                     resolvedAgentId = await selectAgent(payload.prompt, available);
@@ -1029,7 +1415,12 @@ export function startRemoteServer(port = DEFAULT_PORT, opts = {}) {
             const localIPs = getLocalIPs();
             await startCodeAutoRefresh();
             startRuntimeServices();
-            discoverAllModels().catch(() => {});
+            // Model probing can be slow on machines with many CLIs; skip it in silent/test runs.
+            if (!opts.silent && process.env.SOUPZ_DISABLE_MODEL_BOOT_DISCOVERY !== '1') {
+                setTimeout(() => {
+                    discoverAllModels().catch(() => {});
+                }, 15000);
+            }
 
             ctx.heartbeatInterval = setInterval(() => {
                 wss.clients.forEach(ws => {

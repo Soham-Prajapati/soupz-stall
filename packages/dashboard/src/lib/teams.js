@@ -21,7 +21,6 @@ import { selectAgentLocally } from './routing.js';
  * @property {string} defaultCliAgent - preferred CLI agent to run this sub-agent
  * @property {string} specialist - specialist persona to use
  * @property {string} promptTemplate - template with {{task}} placeholder
- * @property {number} timeoutMs - max execution time
  * @property {boolean} parallel - can run in parallel with others
  */
 
@@ -33,7 +32,6 @@ export const SUB_AGENTS = [
     defaultCliAgent: 'gemini',
     specialist: 'security',
     promptTemplate: 'Review this code critically. Focus on bugs, security vulnerabilities, and anti-patterns. Be specific with line numbers and fixes.\n\n{{task}}',
-    timeoutMs: 60000,
     parallel: true,
   },
   {
@@ -43,7 +41,6 @@ export const SUB_AGENTS = [
     defaultCliAgent: 'gemini',
     specialist: 'qa',
     promptTemplate: 'Write comprehensive tests for the following. Include edge cases, error scenarios, and integration tests.\n\n{{task}}',
-    timeoutMs: 90000,
     parallel: true,
   },
   {
@@ -53,7 +50,6 @@ export const SUB_AGENTS = [
     defaultCliAgent: 'gemini',
     specialist: 'researcher',
     promptTemplate: 'Research the following topic thoroughly. Provide current, accurate information with sources where possible.\n\n{{task}}',
-    timeoutMs: 45000,
     parallel: true,
   },
   {
@@ -63,7 +59,6 @@ export const SUB_AGENTS = [
     defaultCliAgent: 'gemini',
     specialist: 'architect',
     promptTemplate: 'Refactor this code for better clarity, performance, and maintainability. Explain each change.\n\n{{task}}',
-    timeoutMs: 90000,
     parallel: false,
   },
   {
@@ -73,7 +68,6 @@ export const SUB_AGENTS = [
     defaultCliAgent: 'gemini',
     specialist: 'techwriter',
     promptTemplate: 'Write clear, comprehensive documentation for the following. Include examples and usage patterns.\n\n{{task}}',
-    timeoutMs: 60000,
     parallel: true,
   },
   {
@@ -83,7 +77,6 @@ export const SUB_AGENTS = [
     defaultCliAgent: 'gemini',
     specialist: 'ux-designer',
     promptTemplate: 'Critically review this UI/UX. Identify issues with usability, accessibility, visual hierarchy, and suggest specific improvements.\n\n{{task}}',
-    timeoutMs: 45000,
     parallel: true,
   },
   {
@@ -93,7 +86,6 @@ export const SUB_AGENTS = [
     defaultCliAgent: 'gemini',
     specialist: 'dev',
     promptTemplate: 'Audit this for performance. Identify bottlenecks, memory leaks, unnecessary re-renders, and suggest optimizations with benchmarks.\n\n{{task}}',
-    timeoutMs: 60000,
     parallel: true,
   },
   {
@@ -103,7 +95,6 @@ export const SUB_AGENTS = [
     defaultCliAgent: 'gemini',
     specialist: 'security',
     promptTemplate: 'Perform a security audit. Check for OWASP top 10 vulnerabilities, authentication issues, data exposure, and injection risks.\n\n{{task}}',
-    timeoutMs: 60000,
     parallel: true,
   },
 ];
@@ -167,9 +158,9 @@ export const AGENT_TEAMS = [
  * @param {string} subAgentId
  * @param {string} task - the specific task/code to process
  * @param {Record<string,boolean>} availableAgents - which CLI agents are installed
- * @returns {{ agentId: string, specialist: string, prompt: string, timeout: number } | null}
+ * @returns {{ agentId: string, specialist: string, prompt: string, selectedModel?: string, agentModels?: Record<string,string> } | null}
  */
-export function createSubAgentTask(subAgentId, task, availableAgents = {}) {
+export function createSubAgentTask(subAgentId, task, availableAgents = {}, agentModels = {}) {
   const subAgent = SUB_AGENTS.find(s => s.id === subAgentId);
   if (!subAgent) return null;
 
@@ -190,7 +181,8 @@ export function createSubAgentTask(subAgentId, task, availableAgents = {}) {
     agentId,
     specialist: subAgent.specialist,
     prompt,
-    timeout: subAgent.timeoutMs,
+    selectedModel: typeof agentModels?.[agentId] === 'string' ? agentModels[agentId] : undefined,
+    agentModels,
     parallel: subAgent.parallel,
   };
 }
@@ -202,12 +194,12 @@ export function createSubAgentTask(subAgentId, task, availableAgents = {}) {
  * @param {Record<string,boolean>} availableAgents
  * @returns {{ team: AgentTeam, tasks: Array, coordinator: { agentId: string, prompt: string } } | null}
  */
-export function createTeamPlan(teamId, task, availableAgents = {}, customPrompts = {}) {
+export function createTeamPlan(teamId, task, availableAgents = {}, customPrompts = {}, agentModels = {}) {
   const team = AGENT_TEAMS.find(t => t.id === teamId);
   if (!team) return null;
 
   const tasks = team.members
-    .map(memberId => createSubAgentTask(memberId, task, availableAgents))
+    .map(memberId => createSubAgentTask(memberId, task, availableAgents, agentModels))
     .filter(Boolean);
 
   // Apply custom prompts per sub-agent
@@ -231,6 +223,8 @@ export function createTeamPlan(teamId, task, availableAgents = {}, customPrompts
     tasks,
     coordinator: {
       agentId: coordinatorAgent,
+      selectedModel: typeof agentModels?.[coordinatorAgent] === 'string' ? agentModels[coordinatorAgent] : undefined,
+      agentModels,
       promptTemplate: team.promptTemplate,
     },
   };
@@ -245,40 +239,22 @@ export function createTeamPlan(teamId, task, availableAgents = {}, customPrompts
  */
 export async function executeSubAgent(sendPrompt, task, onChunk) {
   let result = '';
-  let timedOut = false;
-  let warningEmitted = false;
-
-  const timeoutPromise = new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      timedOut = true;
-      // Return partial output with timeout indicator instead of rejecting
-      resolve({
-        isPartial: true,
-        timedOut: true,
-        output: result,
-        message: `Sub-agent ${task.subAgentId} timed out after ${task.timeout}ms with partial output`
-      });
-    }, task.timeout);
-
-    // Emit warning at 80% of timeout
-    const warningTimer = setTimeout(() => {
-      if (!warningEmitted) {
-        warningEmitted = true;
-        onChunk?.(`[⚠️ Timeout warning: ${task.subAgentId} approaching limit at ${(task.timeout * 0.8 / 1000).toFixed(0)}s]`, false);
-      }
-    }, task.timeout * 0.8);
-  });
 
   const execPromise = new Promise((resolve, reject) => {
     sendPrompt(
-      { prompt: task.prompt, agentId: task.agentId, buildMode: 'quick' },
+      {
+        prompt: task.prompt,
+        agentId: task.agentId,
+        buildMode: 'quick',
+        selectedModel: task.selectedModel,
+        agentModels: task.agentModels,
+      },
       (chunk, done) => {
         result += chunk;
         onChunk?.(chunk, done);
         if (done) {
           resolve({
             isPartial: false,
-            timedOut: false,
             output: result
           });
         }
@@ -287,10 +263,7 @@ export async function executeSubAgent(sendPrompt, task, onChunk) {
   });
 
   try {
-    const outcome = await Promise.race([execPromise, timeoutPromise]);
-    if (outcome.timedOut) {
-      throw new Error(outcome.message);
-    }
+    const outcome = await execPromise;
     const finalResult = outcome.output || result;
 
     // Quick quality check (heuristics only, no extra API call)
@@ -336,7 +309,6 @@ export async function executeTeam(sendPrompt, plan, onProgress) {
         onProgress?.('sub-agent-done', task.subAgentId, result);
       } catch (err) {
         results[task.subAgentId] = `Error: ${err.message}`;
-        if (err.message.includes('timed out')) task._timedOut = true;
         onProgress?.('sub-agent-error', task.subAgentId, err.message);
       }
     });
@@ -360,7 +332,6 @@ export async function executeTeam(sendPrompt, plan, onProgress) {
         onProgress?.('sub-agent-done', task.subAgentId, result);
       } catch (err) {
         results[task.subAgentId] = `Error: ${err.message}`;
-        if (err.message.includes('timed out')) task._timedOut = true;
         onProgress?.('sub-agent-error', task.subAgentId, err.message);
       }
     }
@@ -372,18 +343,9 @@ export async function executeTeam(sendPrompt, plan, onProgress) {
   // Separate successful results from failed/timed-out ones
   const successfulResults = [];
   const failedAgents = [];
-  const timedOutAgents = [];
-
   Object.entries(results).forEach(([id, result]) => {
     if (typeof result === 'string') {
-      if (result.includes('timed out')) {
-        // Extract partial output if present
-        const hasPartial = result.includes('[Execution interrupted:');
-        timedOutAgents.push({ id, timedOut: true, hasPartial, partial: result });
-        if (hasPartial) {
-          successfulResults.push({ id, result });
-        }
-      } else if (result.startsWith('Error:')) {
+      if (result.startsWith('Error:')) {
         failedAgents.push({ id, error: result });
       } else {
         successfulResults.push({ id, result });
@@ -396,18 +358,6 @@ export async function executeTeam(sendPrompt, plan, onProgress) {
   // Build structured results text with clear labels
   const resultsText = [
     ...successfulResults.map(({ id, result }) => `### Worker: ${id}\n${result}`),
-    ...(timedOutAgents.length > 0 ? [
-      '\n---\n### Timed Out Workers (with partial output)',
-      ...timedOutAgents
-        .filter(a => a.hasPartial)
-        .map(({ id, partial }) => `- ${id}: [TIMEOUT - partial output above]`)
-    ] : []),
-    ...(timedOutAgents.length > 0 ? [
-      '### Timed Out Workers (no output)',
-      ...timedOutAgents
-        .filter(a => !a.hasPartial)
-        .map(({ id }) => `- ${id}: [TIMEOUT - no output]`)
-    ] : []),
     ...(failedAgents.length > 0 ? [
       '\n---\n### Failed Workers',
       ...failedAgents.map(({ id, error }) => `- ${id}: ${error}`)
@@ -435,7 +385,8 @@ export async function executeTeam(sendPrompt, plan, onProgress) {
       subAgentId: 'coordinator',
       agentId: plan.coordinator.agentId,
       prompt: coordinatorPrompt,
-      timeout: 180000,
+      selectedModel: plan.coordinator.selectedModel,
+      agentModels: plan.coordinator.agentModels,
     }, (chunk) => {
       onProgress?.('coordinator-chunk', plan.coordinator.agentId, chunk);
     });
@@ -452,7 +403,7 @@ export async function executeTeam(sendPrompt, plan, onProgress) {
           output,
           status: task?._verificationStatus || 'unknown',
           agent: task?.agentId,
-          timedOut: task?._timedOut || false,
+          timedOut: false,
         }];
       })
     ),

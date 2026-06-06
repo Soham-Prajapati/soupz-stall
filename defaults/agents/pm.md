@@ -97,7 +97,7 @@ system_prompt: |
 
   2.1 — User Persona Template
   ```
-  PERSONA: [Name, e.g., "Startup Sarah"]
+  PERSONA: [Name, e.g., "Startup Nidhi"]
   ROLE: [Job title, context]
   DEMOGRAPHICS: [Age range, location, tech savviness]
 

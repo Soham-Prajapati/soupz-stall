@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   GitBranch, AlertCircle, AlertTriangle, Bell, Bot,
   Wifi, WifiOff, MessageSquare, Flame, Zap, Check,
-  BrainCircuit, Sparkles, Github, Cpu, X, ChevronUp,
+  BrainCircuit, Sparkles, Github, X, ChevronUp, Code2,
   Radio, Clock, Terminal, RotateCcw, Circle,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
@@ -16,10 +16,10 @@ const AGENT_KEY   = 'soupz_agent';
 
 const AGENT_ICONS = {
   gemini: Sparkles,
+  codex: Code2,
   'claude-code': BrainCircuit,
   copilot: Github,
   kiro: Zap,
-  ollama: Cpu,
 };
 
 function readJSON(key, fallback) {
@@ -119,7 +119,7 @@ export default function StatusBar({
   const notifications = useMemo(() => {
     const items = [];
     if (!workspaceOnline) {
-      items.push({ id: 'offline', type: 'warning', text: 'Workspace disconnected. Run npx soupz to connect.' });
+      items.push({ id: 'offline', type: 'warning', text: 'Workspace disconnected. Run npx @shubh_prajapati99/soupz to connect.' });
     }
     return items;
   }, [workspaceOnline]);
@@ -375,7 +375,7 @@ function AgentPopup({
       {/* Free tier info */}
       <div className="px-3 py-2 border-t border-border-subtle bg-bg-surface">
         <p className="text-[10px] text-text-faint font-ui leading-relaxed">
-          Gemini: unlimited free tier &middot; Copilot: ~2k/mo &middot; Ollama: unlimited local
+          Gemini: unlimited free tier &middot; Copilot: ~2k/mo
         </p>
       </div>
     </div>

@@ -39,7 +39,7 @@ routing_keywords:
 auth_command: "gh auth login"
 logout_command: "gh auth logout"
 status_command: "gh auth status"
-build_args: ["copilot", "-p", "{prompt}", "--allow-all-tools"]
+build_args: ["--allow-all-tools", "--allow-all-paths", "-p", "{prompt}"]
 free_model: "gpt-5.1-codex-mini"
 available_models:
   free:

@@ -174,7 +174,7 @@ describe('createTeamPlan', () => {
 
 // --- Model Selection via Routing ---
 describe('Model selection (selectAgentLocally)', () => {
-  const allAgents = { gemini: true, copilot: true, ollama: true, 'claude-code': true, kiro: true };
+  const allAgents = { gemini: true, codex: true, copilot: true, 'claude-code': true, kiro: true };
 
   it('picks appropriate agent for code prompts', () => {
     const result = routing.selectAgentLocally(
@@ -219,11 +219,11 @@ describe('Model selection (selectAgentLocally)', () => {
   it('picks appropriate agent for local/offline prompts', () => {
     const result = routing.selectAgentLocally(
       'run this locally with no api calls, use local model',
-      { gemini: true, ollama: true }
+      { gemini: true, codex: true }
     );
     expect(result).toBeDefined();
-    // Ollama should score high for local/offline
-    expect(result.cliAgent).toBe('ollama');
+    // With Ollama removed, local/offline prompts should still resolve to an available lane.
+    expect(['gemini', 'codex']).toContain(result.cliAgent);
   });
 
   it('returns fallback when no agents match', () => {

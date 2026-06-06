@@ -1,7 +1,7 @@
 import {
   Crosshair, Code2, Palette, FlaskConical, Briefcase, Rocket,
   BarChart2, Bot, Shield, Building2, TestTube2, FileText,
-  Sparkles, BrainCircuit, Github, Zap, Cpu,
+  Sparkles, BrainCircuit, Github, Zap,
   TrendingUp, Search, Users, Scale, DollarSign,
   Pen, Presentation, PieChart, Globe, Layers,
   Microscope, LayoutTemplate, Wrench, Target,
@@ -17,6 +17,7 @@ export const CLI_AGENTS = [
     description: 'Google Gemini CLI',            
     freeModel: 'Gemini 2.0 Flash',    
     tier: 'free',
+    usagePolicy: 'free-tier-quota',
     models: [
       { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', usage: 40 },
       { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', usage: 9 },
@@ -26,33 +27,35 @@ export const CLI_AGENTS = [
       { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro Preview', usage: 83 },
     ]
   },
+  {
+    id: 'codex',
+    name: 'Codex',
+    icon: Code2,
+    color: '#10B981',
+    binary: 'gh',
+    description: 'Dedicated Codex reasoning lane (separate from Copilot workflow lane)',
+    freeModel: 'gpt-5.1-codex-mini',
+    tier: 'freemium',
+    usagePolicy: 'plan-quota',
+    models: [
+      { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex' },
+      { id: 'gpt-5.1-codex', name: 'GPT-5.1 Codex' },
+      { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini' },
+    ]
+  },
   { 
     id: 'copilot',     
     name: 'Copilot',     
     icon: Github,      
     color: '#6E40C9', 
     binary: 'gh',       
-    description: 'GitHub Copilot CLI',           
+    description: 'GitHub workflow lane (PRs, issues, shell and repo actions)',           
     freeModel: 'gpt-5.1-codex-mini',  
     tier: 'freemium',
+    usagePolicy: 'plan-quota',
     models: [
       { id: 'copilot-chat', name: 'Copilot Chat' },
       { id: 'copilot-suggest', name: 'Copilot Suggest' },
-    ]
-  },
-  { 
-    id: 'ollama',      
-    name: 'Ollama',      
-    icon: Cpu,         
-    color: '#888',    
-    binary: 'ollama',   
-    description: 'Local models (free, offline)', 
-    freeModel: 'any local model',     
-    tier: 'free',
-    models: [
-      { id: 'qwen2.5:0.5b', name: 'Qwen 2.5 0.5B' },
-      { id: 'llama3:8b', name: 'Llama 3 8B' },
-      { id: 'mistral', name: 'Mistral' },
     ]
   },
   { id: 'claude-code', name: 'Claude Code', icon: BrainCircuit,color: '#D97706', binary: 'claude',   description: 'Anthropic Claude CLI',         freeModel: null,                  tier: 'premium'  },
@@ -70,7 +73,7 @@ export const SPECIALISTS = [
   { id: 'qa',              name: 'QA',            icon: TestTube2,     color: '#84CC16', desc: 'Testing, coverage, e2e',           category: 'dev',      temperature: 0.3, maxTokens: 8192 },
   { id: 'designer',        name: 'Designer',      icon: Palette,       color: '#8B5CF6', desc: 'UI/UX, brand, visual design',      category: 'design',   temperature: 0.7, maxTokens: 4096 },
   { id: 'ux-designer',     name: 'UX',            icon: LayoutTemplate,color: '#EC4899', desc: 'User research, flows, wireframes', category: 'design',   temperature: 0.7, maxTokens: 4096 },
-  { id: 'design-thinking-coach', name: 'Maya (Design)', icon: BrainCircuit, color: '#EC4899', desc: 'Human-centered design expert', category: 'design',   temperature: 0.7, maxTokens: 4096 },
+  { id: 'design-thinking-coach', name: 'Nidhi (Design)', icon: BrainCircuit, color: '#EC4899', desc: 'Human-centered design expert', category: 'design',   temperature: 0.7, maxTokens: 4096 },
   { id: 'brand-chef',      name: 'Brand',         icon: Pen,           color: '#F43F5E', desc: 'Brand identity & voice',           category: 'design',   temperature: 0.7, maxTokens: 4096 },
   { id: 'ui-builder',      name: 'UI Builder',    icon: Layers,        color: '#7C3AED', desc: 'Components, design systems',       category: 'design',   temperature: 0.7, maxTokens: 4096 },
   { id: 'svgart',          name: 'SVG Artist',    icon: Palette,       color: '#8B5CF6', desc: 'SVG & CSS art generator',          category: 'design',   temperature: 0.8, maxTokens: 4096 },
@@ -127,8 +130,8 @@ export function getAgentById(id) {
 // Agent capability descriptions for the UI
 export const AGENT_INSTALL_GUIDES = {
   'gemini':      { cmd: 'npm install -g @google/gemini-cli', note: 'Free tier: 60 req/min, 1k req/day with Google account', url: 'https://github.com/google-gemini/gemini-cli' },
+  'codex':       { cmd: 'gh extension install github/gh-copilot', note: 'Codex is routed as a separate lane from Copilot; run gh auth login first and ensure a Codex-capable model is available.', url: 'https://github.com/github/gh-copilot' },
   'claude-code': { cmd: 'npm install -g @anthropic-ai/claude-code', note: 'Requires Anthropic API key', url: 'https://github.com/anthropics/claude-code' },
-  'copilot':     { cmd: 'npm install -g @github/copilot', note: 'Requires GitHub Copilot subscription', url: 'https://github.com/github/copilot-cli' },
-  'kiro':        { cmd: 'brew install --cask kiro-cli', note: 'macOS/Linux — or: curl -fsSL https://cli.kiro.dev/install | bash', url: 'https://kiro.dev/cli/' },
-  'ollama':      { cmd: 'curl -fsSL https://ollama.com/install.sh | sh', note: 'Free, runs locally. macOS: brew install ollama', url: 'https://ollama.com' },
+  'copilot':     { cmd: 'npm install -g @github/copilot', note: 'Separate workflow lane from Codex; requires GitHub Copilot subscription', url: 'https://github.com/github/copilot-cli' },
+  'kiro':        { cmd: 'brew install --cask kiro-cli', note: 'macOS/Linux - or: curl -fsSL https://cli.kiro.dev/install | bash', url: 'https://kiro.dev/cli/' },
 };

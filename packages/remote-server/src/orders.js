@@ -20,9 +20,12 @@ import {
     WEB_AGENT_ALIASES,
     MAX_CONCURRENT_ORDERS,
     MAX_DEEP_WORKERS,
+    DEEP_WORKER_TIMEOUT_MS,
     DEEP_NESTED_ENABLED_DEFAULT,
     DEEP_NESTED_MAX_PARENTS,
     DEEP_NESTED_SUBAGENTS_PER_PARENT,
+    DEEP_NESTED_TIMEOUT_MS,
+    DEEP_NESTED_SYNTH_TIMEOUT_MS,
     nextOrderId,
     createOrderRuntime,
     getOrderRuntime,
@@ -49,26 +52,49 @@ import {
     inferExecutionRole,
     inferSpecialistsFromPrompt,
     estimateDeepWorkerCount,
+    clampDeepWorkerCount,
+    resolveDeepWorkerLimit,
+    getAgentRuntimeReadiness,
+    resolveAgentBinary,
+    normalizeModelId,
+    normalizeAgentModelMap,
+    getSelectedModelForAgent,
+    reportAgentRateLimit,
+    isAgentCoolingDown,
 } from './shared.js';
 import { startDeepOrchestratedOrder } from './deep-mode.js';
 import { archiveOrderResult } from './run-archive.js';
+
+function looksLikeRateLimitFailure(text = '') {
+    const sample = String(text || '').toLowerCase();
+    if (!sample) return false;
+    return /\b429\b|rate limit|quota|too many requests|resource exhausted|usage limit/.test(sample);
+}
+
+function looksLikeTrustFailure(text = '') {
+    const sample = String(text || '').toLowerCase();
+    if (!sample) return false;
+    return /not inside a trusted directory|--skip-git-repo-check|detected dubious ownership|unsafe repository|not a git repository/.test(sample);
+}
 
 // ─── Single-agent order execution ─────────────────────────────────────────────
 
 export function startSingleAgentOrder(order, runAgent, mcpServers) {
     const runtime = createOrderRuntime(order);
     const args = [CLI_ENTRY, 'ask', runAgent, order.prompt];
+    const selectedModel = getSelectedModelForAgent(order, runAgent);
+    if (selectedModel) {
+        args.push('--model', selectedModel);
+    }
 
-    // Map agent ID to CLI binary name for availability check
-    const AGENT_BINARY_MAP = { 'gemini': 'gemini', 'copilot': 'gh', 'claude-code': 'claude', 'kiro': 'kiro', 'ollama': 'ollama' };
-    const agentBinary = AGENT_BINARY_MAP[runAgent] || runAgent;
+    const agentBinary = resolveAgentBinary(runAgent) || runAgent;
 
     // Before spawning, verify binary is available
     try {
-        execSync(`which ${agentBinary}`, { timeout: 2000, stdio: 'ignore' });
+        execSync(`command -v "${agentBinary}"`, { timeout: 2000, stdio: 'ignore' });
     } catch {
-        const fallbackOrder = ['gemini', 'copilot', 'ollama', 'claude-code'];
-        const nextAgent = fallbackOrder.find(a => a !== runAgent);
+        const fallbackOrder = ['gemini', 'codex', 'copilot', 'claude-code'];
+        const nextAgent = fallbackOrder.find((a) => a !== runAgent && getAgentRuntimeReadiness(a, order.cwd || REPO_ROOT).ready);
         if (nextAgent) {
             pushOrderEvent(order, 'agent.binary_missing', { agent: runAgent, fallback: nextAgent });
             startSingleAgentOrder(order, nextAgent, mcpServers);
@@ -126,7 +152,12 @@ export function startSingleAgentOrder(order, runAgent, mcpServers) {
     order.pid = child.pid;
     order.status = 'running';
     order.startedAt = nowIso();
-    pushOrderEvent(order, 'chef.started', { pid: child.pid, mode: 'ask', agent: runAgent });
+    pushOrderEvent(order, 'chef.started', {
+        pid: child.pid,
+        mode: 'ask',
+        agent: runAgent,
+        model: selectedModel || null,
+    });
     void persistOrder(order);
     broadcastOrderUpdate(order);
 
@@ -160,13 +191,59 @@ export function startSingleAgentOrder(order, runAgent, mcpServers) {
 
     child.on('close', (code) => {
         const duration = Date.now() - spawnStartTime;
+        if (code !== 0 && !runtime.cancelRequested) {
+            const trustSample = `${order.stderr || ''}\n${order.stdout || ''}`.slice(-12000);
+            const currentCwd = resolve(order.cwd || REPO_ROOT);
+            const repoRoot = resolve(REPO_ROOT);
+            if (looksLikeTrustFailure(trustSample) && currentCwd !== repoRoot && !order._trustRetryFromRepoRoot) {
+                order._trustRetryFromRepoRoot = true;
+                order.cwd = repoRoot;
+                pushOrderEvent(order, 'agent.trust_retry', {
+                    agent: runAgent,
+                    exitCode: code,
+                    fromCwd: currentCwd,
+                    retryCwd: repoRoot,
+                });
+                startSingleAgentOrder(order, runAgent, mcpServers);
+                return;
+            }
+        }
+
         if (code !== 0 && duration < 2000 && !order._instantCrashRetried) {
             order._instantCrashRetried = true;
             pushOrderEvent(order, 'agent.instant_crash', { agent: runAgent, duration, exitCode: code });
-            const fallbackOrder = ['gemini', 'copilot', 'ollama'];
-            const nextAgent = fallbackOrder.find(a => a !== runAgent);
+            const fallbackOrder = ['gemini', 'codex', 'copilot'];
+            const nextAgent = fallbackOrder.find((a) => a !== runAgent && getAgentRuntimeReadiness(a, order.cwd || REPO_ROOT).ready);
             if (nextAgent) { startSingleAgentOrder(order, nextAgent, mcpServers); return; }
         }
+
+        if (code !== 0 && !runtime.cancelRequested) {
+            const outputSample = `${order.stderr || ''}\n${order.stdout || ''}`.slice(-12000);
+            if (looksLikeRateLimitFailure(outputSample)) {
+                reportAgentRateLimit(runAgent, 'runtime_rate_limit');
+                order._rateLimitFallbackRetries = (order._rateLimitFallbackRetries || 0) + 1;
+                const canRetry = order._rateLimitFallbackRetries <= 2;
+                if (canRetry) {
+                    const fallbackOrder = ['gemini', 'codex', 'copilot', 'claude-code'];
+                    const nextAgent = fallbackOrder.find((candidate) => {
+                        if (candidate === runAgent) return false;
+                        if (isAgentCoolingDown(candidate)) return false;
+                        return getAgentRuntimeReadiness(candidate, order.cwd || REPO_ROOT).ready;
+                    });
+                    if (nextAgent) {
+                        pushOrderEvent(order, 'agent.rate_limited', {
+                            agent: runAgent,
+                            exitCode: code,
+                            fallback: nextAgent,
+                            retry: order._rateLimitFallbackRetries,
+                        });
+                        startSingleAgentOrder(order, nextAgent, mcpServers);
+                        return;
+                    }
+                }
+            }
+        }
+
         if (code === 0) {
             finalize('completed', { exitCode: code });
         } else {
@@ -279,24 +356,31 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     const useAiPlanner = req.body?.useAiPlanner !== false;
     const plannerStyle = (req.body?.plannerStyle || 'balanced').toString().trim().toLowerCase();
     const plannerNotes = (req.body?.plannerNotes || '').toString().trim().slice(0, 4000);
+    const selectedModel = normalizeModelId(req.body?.selectedModel);
+    const agentModels = normalizeAgentModelMap(req.body?.agentModels);
     const previewWorkerCount = estimateDeepWorkerCount(prompt, Number.isFinite(payloadWorkerCount) ? payloadWorkerCount : null);
     const nestedMaxParents = Number.parseInt(req.body?.nestedMaxParents, 10);
     const nestedSubAgentsPerWorker = Number.parseInt(req.body?.nestedSubAgentsPerWorker, 10);
+    const payloadTimeoutMs = Number.parseInt(req.body?.timeoutMs, 10);
+    const payloadSynthesisTimeoutMs = Number.parseInt(req.body?.synthesisTimeoutMs, 10);
+    const payloadNestedTimeoutMs = Number.parseInt(req.body?.nestedTimeoutMs, 10);
+    const payloadNestedSynthesisTimeoutMs = Number.parseInt(req.body?.nestedSynthesisTimeoutMs, 10);
 
     if (Array.isArray(rawAllowedAgents) && allowedAgents && allowedAgents.length === 0) {
         return res.status(400).json({ error: 'No valid allowedAgents were provided' });
     }
     const deepPolicy = {
-        workerCount: Number.isFinite(payloadWorkerCount) ? Math.max(1, Math.min(MAX_DEEP_WORKERS, payloadWorkerCount)) : null,
-        primaryCopies: Number.isFinite(payloadPrimaryCopies) ? Math.max(1, Math.min(MAX_DEEP_WORKERS, payloadPrimaryCopies)) : null,
+        workerCount: Number.isFinite(payloadWorkerCount) ? clampDeepWorkerCount(payloadWorkerCount, 1) : null,
+        primaryCopies: Number.isFinite(payloadPrimaryCopies) ? clampDeepWorkerCount(payloadPrimaryCopies, 1) : null,
         sameAgentOnly,
         useAiPlanner,
         plannerStyle,
         plannerNotes,
-        timeoutMs: 0,
+        timeoutMs: Number.isFinite(payloadTimeoutMs) ? Math.max(0, payloadTimeoutMs) : DEEP_WORKER_TIMEOUT_MS,
+        synthesisTimeoutMs: Number.isFinite(payloadSynthesisTimeoutMs) ? Math.max(0, payloadSynthesisTimeoutMs) : null,
         allowSynthesisFallback: req.body?.allowSynthesisFallback !== false,
         workerCountResolved: previewWorkerCount,
-        workerCountMax: MAX_DEEP_WORKERS,
+        workerCountMax: resolveDeepWorkerLimit(),
         enableNestedDelegation: typeof req.body?.enableNestedDelegation === 'boolean'
             ? req.body.enableNestedDelegation
             : DEEP_NESTED_ENABLED_DEFAULT,
@@ -306,8 +390,8 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         nestedSubAgentsPerWorker: Number.isFinite(nestedSubAgentsPerWorker)
             ? Math.max(1, Math.min(4, nestedSubAgentsPerWorker))
             : DEEP_NESTED_SUBAGENTS_PER_PARENT,
-        nestedTimeoutMs: 0,
-        nestedSynthesisTimeoutMs: 0,
+        nestedTimeoutMs: Number.isFinite(payloadNestedTimeoutMs) ? Math.max(0, payloadNestedTimeoutMs) : DEEP_NESTED_TIMEOUT_MS,
+        nestedSynthesisTimeoutMs: Number.isFinite(payloadNestedSynthesisTimeoutMs) ? Math.max(0, payloadNestedSynthesisTimeoutMs) : DEEP_NESTED_SYNTH_TIMEOUT_MS,
         enableNestedTeamSynthesis: req.body?.enableNestedTeamSynthesis !== false,
     };
     const orderCwd = (req.body?.cwd || '').toString().trim() || REPO_ROOT;
@@ -319,6 +403,8 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         runAgent = auto.agent;
         routeMeta = {
             method: auto.method,
+            confidence: auto.confidence ?? null,
+            justification: auto.justification || null,
             available: auto.available || [],
             ready: auto.ready || [],
             skipped: auto.skipped || [],
@@ -330,6 +416,15 @@ app.post('/api/orders', requireAuth, async (req, res) => {
             method: resolved.fallback ? 'explicit-fallback' : 'explicit',
             fallback: resolved.fallback || false,
             originalRequest: resolved.originalRequest || null,
+            confidence: 1,
+            justification: {
+                selected: runAgent,
+                reason: resolved.fallback
+                    ? `Requested agent ${requestedAgent} unavailable; using ${runAgent} via fallback chain.`
+                    : `Requested agent ${requestedAgent} explicitly selected by user.`,
+                candidates: [],
+                signals: [],
+            },
             available: getInstalledAgentsInPriorityOrder(),
             ready: getReadyAgentsInPriorityOrder(orderCwd, allowedAgents).ready,
         };
@@ -350,6 +445,8 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         modelPolicy,
         orchestrationMode,
         deepPolicy,
+        selectedModel: selectedModel || null,
+        agentModels,
         cwd: orderCwd,
         status: 'queued',
         createdAt,
@@ -385,7 +482,15 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         order.prompt = `[Custom Instructions: ${workspaceConfig.customInstructions}]\n\n${order.prompt}`;
     }
 
-    pushOrderEvent(order, 'order.created', { prompt: order.prompt, agent, modelPolicy, orchestrationMode, cwd: orderCwd });
+    pushOrderEvent(order, 'order.created', {
+        prompt: order.prompt,
+        agent,
+        modelPolicy,
+        orchestrationMode,
+        cwd: orderCwd,
+        selectedModel: selectedModel || null,
+        agentModels,
+    });
     pushOrderEvent(order, 'route.selected', {
         agent: runAgent,
         primaryRole: inferExecutionRole(runAgent, prompt),
@@ -394,12 +499,16 @@ app.post('/api/orders', requireAuth, async (req, res) => {
         requested: requestedAgent,
         resolved: agent,
         routeMethod: routeMeta.method,
+        routeConfidence: routeMeta.confidence,
+        routeJustification: routeMeta.justification,
         fallback: routeMeta.fallback || false,
         originalRequest: routeMeta.originalRequest || null,
         available: routeMeta.available || [],
         ready: routeMeta.ready || [],
         skipped: routeMeta.skipped || [],
         allowedAgents,
+        selectedModel: selectedModel || null,
+        agentModels,
     });
     orders.set(id, order);
     void persistOrder(order);

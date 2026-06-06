@@ -47,6 +47,31 @@ function getDependencies() {
 function generatePersonas() {
     const agentsDir = './defaults/agents';
     const files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md')).sort();
+
+    const dynamicHint = 'Dynamic (policy-routed)';
+
+    function resolveAgentHint(id, systemPrompt = '') {
+        const key = String(id || '').trim();
+        const prompt = String(systemPrompt || '').toLowerCase();
+
+        if (key === 'gemini') return 'Gemini (dedicated provider lane)';
+        if (key === 'codex') return 'Codex (dedicated provider lane)';
+        if (key === 'copilot') return 'Copilot (dedicated provider lane)';
+        if (key === 'claude-code') return 'Claude Code (dedicated provider lane)';
+        if (key === 'kiro') return 'Kiro (dedicated provider lane)';
+        if (key === 'ollama') return 'Ollama (local-basic lane; avoid complex code generation)';
+
+        if (/\b(test|qa|checklist|audit|report|status|tracking|monitor|log)\b/.test(prompt)) {
+            return `${dynamicHint} - low-cost lane first (Ollama), escalate for fixes`;
+        }
+        if (/\b(code|implement|refactor|architecture|debug|bug|typescript|javascript|python)\b/.test(prompt)) {
+            return `${dynamicHint} - code quality lane (Codex/Copilot/Claude/Gemini by readiness)`;
+        }
+        if (/\b(ui|ux|design|visual|layout|brand|copy|research|analysis|market)\b/.test(prompt)) {
+            return `${dynamicHint} - research/design lane (Gemini first by policy)`;
+        }
+        return `${dynamicHint} - readiness + complexity aware`;
+    }
     
     let table = '| # | Name | Invoke Handle | Icon | Underlying Agent | Core Specialty |\n|---|---|---|---|---|---|\n';
     let details = '';
@@ -67,12 +92,7 @@ function generatePersonas() {
         
         const systemPrompt = promptMatch ? promptMatch[1].trim() : '(No specific system prompt)';
         
-        let agentHint = 'Copilot / Gemini';
-        if (systemPrompt.toLowerCase().includes('design') || systemPrompt.toLowerCase().includes('css') || systemPrompt.toLowerCase().includes('visual')) {
-            agentHint = 'Gemini (Preferred) / Copilot';
-        } else if (systemPrompt.toLowerCase().includes('code') || systemPrompt.toLowerCase().includes('test')) {
-            agentHint = 'Copilot (Preferred)';
-        }
+        const agentHint = resolveAgentHint(id, systemPrompt);
 
         const reasoningStyle = systemPrompt.toLowerCase().includes('think step') ? 'Step-by-step analytical' : 'Direct, declarative action';
         const tone = systemPrompt.toLowerCase().includes('professional') ? 'Professional' : 'Direct and opinionated';
@@ -97,8 +117,6 @@ const dependenciesMarkdown = getDependencies();
 const personas = generatePersonas();
 
 const docLines = [
-"---",
-"",
 "# Soupz Stall — Master Project Overview",
 "",
 "## 1. What Is This Project?",
@@ -264,7 +282,6 @@ personas.details,
 "4. **Global Supabase Sync**: Connect `src/auth/user-auth.js` directly to the `MemoryPool` to backup/restore learned trajectories across devices. (Complexity: High).",
 "5. **AST/WASM Agent Booster**: Implement a local execution path in `router.js` that completely bypasses LLMs for formatting tasks using local formatters (Prettier/ESLint) before making API calls. (Complexity: Medium).",
 "",
-"---",
 ];
 
 fs.writeFileSync('PROJECT_OVERVIEW.md', docLines.join('\n'));

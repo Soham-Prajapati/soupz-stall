@@ -1,14 +1,20 @@
----
-
-# Soupz Stall — Master Project Overview (Updated: March 26, 2026)
+# Soupz Stall — Master Project Overview (Updated: April 1, 2026)
 
 ## Documentation Routing (Read This First)
 
 Use these files as canonical references for current runtime behavior and operations:
 
+- System architecture (primary): [docs/architecture/SYSTEM_ARCHITECTURE.md](docs/architecture/SYSTEM_ARCHITECTURE.md)
 - Runtime behavior: [docs/CURRENT_SYSTEM.md](docs/CURRENT_SYSTEM.md)
 - Setup and troubleshooting: [docs/SETUP.md](docs/SETUP.md)
 - Runtime deltas by date: [docs/RUNTIME_CHANGELOG.md](docs/RUNTIME_CHANGELOG.md)
+- Model grading and routing transparency: [docs/guides/MODEL_SELECTION_AND_GRADING.md](docs/guides/MODEL_SELECTION_AND_GRADING.md)
+- Owner launch checklist: [docs/guides/OWNER_ACTION_CHECKLIST.md](docs/guides/OWNER_ACTION_CHECKLIST.md)
+
+For demos and technical reviews, start in this order:
+1. [README.md](README.md)
+2. [docs/architecture/SYSTEM_ARCHITECTURE.md](docs/architecture/SYSTEM_ARCHITECTURE.md)
+3. [docs/SETUP.md](docs/SETUP.md)
 
 This file remains a broad project compendium and includes historical/background sections.
 
@@ -112,57 +118,62 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 
 ## 5. The Complete Chef Persona System
 
+Routing policy note:
+- Persona handles are dynamic by default: the runtime router picks the best available lane by task type, complexity, readiness, and cost policy.
+- Provider personas (`@gemini`, `@codex`, `@copilot`, `@claude-code`, `@ollama`, `@kiro`) remain explicit when directly selected.
+- Ollama is treated as a local low-cost lane for basic/reporting/check tasks; complex code generation should escalate to stronger coding lanes.
+
 ### 5a. Overview Table
 
 | # | Name | Invoke Handle | Icon | Underlying Agent | Core Specialty |
 |---|---|---|---|---|---|
-| 1 | Agent Builder (Bond) | `@agent-builder` | 🔧 | Copilot / Gemini | Agent architecture specialist and Soupz compliance expert who creates robust, maintainable agents |
-| 2 | Business Analyst | `@analyst` | 📊 | Copilot / Gemini | Senior business analyst — requirements, user stories, competitive analysis, market sizing, KPIs |
-| 3 | Tech Architect | `@architect` | 🏗️ | Copilot / Gemini | CTO-level technical architect who plans for 50-person teams with production-grade systems |
-| 4 | Brainstorming Coach | `@brainstorm` | 💡 | Copilot / Gemini | SCAMPER, Six Thinking Hats, Mind Mapping, Crazy 8s, Reverse Brainstorming — master ideation facilitator |
-| 5 | Brand Chef | `@brand-chef` | 🧑‍🍳 | Copilot / Gemini | Brand identity specialist — naming, messaging, positioning, voice & tone, visual direction |
-| 6 | Content Writer | `@contentwriter` | ✍️ | Copilot / Gemini | Marketing copy, blog posts, social media, SEO optimization |
-| 7 | GitHub Copilot | `@copilot` | 🐙 | Copilot / Gemini | GitHub Copilot CLI — shell commands, DevOps, GitHub workflows |
-| 8 | Data Scientist | `@datascientist` | 📈 | Copilot / Gemini | CRISP-DM, ML pipelines, statistical analysis, experiment design, data storytelling |
-| 9 | Design Thinking Coach (Maya) | `@design-thinking-coach` | 💡 | Copilot / Gemini | Human-centered design expert and empathy architect guiding design thinking processes with 15+ years experience |
-| 10 | Design Agency | `@designer` | 🎨 | Copilot / Gemini | World-class design agency — 8-phase brand engagement, Awwwards-quality HTML prototypes, 3-second clarity test. |
-| 11 | Developer (Amelia) | `@dev` | 💻 | Copilot / Gemini | Senior software engineer who executes approved stories with strict TDD adherence and comprehensive test coverage |
-| 12 | DevOps Engineer | `@devops` | ⚙️ | Copilot / Gemini | DevOps — Docker, CI/CD, cloud infra, Terraform, monitoring |
-| 13 | Domain Scout | `@domain-scout` | 🗺️ | Copilot / Gemini | Maps competitive domains — classifies product space, finds direct/adjacent competitors, identifies whitespace |
-| 14 | PS Evaluator | `@evaluator` | ⚖️ | Copilot / Gemini | Hackathon judging, feasibility scoring, competitive analysis |
-| 15 | "Forager (Ingredient Scout)" | `@forager` | 🧺 | Copilot / Gemini | The Stall |
-| 16 | Gemini | `@gemini` | 🔮 | Copilot / Gemini | Google Gemini CLI — research, code generation, multi-modal analysis |
-| 17 | Innovation Strategist | `@innovator` | 🚀 | Copilot / Gemini | Blue Ocean Strategy, Jobs-to-be-Done, Business Model Canvas, disruption analysis — strategic innovation architect |
-| 18 | Team Lead | `@master` | 👑 | Copilot / Gemini | Master orchestrator — decomposes complex projects into parallel persona work streams, coordinates and integrates outputs |
-| 19 | Module Builder (Morgan) | `@module-builder` | 📦 | Copilot / Gemini | Module architecture specialist who creates cohesive, scalable Soupz modules with agents, workflows, and infrastructure |
-| 20 | Ollama | `@ollama` | 🤖 | Copilot / Gemini | Ollama — local LLMs (Llama, Mistral, Phi) |
-| 21 | Orchestrator | `@orchestrator` | 🎯 | Copilot / Gemini | Master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates Soupz multi-agent workflows |
-| 22 | Project Planner | `@planner` | 📋 | Copilot / Gemini | Sprint planning, task breakdown, dependency mapping, Gantt charts |
-| 23 | Product Manager | `@pm` | 🎯 | Copilot / Gemini | PRDs, roadmaps, RICE/MoSCoW prioritization, user research, north star metrics — outcome-driven PM |
-| 24 | Presentation Coach | `@presenter` | 🎤 | Copilot / Gemini | 10x hackathon champion and pitch coach — demo scripts, investor decks, judge prep, storytelling |
-| 25 | Problem Solver | `@problemsolver` | 🧩 | Copilot / Gemini | TRIZ, 5 Whys, First Principles, Theory of Constraints, Systems Thinking — systematic problem-solving expert |
-| 26 | QA Engineer | `@qa` | 🧪 | Copilot / Gemini | QA — test plans, edge cases, bug reports, quality gates |
-| 27 | Quick Flow Solo Dev (Barry) | `@quick-flow` | ⚡ | Copilot / Gemini | Elite full-stack developer for rapid spec creation through lean implementation with minimum ceremony |
-| 28 | Researcher | `@researcher` | 🔬 | Copilot / Gemini | Deep researcher — competitive intelligence, API/SDK evaluation, market sizing, domain analysis |
-| 29 | Review Miner | `@review-miner` | ⛏️ | Copilot / Gemini | Mines user reviews from Reddit, X, App Store, Play Store — extracts real pain points & feature gaps |
-| 30 | Scrum Master | `@scrum` | 🏃 | Copilot / Gemini | Certified Scrum Master — sprint planning, story preparation, retrospectives, velocity tracking, blocker removal |
-| 31 | Security Auditor | `@security` | 🔒 | Copilot / Gemini | Security — threat modeling, OWASP, pen test planning, compliance |
-| 32 | Storyteller | `@storyteller` | 📖 | Copilot / Gemini | Hero |
-| 33 | Strategist | `@strategist` | 💼 | Copilot / Gemini | Billionaire-level strategist — market intelligence, brand positioning, investor pitch, GTM, business model |
-| 34 | SVG Artist | `@svgart` | 🖼️ | Copilot / Gemini | SVG & CSS art generator — creates ready-to-import SVG files, icons, logos, illustrations, and UI assets |
-| 35 | Test Architect (Murat) | `@tea` | 🧪 | Copilot / Gemini | Master test architect specializing in risk-based testing, ATDD, test strategy, and CI/CD quality governance |
-| 36 | Teaching Assistant | `@teacher` | 📚 | Copilot / Gemini | Patient expert educator — Bloom |
-| 37 | Tech Writer | `@techwriter` | 📝 | Copilot / Gemini | READMEs, API docs, tutorials, changelogs, migration guides |
-| 38 | Test Architect | `@tester` | 🔍 | Copilot / Gemini | Test strategy, automation frameworks, quality gates, CI/CD |
-| 39 | UI Builder | `@ui-builder` | 🏗️ | Copilot / Gemini | Builds the actual HTML prototypes — GSAP animations, design systems, SVG assets, Awwwards-quality output |
-| 40 | UX Designer (Sally) | `@ux-designer` | 🎯 | Copilot / Gemini | Senior UX designer specializing in user research, interaction design, and human-centered experience strategy |
-| 41 | Workflow Builder (Wendy) | `@workflow-builder` | 🔄 | Copilot / Gemini | Workflow architecture specialist and process design expert who creates efficient, scalable Soupz workflows |
+| 1 | Agent Builder (Bond) | `@agent-builder` | 🔧 | Dynamic (policy-routed) | Agent architecture specialist and Soupz compliance expert who creates robust, maintainable agents |
+| 2 | Business Analyst | `@analyst` | 📊 | Dynamic (policy-routed) | Senior business analyst — requirements, user stories, competitive analysis, market sizing, KPIs |
+| 3 | Tech Architect | `@architect` | 🏗️ | Dynamic (policy-routed) | CTO-level technical architect who plans for 50-person teams with production-grade systems |
+| 4 | Brainstorming Coach | `@brainstorm` | 💡 | Dynamic (policy-routed) | SCAMPER, Six Thinking Hats, Mind Mapping, Crazy 8s, Reverse Brainstorming — master ideation facilitator |
+| 5 | Brand Chef | `@brand-chef` | 🧑‍🍳 | Dynamic (policy-routed) | Brand identity specialist — naming, messaging, positioning, voice & tone, visual direction |
+| 6 | Content Writer | `@contentwriter` | ✍️ | Dynamic (policy-routed) | Marketing copy, blog posts, social media, SEO optimization |
+| 7 | GitHub Copilot | `@copilot` | 🐙 | Dynamic (policy-routed) | GitHub Copilot CLI — shell commands, DevOps, GitHub workflows |
+| 8 | Data Scientist | `@datascientist` | 📈 | Dynamic (policy-routed) | CRISP-DM, ML pipelines, statistical analysis, experiment design, data storytelling |
+| 9 | Design Thinking Coach (Maya) | `@design-thinking-coach` | 💡 | Dynamic (policy-routed) | Human-centered design expert and empathy architect guiding design thinking processes with 15+ years experience |
+| 10 | Design Agency | `@designer` | 🎨 | Dynamic (policy-routed) | World-class design agency — 8-phase brand engagement, Awwwards-quality HTML prototypes, 3-second clarity test. |
+| 11 | Developer (Amelia) | `@dev` | 💻 | Dynamic (policy-routed) | Senior software engineer who executes approved stories with strict TDD adherence and comprehensive test coverage |
+| 12 | DevOps Engineer | `@devops` | ⚙️ | Dynamic (policy-routed) | DevOps — Docker, CI/CD, cloud infra, Terraform, monitoring |
+| 13 | Domain Scout | `@domain-scout` | 🗺️ | Dynamic (policy-routed) | Maps competitive domains — classifies product space, finds direct/adjacent competitors, identifies whitespace |
+| 14 | PS Evaluator | `@evaluator` | ⚖️ | Dynamic (policy-routed) | Hackathon judging, feasibility scoring, competitive analysis |
+| 15 | "Forager (Ingredient Scout)" | `@forager` | 🧺 | Dynamic (policy-routed) | The Stall |
+| 16 | Gemini | `@gemini` | 🔮 | Dynamic (policy-routed) | Google Gemini CLI — research, code generation, multi-modal analysis |
+| 17 | Innovation Strategist | `@innovator` | 🚀 | Dynamic (policy-routed) | Blue Ocean Strategy, Jobs-to-be-Done, Business Model Canvas, disruption analysis — strategic innovation architect |
+| 18 | Team Lead | `@master` | 👑 | Dynamic (policy-routed) | Master orchestrator — decomposes complex projects into parallel persona work streams, coordinates and integrates outputs |
+| 19 | Module Builder (Morgan) | `@module-builder` | 📦 | Dynamic (policy-routed) | Module architecture specialist who creates cohesive, scalable Soupz modules with agents, workflows, and infrastructure |
+| 20 | Ollama | `@ollama` | 🤖 | Dynamic (policy-routed) | Ollama — local LLMs (Llama, Mistral, Phi) |
+| 21 | Orchestrator | `@orchestrator` | 🎯 | Dynamic (policy-routed) | Master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates Soupz multi-agent workflows |
+| 22 | Project Planner | `@planner` | 📋 | Dynamic (policy-routed) | Sprint planning, task breakdown, dependency mapping, Gantt charts |
+| 23 | Product Manager | `@pm` | 🎯 | Dynamic (policy-routed) | PRDs, roadmaps, RICE/MoSCoW prioritization, user research, north star metrics — outcome-driven PM |
+| 24 | Presentation Coach | `@presenter` | 🎤 | Dynamic (policy-routed) | 10x hackathon champion and pitch coach — demo scripts, investor decks, judge prep, storytelling |
+| 25 | Problem Solver | `@problemsolver` | 🧩 | Dynamic (policy-routed) | TRIZ, 5 Whys, First Principles, Theory of Constraints, Systems Thinking — systematic problem-solving expert |
+| 26 | QA Engineer | `@qa` | 🧪 | Dynamic (policy-routed) | QA — test plans, edge cases, bug reports, quality gates |
+| 27 | Quick Flow Solo Dev (Barry) | `@quick-flow` | ⚡ | Dynamic (policy-routed) | Elite full-stack developer for rapid spec creation through lean implementation with minimum ceremony |
+| 28 | Researcher | `@researcher` | 🔬 | Dynamic (policy-routed) | Deep researcher — competitive intelligence, API/SDK evaluation, market sizing, domain analysis |
+| 29 | Review Miner | `@review-miner` | ⛏️ | Dynamic (policy-routed) | Mines user reviews from Reddit, X, App Store, Play Store — extracts real pain points & feature gaps |
+| 30 | Scrum Master | `@scrum` | 🏃 | Dynamic (policy-routed) | Certified Scrum Master — sprint planning, story preparation, retrospectives, velocity tracking, blocker removal |
+| 31 | Security Auditor | `@security` | 🔒 | Dynamic (policy-routed) | Security — threat modeling, OWASP, pen test planning, compliance |
+| 32 | Storyteller | `@storyteller` | 📖 | Dynamic (policy-routed) | Hero |
+| 33 | Strategist | `@strategist` | 💼 | Dynamic (policy-routed) | Billionaire-level strategist — market intelligence, brand positioning, investor pitch, GTM, business model |
+| 34 | SVG Artist | `@svgart` | 🖼️ | Dynamic (policy-routed) | SVG & CSS art generator — creates ready-to-import SVG files, icons, logos, illustrations, and UI assets |
+| 35 | Test Architect (Murat) | `@tea` | 🧪 | Dynamic (policy-routed) | Master test architect specializing in risk-based testing, ATDD, test strategy, and CI/CD quality governance |
+| 36 | Teaching Assistant | `@teacher` | 📚 | Dynamic (policy-routed) | Patient expert educator — Bloom |
+| 37 | Tech Writer | `@techwriter` | 📝 | Dynamic (policy-routed) | READMEs, API docs, tutorials, changelogs, migration guides |
+| 38 | Test Architect | `@tester` | 🔍 | Dynamic (policy-routed) | Test strategy, automation frameworks, quality gates, CI/CD |
+| 39 | UI Builder | `@ui-builder` | 🏗️ | Dynamic (policy-routed) | Builds the actual HTML prototypes — GSAP animations, design systems, SVG assets, Awwwards-quality output |
+| 40 | UX Designer (Sally) | `@ux-designer` | 🎯 | Dynamic (policy-routed) | Senior UX designer specializing in user research, interaction design, and human-centered experience strategy |
+| 41 | Workflow Builder (Wendy) | `@workflow-builder` | 🔄 | Dynamic (policy-routed) | Workflow architecture specialist and process design expert who creates efficient, scalable Soupz workflows |
 
 
 ### 5b. Per-Persona Deep Dive (ALL personas — do not skip any)
 
 #### 1. Agent Builder (Bond) (@agent-builder)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Agent architecture specialist and Soupz compliance expert who creates robust, maintainable agents
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -170,7 +181,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Agent Builder (Bond) workflows rather than general responsibilities.
 
 #### 2. Business Analyst (@analyst)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Senior business analyst — requirements, user stories, competitive analysis, market sizing, KPIs
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -178,7 +189,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Business Analyst workflows rather than general responsibilities.
 
 #### 3. Tech Architect (@architect)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: CTO-level technical architect who plans for 50-person teams with production-grade systems
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -186,7 +197,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Tech Architect workflows rather than general responsibilities.
 
 #### 4. Brainstorming Coach (@brainstorm)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: SCAMPER, Six Thinking Hats, Mind Mapping, Crazy 8s, Reverse Brainstorming — master ideation facilitator
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -194,7 +205,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Brainstorming Coach workflows rather than general responsibilities.
 
 #### 5. Brand Chef (@brand-chef)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Brand identity specialist — naming, messaging, positioning, voice & tone, visual direction
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -202,7 +213,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Brand Chef workflows rather than general responsibilities.
 
 #### 6. Content Writer (@contentwriter)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Marketing copy, blog posts, social media, SEO optimization
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -210,7 +221,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Content Writer workflows rather than general responsibilities.
 
 #### 7. GitHub Copilot (@copilot)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: GitHub Copilot CLI — shell commands, DevOps, GitHub workflows
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -218,7 +229,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on GitHub Copilot workflows rather than general responsibilities.
 
 #### 8. Data Scientist (@datascientist)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: CRISP-DM, ML pipelines, statistical analysis, experiment design, data storytelling
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -226,7 +237,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Data Scientist workflows rather than general responsibilities.
 
 #### 9. Design Thinking Coach (Maya) (@design-thinking-coach)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Human-centered design expert and empathy architect guiding design thinking processes with 15+ years experience
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -234,7 +245,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Design Thinking Coach (Maya) workflows rather than general responsibilities.
 
 #### 10. Design Agency (@designer)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: World-class design agency — 8-phase brand engagement, Awwwards-quality HTML prototypes, 3-second clarity test.
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -242,7 +253,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Design Agency workflows rather than general responsibilities.
 
 #### 11. Developer (Amelia) (@dev)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Senior software engineer who executes approved stories with strict TDD adherence and comprehensive test coverage
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -250,7 +261,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Developer (Amelia) workflows rather than general responsibilities.
 
 #### 12. DevOps Engineer (@devops)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: DevOps — Docker, CI/CD, cloud infra, Terraform, monitoring
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -258,7 +269,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on DevOps Engineer workflows rather than general responsibilities.
 
 #### 13. Domain Scout (@domain-scout)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Maps competitive domains — classifies product space, finds direct/adjacent competitors, identifies whitespace
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -266,7 +277,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Domain Scout workflows rather than general responsibilities.
 
 #### 14. PS Evaluator (@evaluator)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Hackathon judging, feasibility scoring, competitive analysis
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -274,7 +285,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on PS Evaluator workflows rather than general responsibilities.
 
 #### 15. "Forager (Ingredient Scout)" (@forager)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: The Stall
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Standard persona wrapper. Routes based on internal regex matching if specific keywords are hit.
@@ -282,7 +293,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on "Forager (Ingredient Scout)" workflows rather than general responsibilities.
 
 #### 16. Gemini (@gemini)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Google Gemini CLI — research, code generation, multi-modal analysis
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -290,7 +301,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Gemini workflows rather than general responsibilities.
 
 #### 17. Innovation Strategist (@innovator)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Blue Ocean Strategy, Jobs-to-be-Done, Business Model Canvas, disruption analysis — strategic innovation architect
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -298,7 +309,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Innovation Strategist workflows rather than general responsibilities.
 
 #### 18. Team Lead (@master)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Master orchestrator — decomposes complex projects into parallel persona work streams, coordinates and integrates outputs
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -306,7 +317,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Team Lead workflows rather than general responsibilities.
 
 #### 19. Module Builder (Morgan) (@module-builder)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Module architecture specialist who creates cohesive, scalable Soupz modules with agents, workflows, and infrastructure
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -314,7 +325,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Module Builder (Morgan) workflows rather than general responsibilities.
 
 #### 20. Ollama (@ollama)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Ollama — local LLMs (Llama, Mistral, Phi)
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Standard persona wrapper. Routes based on internal regex matching if specific keywords are hit.
@@ -322,7 +333,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Ollama workflows rather than general responsibilities.
 
 #### 21. Orchestrator (@orchestrator)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates Soupz multi-agent workflows
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -330,7 +341,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Orchestrator workflows rather than general responsibilities.
 
 #### 22. Project Planner (@planner)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Sprint planning, task breakdown, dependency mapping, Gantt charts
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -338,7 +349,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Project Planner workflows rather than general responsibilities.
 
 #### 23. Product Manager (@pm)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: PRDs, roadmaps, RICE/MoSCoW prioritization, user research, north star metrics — outcome-driven PM
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -346,7 +357,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Product Manager workflows rather than general responsibilities.
 
 #### 24. Presentation Coach (@presenter)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: 10x hackathon champion and pitch coach — demo scripts, investor decks, judge prep, storytelling
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -354,7 +365,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Presentation Coach workflows rather than general responsibilities.
 
 #### 25. Problem Solver (@problemsolver)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: TRIZ, 5 Whys, First Principles, Theory of Constraints, Systems Thinking — systematic problem-solving expert
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -362,7 +373,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Problem Solver workflows rather than general responsibilities.
 
 #### 26. QA Engineer (@qa)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: QA — test plans, edge cases, bug reports, quality gates
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -370,7 +381,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on QA Engineer workflows rather than general responsibilities.
 
 #### 27. Quick Flow Solo Dev (Barry) (@quick-flow)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Elite full-stack developer for rapid spec creation through lean implementation with minimum ceremony
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -378,7 +389,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Quick Flow Solo Dev (Barry) workflows rather than general responsibilities.
 
 #### 28. Researcher (@researcher)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Deep researcher — competitive intelligence, API/SDK evaluation, market sizing, domain analysis
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -386,7 +397,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Researcher workflows rather than general responsibilities.
 
 #### 29. Review Miner (@review-miner)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Mines user reviews from Reddit, X, App Store, Play Store — extracts real pain points & feature gaps
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -394,7 +405,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Review Miner workflows rather than general responsibilities.
 
 #### 30. Scrum Master (@scrum)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Certified Scrum Master — sprint planning, story preparation, retrospectives, velocity tracking, blocker removal
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -402,7 +413,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Scrum Master workflows rather than general responsibilities.
 
 #### 31. Security Auditor (@security)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Security — threat modeling, OWASP, pen test planning, compliance
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -410,7 +421,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Security Auditor workflows rather than general responsibilities.
 
 #### 32. Storyteller (@storyteller)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Hero
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Standard persona wrapper. Routes based on internal regex matching if specific keywords are hit.
@@ -418,7 +429,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Storyteller workflows rather than general responsibilities.
 
 #### 33. Strategist (@strategist)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Billionaire-level strategist — market intelligence, brand positioning, investor pitch, GTM, business model
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -426,7 +437,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Strategist workflows rather than general responsibilities.
 
 #### 34. SVG Artist (@svgart)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: SVG & CSS art generator — creates ready-to-import SVG files, icons, logos, illustrations, and UI assets
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -434,7 +445,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on SVG Artist workflows rather than general responsibilities.
 
 #### 35. Test Architect (Murat) (@tea)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Master test architect specializing in risk-based testing, ATDD, test strategy, and CI/CD quality governance
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -442,7 +453,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Test Architect (Murat) workflows rather than general responsibilities.
 
 #### 36. Teaching Assistant (@teacher)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Patient expert educator — Bloom
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Standard persona wrapper. Routes based on internal regex matching if specific keywords are hit.
@@ -450,7 +461,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Teaching Assistant workflows rather than general responsibilities.
 
 #### 37. Tech Writer (@techwriter)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: READMEs, API docs, tutorials, changelogs, migration guides
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -458,7 +469,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Tech Writer workflows rather than general responsibilities.
 
 #### 38. Test Architect (@tester)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Test strategy, automation frameworks, quality gates, CI/CD
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -466,7 +477,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on Test Architect workflows rather than general responsibilities.
 
 #### 39. UI Builder (@ui-builder)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Builds the actual HTML prototypes — GSAP animations, design systems, SVG assets, Awwwards-quality output
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -474,7 +485,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on UI Builder workflows rather than general responsibilities.
 
 #### 40. UX Designer (Sally) (@ux-designer)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Senior UX designer specializing in user research, interaction design, and human-centered experience strategy
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
@@ -482,7 +493,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
 - **How It Differs From Similar Personas**: Focuses entirely on UX Designer (Sally) workflows rather than general responsibilities.
 
 #### 41. Workflow Builder (Wendy) (@workflow-builder)
-- **Underlying Agent**: Copilot / Gemini
+- **Underlying Agent**: Dynamic (policy-routed)
 - **Specialty**: Workflow architecture specialist and process design expert who creates efficient, scalable Soupz workflows
 - **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
 - **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.

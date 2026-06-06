@@ -3,10 +3,18 @@ import { Terminal, CheckCircle, XCircle, ArrowRight, RefreshCw, QrCode, Keyboard
 import { QRCodeSVG } from 'qrcode.react';
 import { cn } from '../../lib/cn';
 import { supabase } from '../../lib/supabase';
-import { checkDaemonHealth } from '../../lib/daemon';
+import { checkDaemonHealth, setDaemonToken, setDaemonUrl, getDaemonUrl } from '../../lib/daemon';
+import { trackEvent } from '../../lib/instrumentation.js';
 
 const LOCAL_DAEMON_PORT = 7533;
 const CODE_TTL_MS = 300_000; // 5 minutes
+
+function formatPairingCode(rawCode = '') {
+  const cleaned = String(rawCode || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 9);
+  if (!cleaned) return '';
+  const groups = cleaned.match(/.{1,3}/g) || [];
+  return groups.join('-').toUpperCase();
+}
 
 function isProbablyMobileDevice() {
   if (typeof window === 'undefined') return false;
@@ -36,6 +44,14 @@ async function parseJsonSafe(response) {
   try { return await response.json(); } catch { return null; }
 }
 
+function normalizeAttemptError(err) {
+  const name = err?.name || '';
+  if (name === 'TimeoutError' || name === 'AbortError') return 'Request timed out';
+  const message = err?.message || '';
+  if (/fetch failed|network/i.test(message)) return 'Network request failed';
+  return message || 'Request failed';
+}
+
 function normalizePairingPayload(payload) {
   if (!payload || typeof payload !== 'object') return null;
   const token = payload.token || payload.sessionToken || null;
@@ -43,26 +59,106 @@ function normalizePairingPayload(payload) {
   return { ...payload, token, success: payload.success !== false };
 }
 
-async function tryPairAgainstBase(baseUrl, code, timeoutMs = 2000) {
+function toPersistableDaemonUrl(candidate) {
+  if (!candidate || typeof candidate !== 'string') return null;
+  const trimmed = candidate.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed.startsWith('http') ? trimmed : `http://${trimmed}`);
+    return parsed.origin.replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
+function chooseDaemonUrlFromPairing({ data, attemptBaseUrl }) {
+  const hinted = [
+    data?.remoteBaseUrl,
+    data?.daemonUrl,
+    data?.baseUrl,
+    attemptBaseUrl,
+  ].map(toPersistableDaemonUrl).filter(Boolean);
+
+  const appOrigin = typeof window !== 'undefined' ? window.location.origin.replace(/\/$/, '') : '';
+  for (const candidate of hinted) {
+    if (!candidate) continue;
+    // Never persist hosted web app origin as daemon endpoint.
+    if (appOrigin && candidate === appOrigin && !/localhost|127\.0\.0\.1/.test(candidate)) continue;
+    return candidate;
+  }
+  return null;
+}
+
+async function tryPairAgainstBase(baseUrl, code) {
   const base = baseUrl ? baseUrl.replace(/\/$/, '') : '';
   const endpoints = [
     base ? `${base}/api/pair` : '/api/pair',
     base ? `${base}/pair/validate` : '/pair/validate',
   ];
+  const attempts = [];
   let lastData = null;
   for (const target of endpoints) {
-    const res = await fetch(target, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    const data = await parseJsonSafe(res);
-    lastData = data;
-    const normalized = normalizePairingPayload(data);
-    if (res.ok && normalized?.token) return { ok: true, data: normalized, baseUrl: baseUrl || window.location.origin };
+    try {
+      const res = await fetch(target, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await parseJsonSafe(res);
+      lastData = data;
+      const normalized = normalizePairingPayload(data);
+      const message = data?.error || data?.message || (res.ok ? 'Pairing response missing token' : 'Pairing failed');
+      attempts.push({ endpoint: target, status: res.status, message });
+      if (res.ok && normalized?.token) {
+        return {
+          ok: true,
+          data: normalized,
+          baseUrl: baseUrl || window.location.origin,
+          lastEndpoint: target,
+          attempts,
+        };
+      }
+    } catch (err) {
+      attempts.push({ endpoint: target, status: 0, message: normalizeAttemptError(err) });
+    }
   }
-  return { ok: false, data: lastData };
+  return {
+    ok: false,
+    data: lastData,
+    lastEndpoint: attempts[attempts.length - 1]?.endpoint || null,
+    error: attempts[attempts.length - 1]?.message || null,
+    attempts,
+  };
+}
+
+function buildPairingDiagnostics(attempts, fallbackReason) {
+  const normalizedAttempts = Array.isArray(attempts) ? attempts.filter(Boolean) : [];
+  const lastAttempt = normalizedAttempts[normalizedAttempts.length - 1] || null;
+  const reasonFromAttempt = lastAttempt?.message;
+  const reason = reasonFromAttempt || fallbackReason || 'Could not connect to a running daemon.';
+  const sawInvalidCode = normalizedAttempts.some((attempt) => /invalid|expired/i.test(attempt?.message || ''));
+  const sawTimeout = normalizedAttempts.some((attempt) => /timed out/i.test(attempt?.message || ''));
+  const sawNetwork = normalizedAttempts.some((attempt) => /network request failed|failed to fetch|cors/i.test(attempt?.message || ''));
+  const triedSupabase = normalizedAttempts.some((attempt) => (attempt?.source || '').startsWith('supabase'));
+  const sawLocalhost = normalizedAttempts.some((attempt) => (attempt?.endpoint || '').includes('localhost'));
+
+  let networkHint = 'Run npx @shubh_prajapati99/soupz on your machine and retry this code within 5 minutes.';
+  if (sawInvalidCode) {
+    networkHint = 'Generate a fresh code from the terminal and retry immediately. Pairing codes are single-use.';
+  } else if (sawTimeout) {
+    networkHint = 'Daemon is not reachable from this device. Ensure your machine is online and tunnel/local network access is available.';
+  } else if (sawNetwork) {
+    networkHint = 'Network path failed. Check firewall/VPN rules and confirm the daemon URL is reachable.';
+  } else if (triedSupabase && !sawLocalhost) {
+    networkHint = 'Supabase lookup succeeded but daemon validation failed. Confirm tunnel targets are active and not expired.';
+  }
+
+  return {
+    reason,
+    lastEndpoint: lastAttempt?.endpoint || 'No endpoint reached',
+    networkHint,
+    attempts: normalizedAttempts,
+  };
 }
 
 // ── Apple-style countdown ring ───────────────────────────────────────────────
@@ -109,6 +205,8 @@ export default function ConnectPage({ getParam, navigate }) {
   const [status, setStatus] = useState('idle');
   const [machine, setMachine] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [pairingDiagnostics, setPairingDiagnostics] = useState(null);
+  const [tunnelReadiness, setTunnelReadiness] = useState(null);
   const [connectMode, setConnectMode] = useState(urlCode ? 'share' : 'code'); // code | qr | share
   const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [alreadyConnected, setAlreadyConnected] = useState(null); // { hostname } | null
@@ -182,16 +280,25 @@ export default function ConnectPage({ getParam, navigate }) {
     // Try same-origin first, then stored daemon URL
     const urls = [
       '',
-      localStorage.getItem('soupz_daemon_url'),
+      getDaemonUrl(),
       `http://localhost:${LOCAL_DAEMON_PORT}`,
     ].filter(Boolean);
 
     for (const base of urls) {
       try {
         const endpoint = base ? `${base}/pair/current` : '/pair/current';
-        const res = await fetch(endpoint, { signal: AbortSignal.timeout(1500) });
+        const res = await fetch(endpoint);
         const data = await parseJsonSafe(res);
         const currentCode = (data?.code || '').toString().replace(/[^A-Z0-9]/gi, '').slice(0, 9);
+        const tunnelUrls = Array.isArray(data?.tunnelUrls) ? data.tunnelUrls : [];
+        const connectTargets = Array.isArray(data?.connectTargets) ? data.connectTargets : [];
+        setTunnelReadiness({
+          hasRemoteBase: !!data?.remoteBaseUrl,
+          remoteBaseUrl: data?.remoteBaseUrl || null,
+          tunnelCount: tunnelUrls.length,
+          connectTargetCount: connectTargets.length,
+          endpoint,
+        });
         if (currentCode.length === 9) {
           setDigits(currentCode.split(''));
           const ttl = (data?.expiresIn || 300) * 1000;
@@ -207,27 +314,60 @@ export default function ConnectPage({ getParam, navigate }) {
   async function handleConnect(overrideCode) {
     const c = overrideCode || code;
     if (c.length !== 9) return;
+    trackEvent('pairing_attempt_started', { isMobile: isProbablyMobileDevice(), hasOverride: !!overrideCode });
     setStatus('loading');
     setErrorMsg('');
+    setPairingDiagnostics(null);
+    const attemptLog = [];
+
+    const recordResult = (source, result) => {
+      if (!result) return;
+      const attempts = Array.isArray(result.attempts) ? result.attempts : [];
+      if (attempts.length) {
+        for (const attempt of attempts) attemptLog.push({ ...attempt, source });
+        return;
+      }
+      if (result.lastEndpoint || result.error) {
+        attemptLog.push({
+          source,
+          endpoint: result.lastEndpoint || 'unknown',
+          status: 0,
+          message: result.error || 'Pairing attempt failed',
+        });
+      }
+    };
+
+    const recordException = (source, endpoint, err) => {
+      attemptLog.push({ source, endpoint, status: 0, message: normalizeAttemptError(err) });
+    };
 
     try {
-      const proxied = await tryPairAgainstBase(null, c, 2200);
+      const proxied = await tryPairAgainstBase(null, c);
+      recordResult('same-origin', proxied);
       if (proxied.ok) { finishConnect(proxied.data, proxied.baseUrl); return; }
-    } catch {}
+    } catch (err) {
+      recordException('same-origin', '/api/pair', err);
+    }
 
     try {
-      const remembered = localStorage.getItem('soupz_daemon_url');
+      const remembered = getDaemonUrl();
       if (remembered) {
-        const result = await tryPairAgainstBase(remembered, c, 2200);
+        const result = await tryPairAgainstBase(remembered, c);
+        recordResult('remembered-daemon', result);
         if (result.ok) { finishConnect(result.data, result.baseUrl); return; }
       }
-    } catch {}
+    } catch (err) {
+      recordException('remembered-daemon', getDaemonUrl() || 'unknown', err);
+    }
 
     try {
       const localUrl = `http://localhost:${LOCAL_DAEMON_PORT}`;
-      const result = await tryPairAgainstBase(localUrl, c, 1500);
+      const result = await tryPairAgainstBase(localUrl, c);
+      recordResult('localhost', result);
       if (result.ok) { finishConnect(result.data, localUrl); return; }
-    } catch {}
+    } catch (err) {
+      recordException('localhost', `http://localhost:${LOCAL_DAEMON_PORT}/api/pair`, err);
+    }
 
     try {
       if (!supabase) throw new Error('Remote pairing unavailable (Supabase not configured).');
@@ -236,29 +376,46 @@ export default function ConnectPage({ getParam, navigate }) {
       if (new Date(data.expires_at) < new Date()) throw new Error('Code expired');
 
       const candidates = resolveRemoteCandidates(data);
+      if (candidates.length === 0) {
+        attemptLog.push({
+          source: 'supabase',
+          endpoint: 'supabase:soupz_pairing',
+          status: 0,
+          message: 'Remote pairing unavailable (no daemon tunnel targets found)',
+        });
+        throw new Error('Remote pairing unavailable: daemon did not publish reachable tunnel targets.');
+      }
       for (const baseUrl of candidates) {
         try {
-          const result = await tryPairAgainstBase(baseUrl, c, 2500);
+          const result = await tryPairAgainstBase(baseUrl, c);
+          recordResult(`supabase:${baseUrl}`, result);
           if (result.ok) { finishConnect(result.data, baseUrl); return; }
-        } catch {}
+        } catch (err) {
+          recordException(`supabase:${baseUrl}`, `${baseUrl}/api/pair`, err);
+        }
       }
-      finishConnect(data, null);
+      throw new Error('Remote pairing unavailable: daemon validation endpoints were unreachable.');
     } catch (err) {
-      setErrorMsg(err.message || 'Could not connect. Make sure npx soupz is running.');
+      const diagnostics = buildPairingDiagnostics(attemptLog, err.message || 'Could not connect. Make sure npx @shubh_prajapati99/soupz is running.');
+      trackEvent('pairing_failed', { reason: diagnostics.reason, attempts: attemptLog.length });
+      setPairingDiagnostics(diagnostics);
+      setErrorMsg(diagnostics.reason);
       setStatus('error');
     }
   }
 
   function finishConnect(data, url) {
+    trackEvent('pairing_succeeded', { hostname: data.hostname, url });
     setMachine(data);
     setStatus('success');
     if (data.token) {
-      localStorage.setItem('soupz_daemon_token', data.token);
-      sessionStorage.setItem('soupz_daemon_token', data.token);
+      setDaemonToken(data.token);
     }
     if (data.hostname) localStorage.setItem('soupz_hostname', data.hostname);
-    if (url) localStorage.setItem('soupz_daemon_url', url);
-    else localStorage.removeItem('soupz_daemon_url');
+    const daemonUrl = chooseDaemonUrlFromPairing({ data, attemptBaseUrl: url });
+    if (daemonUrl) {
+      setDaemonUrl(daemonUrl);
+    }
     setTimeout(() => navigate('/dashboard'), 1200);
   }
 
@@ -289,6 +446,7 @@ export default function ConnectPage({ getParam, navigate }) {
     setDigits(Array(9).fill(''));
     setStatus('idle');
     setErrorMsg('');
+    setPairingDiagnostics(null);
     inputRefs.current[0]?.focus();
   }
 
@@ -314,7 +472,7 @@ export default function ConnectPage({ getParam, navigate }) {
         {status === 'success' ? (
           <SuccessState machine={machine} />
         ) : connectMode === 'share' ? (
-          // Desktop "Share this code" view (auto-opened from npx soupz)
+          // Desktop "Share this code" view (auto-opened from npx @shubh_prajapati99/soupz)
           <ShareCodeView
             code={code}
             isComplete={isComplete}
@@ -333,7 +491,7 @@ export default function ConnectPage({ getParam, navigate }) {
             <h1 className="text-text-pri font-ui text-xl font-semibold mb-1.5">Connect your machine</h1>
             <p className="text-text-sec text-sm mb-4 leading-relaxed">
               Run{' '}
-              <code className="font-mono text-accent text-xs bg-bg-elevated px-1.5 py-0.5 rounded">npx soupz</code>
+              <code className="font-mono text-accent text-xs bg-bg-elevated px-1.5 py-0.5 rounded">npx @shubh_prajapati99/soupz</code>
               {' '}in your terminal, then connect below.
             </p>
 
@@ -421,6 +579,56 @@ export default function ConnectPage({ getParam, navigate }) {
                 </div>
               )}
 
+              {status === 'error' && pairingDiagnostics && (
+                <div className="mb-4 rounded-lg border border-border-subtle bg-bg-base px-3 py-3 space-y-2">
+                  <p className="text-[11px] font-ui uppercase tracking-wider text-text-faint">Pairing diagnostics</p>
+                  <div>
+                    <p className="text-[11px] text-text-faint">Why pairing failed</p>
+                    <p className="text-xs text-text-sec leading-relaxed">{pairingDiagnostics.reason}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-text-faint">Last endpoint attempted</p>
+                    <p className="text-xs font-mono text-text-sec break-all">{pairingDiagnostics.lastEndpoint}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-text-faint">Network hint</p>
+                    <p className="text-xs text-text-sec leading-relaxed">{pairingDiagnostics.networkHint}</p>
+                  </div>
+                </div>
+              )}
+
+              {connectMode === 'code' && status !== 'error' && tunnelReadiness && (
+                <div className={cn(
+                  'mb-4 rounded-lg border px-3 py-2.5',
+                  tunnelReadiness.hasRemoteBase
+                    ? 'border-success/30 bg-success/5'
+                    : 'border-warning/30 bg-warning/5',
+                )}>
+                  <p className={cn(
+                    'text-[11px] font-ui uppercase tracking-wider',
+                    tunnelReadiness.hasRemoteBase ? 'text-success' : 'text-warning',
+                  )}>
+                    Connection readiness
+                  </p>
+                  <p className="text-xs text-text-sec leading-relaxed mt-1">
+                    {tunnelReadiness.hasRemoteBase
+                      ? 'Remote pairing is available. You can connect from a different network or use LAN directly.'
+                      : 'LAN pairing is ready, but remote pairing is not yet reachable from outside your network.'}
+                  </p>
+                  <p className="text-[11px] text-text-faint mt-2 font-mono break-all">
+                    Source: {tunnelReadiness.endpoint}
+                  </p>
+                  {tunnelReadiness.remoteBaseUrl && (
+                    <p className="text-[11px] text-text-faint mt-1 font-mono break-all">
+                      Remote base: {tunnelReadiness.remoteBaseUrl}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-text-faint mt-1">
+                    Targets published: {tunnelReadiness.connectTargetCount} | Tunnel URLs: {tunnelReadiness.tunnelCount}
+                  </p>
+                </div>
+              )}
+
               <button
                 onClick={() => handleConnect()}
                 disabled={!isComplete || status === 'loading'}
@@ -454,7 +662,7 @@ export default function ConnectPage({ getParam, navigate }) {
                 <ol className="space-y-2">
                   {[
                     'Open Terminal on your machine',
-                    'Run: npx soupz',
+                    'Run: npx @shubh_prajapati99/soupz',
                     'Scan the terminal QR or enter the 9-character code above',
                   ].map((step, i) => (
                     <li key={i} className="flex items-start gap-2.5 text-text-sec text-sm">
@@ -527,7 +735,8 @@ function AlreadyConnectedState({ hostname, onDashboard, onNewConnection, onShowC
 }
 
 export function ShareCodeView({ code, isComplete, remainingMs, onEnterManually }) {
-  const connectUrl = isComplete ? `${window.location.origin}/connect?code=${code}` : null;
+  const connectUrl = isComplete ? `${window.location.origin}/code?code=${code}` : null;
+  const formattedCode = formatPairingCode(code);
 
   return (
     <div className="flex flex-col items-center gap-5 py-2">
@@ -542,7 +751,7 @@ export function ShareCodeView({ code, isComplete, remainingMs, onEnterManually }
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           {isComplete ? (
             <span className="font-mono text-xl font-bold text-text-pri tracking-widest">
-              {code.slice(0, 4)}-{code.slice(4)}
+              {formattedCode}
             </span>
           ) : (
             <span className="text-text-faint text-sm">Waiting...</span>
@@ -578,7 +787,8 @@ export function ShareCodeView({ code, isComplete, remainingMs, onEnterManually }
 }
 
 function QRConnectMode({ code, remainingMs, onManual, isMobileDevice }) {
-  const connectUrl = code.length === 8 ? `${window.location.origin}/connect?code=${code}` : null;
+  const connectUrl = code.length === 9 ? `${window.location.origin}/code?code=${code}` : null;
+  const formattedCode = formatPairingCode(code);
 
   if (isMobileDevice) {
     return (
@@ -613,7 +823,7 @@ function QRConnectMode({ code, remainingMs, onManual, isMobileDevice }) {
             Scan this QR code with your phone camera
           </p>
           <div className="flex items-center gap-2 text-text-faint text-[11px] font-mono bg-bg-elevated px-3 py-1.5 rounded-md border border-border-subtle">
-            Code: {code.slice(0, 4)}-{code.slice(4)}
+            Code: {formattedCode}
           </div>
         </>
       ) : (
@@ -621,7 +831,7 @@ function QRConnectMode({ code, remainingMs, onManual, isMobileDevice }) {
           <QrCode size={32} className="text-text-faint mx-auto mb-3 opacity-30" />
           <p className="text-text-sec text-sm font-ui mb-1">No code available yet</p>
           <p className="text-text-faint text-xs font-ui">
-            Run <code className="font-mono text-accent bg-bg-elevated px-1 rounded">npx soupz</code> first,
+            Run <code className="font-mono text-accent bg-bg-elevated px-1 rounded">npx @shubh_prajapati99/soupz</code> first,
             then enter the code manually to generate a QR.
           </p>
           <button onClick={onManual} className="mt-3 text-accent hover:text-accent-hover text-xs font-ui transition-colors">

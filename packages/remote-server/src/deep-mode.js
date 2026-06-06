@@ -7,8 +7,10 @@ import {
     authenticatedClients,
     REPO_ROOT,
     DEFAULT_DEEP_WORKERS,
-    MAX_DEEP_WORKERS,
     DEFAULT_SPECIALIST_SEQUENCE,
+    DEEP_INPUT_TIMEOUT_MS,
+    DEEP_WORKER_TIMEOUT_MS,
+    DEEP_SYNTHESIS_TIMEOUT_MS,
     DEEP_NESTED_ENABLED_DEFAULT,
     DEEP_NESTED_MAX_PARENTS,
     DEEP_NESTED_SUBAGENTS_PER_PARENT,
@@ -39,10 +41,13 @@ import {
     inferExecutionRole,
     canAgentHandleSpecialist,
     estimateDeepWorkerCount,
+    clampDeepWorkerCount,
+    resolveDeepWorkerLimit,
     isPathInside,
     summarizePromptForWorkspace,
     registerCreatedFile,
     toWorkspaceRelativePath,
+    getSelectedModelForAgent,
 } from './shared.js';
 import { archiveOrderResult } from './run-archive.js';
 
@@ -64,6 +69,202 @@ const NESTED_SUBAGENT_BLUEPRINTS = {
 };
 
 const NESTED_SPECIALIST_PRIORITY = ['architect', 'developer', 'security', 'researcher', 'qa', 'devops', 'strategist', 'pm', 'analyst', 'finance', 'designer', 'evaluator'];
+
+const ANSI_RE = /\x1B\[[0-9;?]*[ -\/]*[@-~]/g;
+const RUNTIME_NOISE_RE = [
+    /^YOLO mode is enabled\./i,
+    /^Keychain initialization encountered an error:/i,
+    /^Require stack:/i,
+    /^Using FileKeychain fallback/i,
+    /^Loaded cached credentials\.?$/i,
+    /^\[?stderr\]?\s*$/i,
+    /^OpenAI Codex v[\d.]+/i,
+    /^workdir:\s+/i,
+    /^model:\s+/i,
+    /^provider:\s+/i,
+    /^approval:\s+/i,
+    /^sandbox:\s+/i,
+    /^reasoning effort:\s+/i,
+    /^reasoning summaries:\s+/i,
+    /^\[.*\]\s*Not inside a trusted directory/i,
+    /^✖ Agent error:\s*Exited with code\s+\d+/i,
+    /^\s*↳\s*[a-z_][\w.-]*\s*\.\.\.\s*$/i,
+    /^\s*[⠁-⣿]+\s*$/,
+];
+
+function sanitizeArtifactText(text = '') {
+    const raw = String(text || '');
+    if (!raw) return '';
+
+    const normalized = raw
+        .replace(/\r/g, '\n')
+        .replace(ANSI_RE, '')
+        .split('\n')
+        .map((line) => line.trimEnd())
+        .filter((line) => {
+            const trimmed = line.trim();
+            if (!trimmed) return true;
+            return !RUNTIME_NOISE_RE.some((re) => re.test(trimmed));
+        })
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+    return normalized;
+}
+
+function hasSubstantiveContent(text = '') {
+    const cleaned = sanitizeArtifactText(text);
+    if (!cleaned) return false;
+    if (cleaned.length >= 700) return true;
+    const structureHits = (cleaned.match(/(^|\n)(#|##|\-|\*|\d+\.)\s+/g) || []).length;
+    return cleaned.length >= 220 && structureHits >= 4;
+}
+
+function extractActionableHighlights(text = '', limit = 10) {
+    const cleaned = sanitizeArtifactText(text);
+    if (!cleaned) return [];
+
+    const lines = cleaned
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+    const candidates = [];
+    for (const line of lines) {
+        const normalized = line
+            .replace(/^#{1,6}\s+/, '')
+            .replace(/^[-*+]\s+/, '')
+            .replace(/^\d+\.\s+/, '')
+            .trim();
+        if (!normalized) continue;
+
+        const isStructured = /^(risk|mitigation|assumption|constraint|tradeoff|api|schema|implementation|validation|test|checklist|step|phase|milestone)\b/i.test(normalized)
+            || /^(do|build|create|add|implement|verify|measure|monitor|ship)\b/i.test(normalized)
+            || normalized.length >= 80;
+        if (!isStructured) continue;
+
+        candidates.push(normalized);
+    }
+
+    const deduped = [];
+    const seen = new Set();
+    for (const item of candidates) {
+        const key = item.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        deduped.push(item);
+        if (deduped.length >= limit) break;
+    }
+    return deduped;
+}
+
+function buildDeterministicSynthesisFallback(successfulWorkers = [], failedWorkers = []) {
+    const ranked = [...successfulWorkers]
+        .sort((a, b) => {
+            const aLen = sanitizeArtifactText(a.stdout || a.stderr || '').length;
+            const bLen = sanitizeArtifactText(b.stdout || b.stderr || '').length;
+            return bLen - aLen;
+        })
+        .slice(0, Math.min(4, successfulWorkers.length));
+
+    const mergedHighlights = [];
+    const workerEvidence = [];
+    for (const worker of ranked) {
+        const text = sanitizeArtifactText(worker.stdout || worker.stderr || '');
+        const highlights = extractActionableHighlights(text, 8);
+        for (const line of highlights) {
+            if (!mergedHighlights.includes(line)) mergedHighlights.push(line);
+        }
+        workerEvidence.push({
+            workerId: worker.workerId,
+            agent: worker.agent,
+            highlights,
+            excerpt: text.slice(0, 4000),
+        });
+    }
+
+    const implementation = mergedHighlights
+        .filter((line) => /^(do|build|create|add|implement|define|wire|ship)\b/i.test(line) || /\b(api|schema|migration|endpoint|component|test)\b/i.test(line))
+        .slice(0, 12);
+    const risks = mergedHighlights
+        .filter((line) => /\b(risk|mitigation|assumption|constraint|tradeoff|limitation|fallback)\b/i.test(line))
+        .slice(0, 8);
+    const validation = mergedHighlights
+        .filter((line) => /\b(test|validate|verify|acceptance|measure|monitor|benchmark|smoke)\b/i.test(line))
+        .slice(0, 8);
+
+    const failedSummary = failedWorkers.length
+        ? [
+            '## Failed Lanes and Causes',
+            ...failedWorkers.slice(0, 8).map((worker) => {
+                const sample = sanitizeArtifactText(worker.stderr || worker.stdout || '').slice(0, 240);
+                return `- ${worker.workerId} (${worker.agent}) failed with exit ${worker.code}. ${sample || 'No error text captured.'}`;
+            }),
+            '',
+        ]
+        : [];
+
+    const evidenceBlocks = workerEvidence.map((worker) => [
+        `### ${worker.workerId} (${worker.agent})`,
+        ...(worker.highlights.length
+            ? worker.highlights.slice(0, 6).map((line) => `- ${line}`)
+            : ['- No structured highlights extracted; see artifact excerpt below.']),
+        '',
+        '```text',
+        worker.excerpt || '_No substantial output captured._',
+        '```',
+    ].join('\n'));
+
+    return [
+        '[synthesis:fallback] Primary synthesis failed quality checks; generated deterministic synthesis from successful workers.',
+        '',
+        '## Problem Framing and Assumptions',
+        '- Consolidated from successful worker lanes with runtime noise removed.',
+        `- Successful lanes considered: ${successfulWorkers.length}.`,
+        '',
+        '## Technical Plan with Implementation Steps',
+        ...(implementation.length ? implementation.map((line) => `- ${line}`) : ['- No structured implementation steps were extracted; inspect worker artifacts.']),
+        '',
+        '## Risks and Mitigations',
+        ...(risks.length ? risks.map((line) => `- ${line}`) : ['- Risks were not explicitly listed by workers; treat this run as low-confidence and rerun after fixing failed lanes.']),
+        '',
+        '## Validation Checklist',
+        ...(validation.length ? validation.map((line) => `- ${line}`) : ['- Add smoke tests, unit tests, and integration checks before shipping.']),
+        '',
+        ...failedSummary,
+        '## Worker Evidence Excerpts',
+        ...evidenceBlocks,
+    ].join('\n');
+}
+
+function computeWorkerQualityMetrics(result = {}) {
+    const output = sanitizeArtifactText(result.stdout || result.stderr || '');
+    const len = output.length;
+    const structureHits = (output.match(/(^|\n)(#|##|\-|\*|\d+\.)\s+/g) || []).length;
+    const citationHits = (output.match(/https?:\/\//g) || []).length;
+    const codeFenceHits = (output.match(/```/g) || []).length;
+    const failed = (result.code ?? 1) !== 0;
+
+    let quality = 0;
+    if (!failed) {
+        quality = 35;
+        quality += Math.min(30, Math.floor(len / 220));
+        quality += Math.min(20, structureHits * 3);
+        quality += Math.min(10, citationHits * 2);
+        quality += Math.min(5, codeFenceHits >= 2 ? 5 : codeFenceHits * 2);
+    }
+
+    quality = Math.max(0, Math.min(100, quality));
+
+    let risk = 100 - quality;
+    if (failed) risk = Math.min(100, risk + 20);
+    if (!failed && len < 220) risk = Math.min(100, risk + 15);
+    if (!failed && structureHits < 3) risk = Math.min(100, risk + 10);
+    risk = Math.max(0, Math.min(100, risk));
+
+    return { quality, risk, output };
+}
 
 // ─── Nested policy builder ────────────────────────────────────────────────────
 
@@ -314,16 +515,17 @@ function buildFallbackClarifyingQuestions(intent = {}) {
 
 // ─── AI planner ───────────────────────────────────────────────────────────────
 
-async function planDeepExecutionWithAI({ prompt, plannerAgent, cwd, mcpServers, timeoutMs = 25000, plannerStyle = 'balanced', plannerNotes = '' }) {
+async function planDeepExecutionWithAI({ prompt, plannerAgent, plannerModel = null, cwd, mcpServers, plannerStyle = 'balanced', plannerNotes = '' }) {
     const style = String(plannerStyle || 'balanced').trim().toLowerCase();
     const notes = String(plannerNotes || '').trim();
+    const workerLimit = resolveDeepWorkerLimit();
     const planningPrompt = [
         'System role: You are an orchestration planner for a multi-agent coding daemon.',
         'Task: Produce an execution plan for deep parallel work. Reply with ONLY valid JSON and no surrounding markdown.',
         `Planning style requested by user: ${style}.`,
         notes ? `User planner notes: ${notes}` : 'User planner notes: none.',
         'Constraints:',
-        `- workerCount must be an integer between 1 and ${MAX_DEEP_WORKERS}.`,
+        `- workerCount must be an integer between 1 and ${workerLimit}.`,
         `- specialist names must be chosen from: ${DEFAULT_SPECIALIST_SEQUENCE.join(', ')}.`,
         '- Provide 1 focus sentence per specialist.',
         '- Prefer feasibility and concrete implementation over generic advice.',
@@ -364,7 +566,8 @@ async function planDeepExecutionWithAI({ prompt, plannerAgent, cwd, mcpServers, 
         prompt: planningPrompt,
         cwd,
         mcpServers,
-        timeoutMs,
+        model: plannerModel,
+        timeoutMs: Math.min(DEEP_WORKER_TIMEOUT_MS, 60000),
     });
 
     if ((planResult?.code ?? 1) !== 0) {
@@ -378,7 +581,7 @@ async function planDeepExecutionWithAI({ prompt, plannerAgent, cwd, mcpServers, 
 
     const requestedCount = Number.parseInt(parsed.workerCount, 10);
     const workerCount = Number.isFinite(requestedCount)
-        ? Math.max(1, Math.min(MAX_DEEP_WORKERS, requestedCount))
+        ? clampDeepWorkerCount(requestedCount, DEFAULT_DEEP_WORKERS)
         : null;
     const specialists = normalizePlannerSpecialists(parsed.specialists, workerCount || DEFAULT_DEEP_WORKERS);
     const intent = normalizePlannerIntent(parsed.intent || {});
@@ -417,7 +620,26 @@ function createInputAnswerSummary(questions = [], answers = {}) {
     return lines;
 }
 
-async function waitForOrderInput(order, runtime, questions = [], timeoutMs = 10 * 60 * 1000) {
+function buildTimeoutInputAnswers(questions = []) {
+    const answers = {};
+    for (const q of questions) {
+        const options = Array.isArray(q?.options) ? q.options : [];
+        const recommended = options
+            .filter((opt) => opt?.recommended)
+            .map((opt) => String(opt.id || '').trim())
+            .filter(Boolean);
+        const fallback = (recommended.length > 0
+            ? recommended
+            : options
+                .map((opt) => String(opt?.id || '').trim())
+                .filter(Boolean)
+                .slice(0, 1));
+        answers[q.id] = q.multiSelect ? fallback : fallback.slice(0, 1);
+    }
+    return answers;
+}
+
+async function waitForOrderInput(order, runtime, questions = [], timeoutMs = DEEP_INPUT_TIMEOUT_MS) {
     if (!runtime || !Array.isArray(questions) || questions.length === 0) {
         return { answers: {}, timedOut: false, skipped: true };
     }
@@ -431,24 +653,34 @@ async function waitForOrderInput(order, runtime, questions = [], timeoutMs = 10 
         };
         runtime.inputRequest = request;
 
+        const timeoutBudget = resolveTimeoutMs(timeoutMs, DEEP_INPUT_TIMEOUT_MS);
+        if (timeoutBudget > 0) {
+            request.timeoutHandle = setTimeout(() => {
+                if (runtime.inputRequest !== request) return;
+                runtime.inputRequest = null;
+
+                const fallbackAnswers = buildTimeoutInputAnswers(questions);
+                order.status = 'running';
+                order.pendingQuestions = [];
+                order.pendingAnswers = fallbackAnswers;
+                pushOrderEvent(order, 'input.timeout', {
+                    timeoutMs: timeoutBudget,
+                    answers: fallbackAnswers,
+                });
+                void persistOrder(order);
+                broadcastOrderUpdate(order);
+
+                resolve({ answers: fallbackAnswers, timedOut: true, skipped: false });
+            }, timeoutBudget);
+            request.timeoutHandle.unref?.();
+        }
+
         order.status = 'waiting_input';
         order.pendingQuestions = questions;
         order.pendingAnswers = {};
-        pushOrderEvent(order, 'input.requested', { questionCount: questions.length, timeoutMs });
+        pushOrderEvent(order, 'input.requested', { questionCount: questions.length, timeoutMs: timeoutBudget });
         void persistOrder(order);
         broadcastOrderUpdate(order);
-
-        request.timeoutHandle = setTimeout(() => {
-            if (runtime.inputRequest !== request) return;
-            runtime.inputRequest = null;
-            order.status = 'running';
-            order.pendingQuestions = [];
-            order.pendingAnswers = {};
-            pushOrderEvent(order, 'input.timed_out', { questionCount: questions.length });
-            void persistOrder(order);
-            broadcastOrderUpdate(order);
-            resolve({ answers: {}, timedOut: true, skipped: false });
-        }, Math.max(15000, timeoutMs));
     });
 }
 
@@ -496,8 +728,24 @@ async function initializeDeepWorkspaceArtifacts(order, workers, workerMeta, exec
         '- SHARED_MEMORY.md aggregates distilled learnings from all workers + synthesis.',
     ].join('\n');
 
+    const sharedMemoryHeader = [
+        '# Shared Memory',
+        '',
+        '## 🏗️ Claims & Findings',
+        '*Verified facts and distilled technical results.*',
+        '',
+        '## 🧠 Assumptions & Hypotheses',
+        '*Pending validations and architectural guesses.*',
+        '',
+        '## 🔗 Sources & Citations',
+        '*References, URLs, and file paths used during research.*',
+        '',
+        '---',
+        '',
+    ].join('\n');
+
     await writeFile(briefPath, brief, 'utf8');
-    await writeFile(sharedPath, '# Shared Memory\n\n', 'utf8');
+    await writeFile(sharedPath, sharedMemoryHeader, 'utf8');
 
     registerCreatedFile(order, toWorkspaceRelativePath(cwd, briefPath));
     registerCreatedFile(order, toWorkspaceRelativePath(cwd, sharedPath));
@@ -505,11 +753,35 @@ async function initializeDeepWorkspaceArtifacts(order, workers, workerMeta, exec
     return { cwd, runRoot, briefPath, sharedPath };
 }
 
+function extractStructuredMemory(text = '') {
+    const claims = [];
+    const assumptions = [];
+    const sources = [];
+
+    const lines = text.split('\n');
+    lines.forEach(line => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('[CLAIM]') || trimmed.startsWith('[Claim]')) {
+            claims.push(trimmed.replace(/^\[CLAIM\]\s*/i, ''));
+        } else if (trimmed.startsWith('[ASSUMPTION]') || trimmed.startsWith('[Assumption]')) {
+            assumptions.push(trimmed.replace(/^\[ASSUMPTION\]\s*/i, ''));
+        } else if (trimmed.startsWith('[SOURCE]') || trimmed.startsWith('[Source]')) {
+            sources.push(trimmed.replace(/^\[SOURCE\]\s*/i, ''));
+        }
+    });
+
+    return { claims, assumptions, sources };
+}
+
 async function persistWorkerArtifact(order, artifactContext, workerId, agent, workerMetaInfo, result) {
     if (!artifactContext) return;
     const safeWorkerId = String(workerId || 'worker').replace(/[^a-zA-Z0-9-_]/g, '_');
     const safeSpecialist = String(workerMetaInfo?.specialist || 'developer').replace(/[^a-zA-Z0-9-_]/g, '_');
     const workerFile = join(artifactContext.runRoot, `${safeWorkerId}--${safeSpecialist}.md`);
+    
+    const outputText = sanitizeArtifactText(result?.stdout || result?.stderr || '');
+    const { claims, assumptions, sources } = extractStructuredMemory(outputText);
+
     const body = [
         `# ${safeWorkerId}`,
         '',
@@ -521,20 +793,30 @@ async function persistWorkerArtifact(order, artifactContext, workerId, agent, wo
         '',
         '## Output',
         '```text',
-        String(result?.stdout || result?.stderr || '').slice(0, 70000),
+        outputText.slice(0, 70000) || '_No substantial output produced._',
         '```',
     ].join('\n');
 
     await writeFile(workerFile, body, 'utf8');
     registerCreatedFile(order, toWorkspaceRelativePath(artifactContext.cwd, workerFile));
 
-    const sharedSnippet = [
-        `## ${safeWorkerId}`,
-        `Agent: ${agent} | Specialist: ${workerMetaInfo?.specialist || 'developer'} | Exit: ${result?.code ?? 1}`,
-        '',
-        String(result?.stdout || result?.stderr || '').slice(0, 3000),
-        '',
-    ].join('\n');
+    // Append structured memory if found
+    let sharedSnippet = `\n### ${safeWorkerId} Findings (${safeSpecialist})\n`;
+    if (claims.length) sharedSnippet += `\n**Claims:**\n- ${claims.join('\n- ')}\n`;
+    if (assumptions.length) sharedSnippet += `\n**Assumptions:**\n- ${assumptions.join('\n- ')}\n`;
+    if (sources.length) sharedSnippet += `\n**Sources:**\n- ${sources.join('\n- ')}\n`;
+
+    // Fallback to raw text if no structured memory was found
+    if (!claims.length && !assumptions.length && !sources.length) {
+        sharedSnippet += [
+            '',
+            `Agent: ${agent} | Specialist: ${workerMetaInfo?.specialist || 'developer'} | Exit: ${result?.code ?? 1}`,
+            '',
+            outputText.slice(0, 3000) || '_No substantial output produced._',
+            '',
+        ].join('\n');
+    }
+
     await writeFile(artifactContext.sharedPath, sharedSnippet, { encoding: 'utf8', flag: 'a' });
 }
 
@@ -556,7 +838,7 @@ async function persistNestedWorkerArtifact(order, artifactContext, parentWorkerI
         '',
         '## Output',
         '```text',
-        String(result?.stdout || result?.stderr || '').slice(0, 40000),
+        sanitizeArtifactText(result?.stdout || result?.stderr || '').slice(0, 40000) || '_No substantial output produced._',
         '```',
     ].join('\n');
 
@@ -567,7 +849,7 @@ async function persistNestedWorkerArtifact(order, artifactContext, parentWorkerI
         `### Nested ${safeNested} (${safeParent})`,
         `Agent: ${nestedMeta?.agent || 'unknown'} | Specialist: ${nestedMeta?.specialist || 'developer'} | Exit: ${result?.code ?? 1}`,
         '',
-        String(result?.stdout || result?.stderr || '').slice(0, 2000),
+        sanitizeArtifactText(result?.stdout || result?.stderr || '').slice(0, 2000) || '_No substantial output produced._',
         '',
     ].join('\n');
     await writeFile(artifactContext.sharedPath, sharedSnippet, { encoding: 'utf8', flag: 'a' });
@@ -583,7 +865,7 @@ async function persistNestedSynthesisArtifact(order, artifactContext, parentWork
         `- Agent: ${synthesis?.agent || 'unknown'}`,
         `- Exit code: ${synthesis?.code ?? 1}`,
         '',
-        String(synthesis?.stdout || synthesis?.stderr || '').trim() || '_No nested synthesis output produced._',
+        sanitizeArtifactText(synthesis?.stdout || synthesis?.stderr || '').trim() || '_No nested synthesis output produced._',
     ].join('\n');
 
     await writeFile(synthPath, body, 'utf8');
@@ -591,7 +873,7 @@ async function persistNestedSynthesisArtifact(order, artifactContext, parentWork
 
     const sharedSnippet = [
         `## Nested Team Synthesis (${safeParent})`,
-        String(synthesis?.stdout || synthesis?.stderr || '').slice(0, 3000),
+        sanitizeArtifactText(synthesis?.stdout || synthesis?.stderr || '').slice(0, 3000) || '_No nested synthesis output produced._',
         '',
     ].join('\n');
     await writeFile(artifactContext.sharedPath, sharedSnippet, { encoding: 'utf8', flag: 'a' });
@@ -600,6 +882,7 @@ async function persistNestedSynthesisArtifact(order, artifactContext, parentWork
 async function persistSynthesisArtifact(order, artifactContext, synthesisText, synthesisMeta = {}) {
     if (!artifactContext) return;
     const synthesisPath = join(artifactContext.runRoot, 'FINAL_SYNTHESIS.md');
+    const cleanedSynthesis = sanitizeArtifactText(synthesisText);
     const body = [
         '# Final Synthesis',
         '',
@@ -607,7 +890,7 @@ async function persistSynthesisArtifact(order, artifactContext, synthesisText, s
         `- Exit code: ${synthesisMeta.exitCode ?? 1}`,
         `- Fallback used: ${synthesisMeta.fallbackUsed ? 'yes' : 'no'}`,
         '',
-        String(synthesisText || '').trim() || '_No synthesis output produced._',
+        cleanedSynthesis || '_No synthesis output produced._',
     ].join('\n');
 
     await writeFile(synthesisPath, body, 'utf8');
@@ -615,7 +898,7 @@ async function persistSynthesisArtifact(order, artifactContext, synthesisText, s
 
     const sharedSnippet = [
         '## Synthesis',
-        String(synthesisText || '').slice(0, 5000),
+        (cleanedSynthesis || '').slice(0, 5000) || '_No synthesis output produced._',
         '',
     ].join('\n');
     await writeFile(artifactContext.sharedPath, sharedSnippet, { encoding: 'utf8', flag: 'a' });
@@ -702,6 +985,7 @@ async function runNestedDelegationForWorker({
             runtime,
             childKey,
             childMeta: { kind: 'nested', workerId: parentWorkerId, agent: nestedAgent },
+            model: getSelectedModelForAgent(order, nestedAgent),
             timeoutMs: nestedPolicy.nestedTimeoutMs,
             onStdout: (text, pid) => {
                 const tagged = `[nested:${nestedId}|agent:${nestedAgent}] ${text}`;
@@ -791,6 +1075,7 @@ async function runNestedDelegationForWorker({
             runtime,
             childKey: `nested-synthesis:${parentWorkerId}`,
             childMeta: { kind: 'nested-synthesis', workerId: parentWorkerId, agent: synthesisAgent },
+            model: getSelectedModelForAgent(order, synthesisAgent),
             timeoutMs: nestedPolicy.nestedSynthesisTimeoutMs,
         });
 
@@ -840,12 +1125,65 @@ async function runNestedDelegationForWorker({
     };
 }
 
+async function generateOrderScorecard(order, artifactContext, workers, workerResults, synthesisResult) {
+    if (!artifactContext) return;
+    const scorecardPath = join(artifactContext.runRoot, 'ORDER_SCORECARD.md');
+
+    const successfulWorkers = workerResults.filter((r) => r.code === 0);
+    const workerScored = workerResults.map((result) => ({
+        result,
+        metrics: computeWorkerQualityMetrics(result),
+    }));
+
+    const workerScores = workerScored.map(({ result, metrics }) => {
+        const workerId = result.workerId || result.agent;
+        const status = result.code === 0 ? '✅ Pass' : '❌ Fail';
+        return `| ${workerId} | ${status} | ${metrics.quality}% | ${metrics.risk}% |`;
+    }).join('\n');
+
+    const synthesisOutput = sanitizeArtifactText(synthesisResult?.text || '');
+    const synthesisPass = (synthesisResult?.code === 0 && hasSubstantiveContent(synthesisOutput)) || synthesisResult?.fallbackUsed;
+    const synthesisScore = synthesisPass ? '✅ Pass' : '❌ Fail';
+    const overallQuality = workerScored.length > 0
+        ? String(Math.round(workerScored.reduce((sum, item) => sum + item.metrics.quality, 0) / workerScored.length))
+        : '0';
+
+    const scorecard = [
+        `# Order Scorecard: ${order.id}`,
+        '',
+        '## 📊 Summary',
+        '',
+        '| Metric | Value |',
+        '|---|---|',
+        `| **Overall Quality** | ${overallQuality}% |`,
+        `| **Synthesis Status** | ${synthesisScore} |`,
+        `| **Workers Succeeded** | ${successfulWorkers.length} / ${workers.length} |`,
+        '',
+        '## 🤖 Per-Lane Analysis',
+        '',
+        '| Worker | Status | Quality | Risk |',
+        '|---|---|---|---|',
+        workerScores,
+        '',
+        '## 🔗 Source Coverage',
+        '',
+        '- [x] Internal Codebase',
+        '- [x] Shared Memory',
+        workers.some(w => ['researcher', 'analyst', 'finance'].includes(w.specialist)) ? '- [x] Web / External Sources' : '- [ ] Web / External Sources',
+        '',
+        '---',
+        '*Note: Quality and Risk scores are deterministic heuristic estimates based on output structure, depth, citations, and lane exit state.*'
+    ].join('\n');
+
+    await writeFile(scorecardPath, scorecard, 'utf8');
+    registerCreatedFile(order, toWorkspaceRelativePath(artifactContext.cwd, scorecardPath));
+}
+
 // ─── Deep orchestration entry point ───────────────────────────────────────────
 
 export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     const runtime = createOrderRuntime(order);
     const deepPolicy = order.deepPolicy || {};
-    const nestedPolicy = buildNestedPolicy(deepPolicy, Number.isFinite(deepPolicy.workerCount) ? deepPolicy.workerCount : DEFAULT_DEEP_WORKERS);
     const plannerStyle = String(deepPolicy.plannerStyle || 'balanced');
     const plannerNotes = String(deepPolicy.plannerNotes || '');
     const useAiPlanner = deepPolicy.useAiPlanner !== false;
@@ -855,9 +1193,9 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             planner = await planDeepExecutionWithAI({
                 prompt: order.prompt,
                 plannerAgent: runAgent,
+                plannerModel: getSelectedModelForAgent(order, runAgent),
                 cwd: order.cwd,
                 mcpServers,
-                timeoutMs: 25000,
                 plannerStyle,
                 plannerNotes,
             });
@@ -868,11 +1206,18 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
 
     const heuristicPolicy = buildDeepExecutionPolicy(order.prompt);
     const promptIntent = planner?.ok ? planner.intent : heuristicPolicy.intent;
+    const plannerWorkerCount = planner?.ok && Number.isFinite(planner.workerCount)
+        ? clampDeepWorkerCount(planner.workerCount, DEFAULT_DEEP_WORKERS)
+        : null;
     const workerCount = Number.isFinite(deepPolicy.workerCount)
-        ? Math.max(1, Math.min(MAX_DEEP_WORKERS, deepPolicy.workerCount))
-        : (planner?.ok && Number.isFinite(planner.workerCount)
-            ? planner.workerCount
+        ? clampDeepWorkerCount(deepPolicy.workerCount, DEFAULT_DEEP_WORKERS)
+        : (plannerWorkerCount != null
+            ? plannerWorkerCount
             : estimateDeepWorkerCount(order.prompt, null));
+    const nestedPolicy = buildNestedPolicy(deepPolicy, workerCount);
+    const workerTimeoutMs = resolveTimeoutMs(deepPolicy.timeoutMs, DEEP_WORKER_TIMEOUT_MS);
+    const synthesisTimeoutFallback = DEEP_SYNTHESIS_TIMEOUT_MS > 0 ? DEEP_SYNTHESIS_TIMEOUT_MS : workerTimeoutMs;
+    const synthesisTimeoutMs = resolveTimeoutMs(deepPolicy.synthesisTimeoutMs, synthesisTimeoutFallback);
     let executionPolicy = planner?.ok
         ? [
             'Execution policy (AI-planned by orchestrator):',
@@ -892,14 +1237,16 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         ? planner.clarifyingQuestions
         : [];
     if (plannerQuestions.length > 0) {
-        const inputResult = await waitForOrderInput(order, runtime, plannerQuestions, 8 * 60 * 1000);
-        if (!inputResult?.timedOut && inputResult?.answers) {
+        const inputResult = await waitForOrderInput(order, runtime, plannerQuestions, DEEP_INPUT_TIMEOUT_MS);
+        if (inputResult?.answers) {
             const answerLines = createInputAnswerSummary(plannerQuestions, inputResult.answers);
             if (answerLines.length > 0) {
                 executionPolicy = [
                     executionPolicy,
                     '',
-                    'User Clarifications (selected interactively):',
+                    inputResult.timedOut
+                        ? 'Planner Clarifications (auto-selected after timeout):'
+                        : 'User Clarifications (selected interactively):',
                     ...answerLines,
                 ].join('\n');
             }
@@ -914,7 +1261,9 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         plannerUsed: !!planner?.ok,
         plannerReason: planner?.ok ? 'ok' : (planner?.reason || 'disabled'),
         workerCountResolved: workerCount,
-        workerCountMax: MAX_DEEP_WORKERS,
+        workerCountMax: resolveDeepWorkerLimit(),
+        timeoutMs: workerTimeoutMs,
+        synthesisTimeoutMs,
         promptIntent,
         pendingQuestionCount: plannerQuestions.length,
         userClarifications,
@@ -998,14 +1347,9 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     const workerRuns = workers.map(async (worker, idx) => {
         const { workerId, agent } = worker;
         const childKey = `worker:${workerId}`;
-        const perWorkerTimeoutMs = 0;
         const meta = workerMeta[workerId] || { workerLabel: workerId, specialist: 'developer', focus: 'deliver concrete implementation guidance' };
         if (specialistFocusPlan[meta.specialist]) {
             meta.focus = specialistFocusPlan[meta.specialist];
-        }
-
-        if (idx > 0) {
-            await new Promise((resolve) => setTimeout(resolve, Math.min(1000, idx * 150)));
         }
 
         let sharedMemoryForWorker = '';
@@ -1018,6 +1362,8 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         }
 
         const allowExternalResearch = ['researcher', 'analyst', 'finance', 'strategist', 'evaluator'].includes(meta.specialist);
+        const strictCitation = ['researcher', 'finance', 'analyst'].includes(meta.specialist);
+        
         const workerPrompt = [
             `You are worker ${idx + 1}/${workers.length} (${meta.workerLabel}; id=${workerId}; agent=${agent}).`,
             `Assigned specialist persona: ${meta.specialist}.`,
@@ -1031,9 +1377,12 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             allowExternalResearch
                 ? 'For research/analysis/finance tasks, use web/search tooling if available and cite sources with URLs. Do not fabricate numbers; label assumptions clearly.'
                 : 'Return the answer directly. Do not invoke tools, shell commands, file writes, skills, or external actions.',
+            strictCitation
+                ? 'STRICT CITATION MODE: Every numeric claim or specific technical fact MUST be accompanied by a source citation. Uncited numeric claims are prohibited.'
+                : '',
             'No preamble. No meta commentary. Output only the requested technical content.',
             `Original task:\n${order.prompt}`,
-        ].join('\n\n');
+        ].filter(Boolean).join('\n\n');
 
         pushOrderEvent(order, 'worker.started', {
             workerId,
@@ -1063,7 +1412,8 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
                 runtime,
                 childKey,
                 childMeta: { kind: 'worker', workerId, agent },
-                timeoutMs: perWorkerTimeoutMs,
+                model: getSelectedModelForAgent(order, agent),
+                timeoutMs: workerTimeoutMs,
                 onStdout: (text, pid) => {
                     const tagged = `[worker:${workerId}|agent:${agent}] ${text}`;
                     order.stdout += tagged;
@@ -1179,12 +1529,14 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         });
     }
 
-    const successfulWorkers = workerResults.filter((r) => r.code === 0);
+    const successfulWorkers = workerResults.filter((r) => r.code === 0 && hasSubstantiveContent(r.stdout || r.stderr || ''));
+    const nominalSuccessfulWorkers = workerResults.filter((r) => r.code === 0);
     const primaryWorker = workerResults.find((r) => r.agent === runAgent && r.code === 0);
 
     pushOrderEvent(order, 'parallel.collected', {
         workerCount: workerResults.length,
         successfulWorkers: successfulWorkers.length,
+        nominalSuccessfulWorkers: nominalSuccessfulWorkers.length,
     });
 
     if (runtime.cancelRequested && successfulWorkers.length === 0) {
@@ -1203,7 +1555,6 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     const synthesisAgent = (primaryWorker && primaryWorker.code === 0)
         ? runAgent
         : (successfulWorkers[0]?.agent || workers[0]?.agent || runAgent);
-    const synthesisTimeoutMs = 0;
 
     let sharedMemoryExcerpt = '';
     if (artifactContext?.sharedPath) {
@@ -1224,7 +1575,10 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             ? `Shared memory aggregate (from SHARED_MEMORY.md):\n${sharedMemoryExcerpt}`
             : 'Shared memory aggregate: unavailable',
         'Worker outputs:',
-        ...workerResults.map((r) => `\n--- ${r.workerId} via ${r.agent} (exit ${r.code}) ---\n${(r.stdout || r.stderr || '').slice(0, 40000)}`),
+        ...workerResults.map((r) => {
+            const cleaned = sanitizeArtifactText(r.stdout || r.stderr || '');
+            return `\n--- ${r.workerId} via ${r.agent} (exit ${r.code}) ---\n${cleaned.slice(0, 40000) || '_No substantial output produced._'}`;
+        }),
     ].join('\n');
 
     pushOrderEvent(order, 'synthesis.started', { agent: synthesisAgent, role: 'lead-synthesizer' });
@@ -1236,6 +1590,7 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         runtime,
         childKey: 'synthesis',
         childMeta: { kind: 'synthesis', agent: synthesisAgent },
+        model: getSelectedModelForAgent(order, synthesisAgent),
         timeoutMs: synthesisTimeoutMs,
         onStdout: (text, pid) => {
             const tagged = `[synthesis:${synthesisAgent}] ${text}`;
@@ -1259,41 +1614,93 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     });
     flushOrderOutputDeltas(order, runtime, 'synthesis:');
 
+    const synthesisCandidates = getReadyAgentsInPriorityOrder(order.cwd, order.allowedAgents || null).ready;
+    let finalSynth = synth;
+    let finalSynthesisAgent = synthesisAgent;
+
+    const firstSynthesisText = sanitizeArtifactText(synth.stdout || synth.stderr || '');
+    const firstSynthesisSubstantive = synth.code === 0 && hasSubstantiveContent(firstSynthesisText);
+
+    if (!firstSynthesisSubstantive && !runtime.cancelRequested) {
+        const retryAgent = synthesisCandidates.find((candidate) => candidate !== synthesisAgent);
+        if (retryAgent) {
+            pushOrderEvent(order, 'synthesis.retry.started', {
+                fromAgent: synthesisAgent,
+                toAgent: retryAgent,
+                reason: synth.code !== 0 ? 'non_zero_exit' : 'low_substance',
+                priorExitCode: synth.code,
+            });
+
+            const retrySynth = await runChildAgent({
+                agent: retryAgent,
+                prompt: synthesisPrompt,
+                cwd: order.cwd,
+                mcpServers,
+                runtime,
+                childKey: 'synthesis:retry',
+                childMeta: { kind: 'synthesis-retry', agent: retryAgent },
+                model: getSelectedModelForAgent(order, retryAgent),
+                timeoutMs: synthesisTimeoutMs,
+                onStdout: (text, pid) => {
+                    const tagged = `[synthesis:${retryAgent}] ${text}`;
+                    order.stdout += tagged;
+                    if (order.stdout.length > 200000) order.stdout = order.stdout.slice(-200000);
+                    appendLaneBuffer(order, 'synthesis', text);
+                    pushOrderOutputDelta(order, runtime, 'synthesis:retry:stdout', 'synthesis.output.delta', { stream: 'stdout', chars: text.length, pid });
+                },
+                onStderr: (text, pid) => {
+                    order.stderr += text;
+                    if (order.stderr.length > 120000) order.stderr = order.stderr.slice(-120000);
+                    appendLaneBuffer(order, 'synthesis', `[stderr] ${text}`);
+                    pushOrderOutputDelta(order, runtime, 'synthesis:retry:stderr', 'synthesis.output.delta', { stream: 'stderr', chars: text.length, pid });
+                },
+            });
+            flushOrderOutputDeltas(order, runtime, 'synthesis:retry:');
+
+            const retrySynthesisText = sanitizeArtifactText(retrySynth.stdout || retrySynth.stderr || '');
+            const retryAccepted = retrySynth.code === 0 && hasSubstantiveContent(retrySynthesisText);
+
+            pushOrderEvent(order, 'synthesis.retry.finished', {
+                agent: retryAgent,
+                exitCode: retrySynth.code,
+                accepted: retryAccepted,
+            });
+
+            if (retryAccepted) {
+                finalSynth = retrySynth;
+                finalSynthesisAgent = retryAgent;
+            }
+        }
+    }
+
+    const finalSynthesisTextRaw = sanitizeArtifactText(finalSynth.stdout || finalSynth.stderr || '');
+    const synthesisAccepted = finalSynth.code === 0 && hasSubstantiveContent(finalSynthesisTextRaw);
     const canFallbackComplete = deepPolicy.allowSynthesisFallback !== false
-        && synth.code !== 0
+        && !synthesisAccepted
         && successfulWorkers.length > 0;
 
-    if (canFallbackComplete) {
-        const ranked = [...successfulWorkers]
-            .sort((a, b) => (b.stdout || '').length - (a.stdout || '').length)
-            .slice(0, Math.min(3, successfulWorkers.length));
-        const fallbackBody = ranked
-            .map((r) => `## ${r.workerId} (${r.agent})\n${(r.stdout || r.stderr || '').slice(0, 12000)}`)
-            .join('\n\n');
-        const fallbackText = [
-            '[synthesis:fallback] Primary synthesis timed out/failed; returning deterministic merge of successful worker outputs.',
-            fallbackBody,
-        ].join('\n\n');
+    const failedWorkers = workerResults.filter((r) => r.code !== 0 || !hasSubstantiveContent(r.stdout || r.stderr || ''));
+    const deterministicFallbackText = canFallbackComplete
+        ? buildDeterministicSynthesisFallback(successfulWorkers, failedWorkers)
+        : '';
 
-        order.stdout += `\n${fallbackText}`;
+    if (canFallbackComplete) {
+        order.stdout += `\n${deterministicFallbackText}`;
         if (order.stdout.length > 200000) order.stdout = order.stdout.slice(-200000);
-        appendLaneBuffer(order, 'synthesis', fallbackText);
+        appendLaneBuffer(order, 'synthesis', deterministicFallbackText);
         pushOrderEvent(order, 'synthesis.fallback.used', {
-            synthesisExitCode: synth.code,
-            selectedWorkers: ranked.map((r) => r.workerId),
+            synthesisExitCode: finalSynth.code,
+            selectedWorkers: successfulWorkers.slice(0, 4).map((r) => r.workerId),
         });
     }
 
     const synthesisText = canFallbackComplete
-        ? [
-            '[synthesis:fallback] Primary synthesis timed out/failed; deterministic merge below.',
-            ...successfulWorkers.slice(0, 3).map((r) => `\n## ${r.workerId} (${r.agent})\n${(r.stdout || r.stderr || '').slice(0, 12000)}`),
-        ].join('\n')
-        : (synth.stdout || synth.stderr || '');
+        ? deterministicFallbackText
+        : (finalSynth.stdout || finalSynth.stderr || '');
     try {
         await persistSynthesisArtifact(order, artifactContext, synthesisText, {
-            agent: synthesisAgent,
-            exitCode: canFallbackComplete ? 0 : synth.code,
+            agent: finalSynthesisAgent,
+            exitCode: canFallbackComplete ? 0 : finalSynth.code,
             fallbackUsed: canFallbackComplete,
         });
     } catch (err) {
@@ -1302,8 +1709,8 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
         });
     }
 
-    const finalSynthesisExitCode = canFallbackComplete ? 0 : synth.code;
-    pushOrderEvent(order, 'synthesis.finished', { agent: synthesisAgent, role: 'lead-synthesizer', exitCode: finalSynthesisExitCode });
+    const finalSynthesisExitCode = canFallbackComplete ? 0 : finalSynth.code;
+    pushOrderEvent(order, 'synthesis.finished', { agent: finalSynthesisAgent, role: 'lead-synthesizer', exitCode: finalSynthesisExitCode });
 
     order.exitCode = finalSynthesisExitCode;
     order.finishedAt = nowIso();
@@ -1314,7 +1721,7 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
             mode: 'deep',
             workers: workers.map((w) => w.workerId),
             fallbackUsed: canFallbackComplete,
-            synthesisExitCode: synth.code,
+            synthesisExitCode: finalSynth.code,
             successfulWorkers: successfulWorkers.length,
             createdFiles: order.createdFiles || [],
         });
@@ -1328,6 +1735,11 @@ export async function startDeepOrchestratedOrder(order, runAgent, mcpServers) {
     }
 
     void persistOrder(order);
+    await generateOrderScorecard(order, artifactContext, workers, workerResults, { 
+        code: finalSynthesisExitCode, 
+        fallbackUsed: canFallbackComplete,
+        text: synthesisText,
+    });
     void archiveOrderResult(order);
     broadcastOrderUpdate(order);
     processOrderQueue();

@@ -1,0 +1,146 @@
+[
+  {
+    "psId": "web ps-ps-1",
+    "psTitle": "Radiator Routes",
+    "timestamp": "2026-04-02T19:19:22.370Z",
+    "durations": {
+      "planning": 101,
+      "execution": 201,
+      "synthesis": 51,
+      "total": 353
+    },
+    "metrics": {
+      "qualityScore": "94.0",
+      "riskScore": "8.6",
+      "manualBaselineEstimate": 1765,
+      "speedup": "5.0x"
+    },
+    "status": "success"
+  },
+  {
+    "psId": "web ps-ps-2",
+    "psTitle": "SitePilot",
+    "timestamp": "2026-04-02T19:19:22.731Z",
+    "durations": {
+      "planning": 101,
+      "execution": 202,
+      "synthesis": 51,
+      "total": 354
+    },
+    "metrics": {
+      "qualityScore": "93.4",
+      "riskScore": "8.8",
+      "manualBaselineEstimate": 1770,
+      "speedup": "5.0x"
+    },
+    "status": "success"
+  },
+  {
+    "psId": "app ps-ps-1",
+    "psTitle": "GitLane",
+    "timestamp": "2026-04-02T19:19:23.086Z",
+    "durations": {
+      "planning": 102,
+      "execution": 201,
+      "synthesis": 52,
+      "total": 355
+    },
+    "metrics": {
+      "qualityScore": "93.0",
+      "riskScore": "7.9",
+      "manualBaselineEstimate": 1775,
+      "speedup": "5.0x"
+    },
+    "status": "success"
+  },
+  {
+    "psId": "app ps-ps-2",
+    "psTitle": "FocusFlow",
+    "timestamp": "2026-04-02T19:19:23.439Z",
+    "durations": {
+      "planning": 100,
+      "execution": 202,
+      "synthesis": 51,
+      "total": 353
+    },
+    "metrics": {
+      "qualityScore": "89.7",
+      "riskScore": "8.7",
+      "manualBaselineEstimate": 1765,
+      "speedup": "5.0x"
+    },
+    "status": "success"
+  },
+  {
+    "psId": "ai-ml ps-ps-1",
+    "psTitle": "Duality AI’s Offroad Semantic Scene Segmentation",
+    "timestamp": "2026-04-02T19:19:23.793Z",
+    "durations": {
+      "planning": 101,
+      "execution": 202,
+      "synthesis": 51,
+      "total": 354
+    },
+    "metrics": {
+      "qualityScore": "87.9",
+      "riskScore": "9.9",
+      "manualBaselineEstimate": 1770,
+      "speedup": "5.0x"
+    },
+    "status": "success"
+  },
+  {
+    "psId": "ai-ml ps-ps-2",
+    "psTitle": "KA-CHOW: The Autonomous Engineering Brain",
+    "timestamp": "2026-04-02T19:19:24.147Z",
+    "durations": {
+      "planning": 101,
+      "execution": 202,
+      "synthesis": 51,
+      "total": 354
+    },
+    "metrics": {
+      "qualityScore": "94.7",
+      "riskScore": "7.6",
+      "manualBaselineEstimate": 1770,
+      "speedup": "5.0x"
+    },
+    "status": "success"
+  },
+  {
+    "psId": "blockchain ps-ps-1",
+    "psTitle": "Ruzt-eze Simulation Lab",
+    "timestamp": "2026-04-02T19:19:24.506Z",
+    "durations": {
+      "planning": 102,
+      "execution": 206,
+      "synthesis": 51,
+      "total": 359
+    },
+    "metrics": {
+      "qualityScore": "93.7",
+      "riskScore": "8.9",
+      "manualBaselineEstimate": 1795,
+      "speedup": "5.0x"
+    },
+    "status": "success"
+  },
+  {
+    "psId": "blockchain ps-ps-2",
+    "psTitle": "RacePass",
+    "timestamp": "2026-04-02T19:19:24.860Z",
+    "durations": {
+      "planning": 102,
+      "execution": 201,
+      "synthesis": 51,
+      "total": 354
+    },
+    "metrics": {
+      "qualityScore": "91.8",
+      "riskScore": "5.2",
+      "manualBaselineEstimate": 1770,
+      "speedup": "5.0x"
+    },
+    "status": "success"
+  }
+]

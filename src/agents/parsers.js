@@ -1,6 +1,8 @@
 // ─── Output Parsers ─────────────────────────────────────────────────────────
 // Parses streaming output from each AI CLI into normalized { type, text } objects
 
+const SHOW_TOOL_STATUS = process.env.SOUPZ_SHOW_TOOL_STATUS === '1';
+
 /**
  * Gemini CLI stream-json format:
  * {"type":"init", "model":"..."}
@@ -30,10 +32,10 @@ export function parseGeminiOutput(line) {
             return { type: 'content', text: obj.text };
         }
 
-        // Tool usage — show brief status (don't spam)
+        // Tool usage — hidden by default for cleaner dashboard UX
         if (obj.type === 'tool_use') {
             const toolName = obj.tool_name || obj.name || 'tool';
-            return { type: 'status', text: `  ↳ ${toolName}...` };
+            return SHOW_TOOL_STATUS ? { type: 'status', text: `  ↳ ${toolName}...` } : null;
         }
 
         // Tool result — skip (internal)
@@ -91,7 +93,7 @@ export function parseClaudeOutput(line) {
             return { type: 'done', text: '' };
         }
         if (obj.type === 'tool_use') {
-            return { type: 'status', text: `  ↳ ${obj.name || 'tool'}...` };
+            return SHOW_TOOL_STATUS ? { type: 'status', text: `  ↳ ${obj.name || 'tool'}...` } : null;
         }
         if (obj.type === 'system') return null;
         if (obj.content) {
@@ -107,7 +109,33 @@ export function parseClaudeOutput(line) {
 
 /** GitHub Copilot CLI — plain text output */
 export function parseCopilotOutput(line) {
-    return line.trim() ? { type: 'content', text: line } : null;
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+
+    if (/^↳\s*[a-z_][\w.-]*\s*\.\.\.\s*$/i.test(trimmed)) {
+        return null;
+    }
+
+    try {
+        const obj = JSON.parse(trimmed);
+        if (obj?.type === 'tool_use' || obj?.type === 'tool_call') {
+            const toolName = obj.tool_name || obj.name || 'tool';
+            return SHOW_TOOL_STATUS ? { type: 'status', text: `  ↳ ${toolName}...` } : null;
+        }
+        if (obj?.type === 'content' && typeof obj.content === 'string') {
+            return { type: 'content', text: obj.content };
+        }
+        if (obj?.type === 'message' && typeof obj.message === 'string') {
+            return { type: 'content', text: obj.message };
+        }
+        if (typeof obj?.text === 'string' && obj.text.trim()) {
+            return { type: 'content', text: obj.text };
+        }
+    } catch {
+        // Non-JSON output is expected for some CLIs.
+    }
+
+    return { type: 'content', text: line };
 }
 
 /** Kiro CLI — assume plain text output */

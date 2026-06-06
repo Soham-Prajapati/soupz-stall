@@ -5,36 +5,137 @@ import {
   Shield, Sparkles, CheckCircle, Lock, Users
 } from 'lucide-react';
 import AuthScreen from './components/auth/AuthScreen.jsx';
-import SimpleMode from './components/simple/SimpleMode.jsx';
 import StatusBar from './components/shared/StatusBar.jsx';
 import CoreConsole from './components/core/CoreConsole.jsx';
 import ErrorBoundary from './components/shared/ErrorBoundary.jsx';
 import PairingCodeModal from './components/shared/PairingCodeModal.jsx';
+import KeyboardShortcuts from './components/shared/KeyboardShortcuts.jsx';
+import NotificationToast, { pushToast } from './components/shared/NotificationToast.jsx';
 
 // Lazy-load routes and heavy components not needed on first paint
 const ConnectPage = lazy(() => import('./components/connect/ConnectPage.jsx'));
-const ProMode = lazy(() => import('./components/pro/ProMode.jsx'));
-const BuilderMode = lazy(() => import('./components/builder/BuilderMode.jsx'));
 const LandingPage = lazy(() => import('./components/landing/LandingPage.jsx'));
+const DocsPage = lazy(() => import('./components/docs/DocsPage.jsx'));
 const ProfilePage = lazy(() => import('./components/profile/ProfilePage.jsx'));
 const AdminPage = lazy(() => import('./components/admin/AdminPage.jsx'));
+const DashboardChatPage = lazy(() => import('./pages/DashboardChatPage.jsx'));
+const DashboardBuildPage = lazy(() => import('./pages/DashboardBuildPage.jsx'));
+const DashboardProPage = lazy(() => import('./pages/DashboardProPage.jsx'));
 const CommandPalette = lazy(() => import('./components/shared/CommandPalette.jsx'));
 const FolderPicker = lazy(() => import('./components/shared/FolderPicker.jsx'));
 const SetupWizard = lazy(() => import('./components/shared/SetupWizard.jsx'));
-const OnboardingOverlay = lazy(() => import('./components/shared/OnboardingOverlay.jsx'));
+const OnboardingChecklist = lazy(() => import('./components/shared/OnboardingChecklist.jsx'));
+const TerminalPage = lazy(() => import('./components/terminal/TerminalPage.jsx'));
 import { supabase, isSupabaseConfigured } from './lib/supabase.js';
 import {
-  checkDaemonHealth, subscribeToDaemon, sendAgentPrompt,
+  checkDaemonHealth, subscribeToDaemon, sendAgentPrompt, subscribeDaemonMessages,
   getFileTree, readFile, writeFile, getGitStatus, getGitDiff,
   gitStage, gitCommit, gitPush, checkSystemCLIs,
   listTerminals, killTerminalById, getOrderDetail,
-  submitOrderInput, getDevServerUrl,
+  submitOrderInput, getDevServerUrl, setDaemonToken,
+  setDaemonUrl,
 } from './lib/daemon.js';
 import { cn } from './lib/cn';
 import { flattenFilePaths } from './lib/tree';
 
 const MODE_KEY  = 'soupz_ide_mode';
 const THEME_KEY = 'soupz_theme';
+const PROFILE_KEY = 'soupz_profile';
+const SYNCED_PROFILE_SETTING_KEYS = [
+  MODE_KEY,
+  THEME_KEY,
+  'soupz_agent',
+  'soupz_build_mode',
+  'soupz_builder_mode',
+  'soupz_enabled_agents',
+  'soupz_agent_config',
+];
+
+function readSyncedSettingsSnapshot() {
+  if (typeof window === 'undefined') return {};
+  const snapshot = {};
+  for (const key of SYNCED_PROFILE_SETTING_KEYS) {
+    const value = localStorage.getItem(key);
+    if (value != null) snapshot[key] = value;
+  }
+  return snapshot;
+}
+
+function readProfileMetricsSnapshot() {
+  if (typeof window === 'undefined') {
+    return { messageCount: 0, agentCount: 0, streak: 0, xp: 0, level: 1 };
+  }
+
+  let messageCount = 0;
+  let agentCount = 0;
+  let streak = 0;
+
+  try {
+    const history = JSON.parse(localStorage.getItem('soupz_chat_history') || '[]');
+    if (Array.isArray(history)) {
+      messageCount = history.filter((item) => item?.role === 'user').length;
+    }
+  } catch {}
+
+  try {
+    const usage = JSON.parse(localStorage.getItem('soupz_agent_usage') || '{}');
+    if (usage && typeof usage === 'object') {
+      agentCount = Object.keys(usage).length;
+    }
+  } catch {}
+
+  try {
+    const streakState = JSON.parse(localStorage.getItem('soupz_streak') || '{}');
+    streak = Number(streakState?.count || 0);
+  } catch {}
+
+  const achievementCount = [
+    messageCount >= 1,
+    messageCount >= 10,
+    messageCount >= 50,
+    messageCount >= 100,
+    agentCount >= 3,
+    streak >= 3,
+    streak >= 7,
+  ].filter(Boolean).length;
+
+  const xp = (messageCount * 10) + (streak * 50) + (achievementCount * 100);
+  const level = Math.max(1, Math.floor(xp / 500) + 1);
+
+  return { messageCount, agentCount, streak, xp, level };
+}
+
+function readPreferredDisplayName(user) {
+  if (typeof window === 'undefined') return user?.email?.split('@')[0] || null;
+  try {
+    const profile = JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}') || {};
+    const fromProfile = String(profile?.displayName || '').trim();
+    if (fromProfile) return fromProfile;
+  } catch {}
+  return user?.user_metadata?.user_name || user?.user_metadata?.preferred_username || user?.email?.split('@')[0] || null;
+}
+
+function applySyncedSettingsSnapshot(snapshot, { setMode, setTheme } = {}) {
+  if (!snapshot || typeof snapshot !== 'object') return;
+
+  for (const key of SYNCED_PROFILE_SETTING_KEYS) {
+    if (typeof snapshot[key] === 'string') {
+      localStorage.setItem(key, snapshot[key]);
+    }
+  }
+
+  if (typeof snapshot[MODE_KEY] === 'string') {
+    setMode?.(snapshot[MODE_KEY]);
+  }
+  if (typeof snapshot[THEME_KEY] === 'string') {
+    const normalized = applyTheme(snapshot[THEME_KEY]);
+    localStorage.setItem(THEME_KEY, normalized);
+    setTheme?.(normalized);
+  }
+  if (typeof snapshot.soupz_agent === 'string') {
+    window.dispatchEvent(new StorageEvent('storage', { key: 'soupz_agent', newValue: snapshot.soupz_agent }));
+  }
+}
 
 const THEME_ALIASES = {
   tokyo: 'tokyo-night',
@@ -79,6 +180,71 @@ function applyTheme(theme) {
   return normalized;
 }
 
+function normalizeChangedPath(path = '') {
+  const raw = String(path || '').trim();
+  if (!raw) return '';
+  if (raw.includes('->')) {
+    const parts = raw.split('->');
+    return parts[parts.length - 1].trim();
+  }
+  return raw;
+}
+
+function toPorcelainLine(statusCode, filePath) {
+  const normalizedPath = normalizeChangedPath(filePath);
+  if (!normalizedPath) return null;
+  const code = String(statusCode || 'M').trim().toUpperCase();
+  if (code === '??') return `?? ${normalizedPath}`;
+  const one = code[0] || 'M';
+  return `${one}  ${normalizedPath}`;
+}
+
+function normalizeChangedEntries(input) {
+  const list = Array.isArray(input) ? input : [];
+  const priority = { U: 4, '?': 4, A: 3, D: 3, M: 2, R: 2, C: 2 };
+  const map = new Map();
+
+  list.forEach((entry) => {
+    if (entry == null) return;
+
+    let status = 'M';
+    let filePath = '';
+
+    if (typeof entry === 'string') {
+      const raw = entry.trimEnd();
+      if (!raw) return;
+      const candidateStatus = raw.slice(0, 2).trim();
+      const candidatePath = raw.length >= 4 ? raw.slice(3).trim() : '';
+      if (candidatePath) {
+        status = candidateStatus || 'M';
+        filePath = candidatePath;
+      } else {
+        filePath = raw.trim();
+      }
+    } else if (typeof entry === 'object') {
+      status = (entry.type || entry.status || 'M').toString();
+      filePath = (entry.path || '').toString();
+    }
+
+    const normalizedPath = normalizeChangedPath(filePath);
+    if (!normalizedPath) return;
+
+    const normalizedStatus = status === '??' ? '??' : (String(status).trim().charAt(0).toUpperCase() || 'M');
+    const statusKey = normalizedStatus === '??' ? '?' : normalizedStatus;
+    const nextScore = priority[statusKey] || 1;
+    const previous = map.get(normalizedPath);
+    const previousScore = previous ? (priority[previous.statusKey] || 1) : 0;
+
+    if (!previous || nextScore >= previousScore) {
+      map.set(normalizedPath, { statusCode: normalizedStatus, statusKey });
+    }
+  });
+
+  return Array.from(map.entries())
+    .map(([path, meta]) => toPorcelainLine(meta.statusCode, path))
+    .filter(Boolean);
+}
+
 const initialRouteState = () => ({
   path: typeof window !== 'undefined' ? window.location.pathname : '/',
   search: typeof window !== 'undefined' ? window.location.search : '',
@@ -114,10 +280,10 @@ export default function App() {
       const token = params.get('token');
 
       if (remote) {
-        localStorage.setItem('soupz_daemon_url', remote);
+        setDaemonUrl(remote);
         try { sessionStorage.setItem('soupz_auto_remote_hint', '1'); } catch {}
       }
-      if (token) localStorage.setItem('soupz_daemon_token', token);
+      if (token) setDaemonToken(token);
 
       if (remote || token) {
         params.delete('remote');
@@ -143,19 +309,38 @@ export default function App() {
   const [workspaceOnline, setWorkspaceOnline] = useState(false);
   const [workspaceMachine, setWorkspaceMachine] = useState(null);
   const [activeFleet, setActiveFleet] = useState([]); // Track background workers
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
-  // ... (inside checkDaemonHealth loop)
   useEffect(() => {
-    // ...
-    const handleWsMessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'fleet_update') {
-          setActiveFleet(msg.active);
-        }
-      } catch {}
+    const unsubscribe = subscribeDaemonMessages((msg) => {
+      if (msg?.type === 'fleet_update') {
+        setActiveFleet(Array.isArray(msg.active) ? msg.active : []);
+      }
+    });
+
+    const onOrderUpdate = (event) => {
+      const detail = event?.detail;
+      if (!detail?.status || !detail?.id) return;
+      if (detail.status === 'completed') {
+        pushToast({
+          type: 'success',
+          title: 'Order completed',
+          message: `Run ${detail.id.slice(0, 8)} finished successfully.`,
+        });
+      } else if (detail.status === 'failed') {
+        pushToast({
+          type: 'error',
+          title: 'Order failed',
+          message: detail.error || `Run ${detail.id.slice(0, 8)} failed.`,
+        });
+      }
     };
-    // ...
+
+    window.addEventListener('soupz_order_update', onOrderUpdate);
+    return () => {
+      unsubscribe?.();
+      window.removeEventListener('soupz_order_update', onOrderUpdate);
+    };
   }, []);
   const [themeOpen, setThemeOpen] = useState(false);
 
@@ -176,6 +361,32 @@ export default function App() {
     const host = localStorage.getItem('soupz_hostname') || 'local';
     return `${host}::${activeWorkspaceRoot || 'global'}`;
   }, [activeWorkspaceRoot, workspaceMachine]);
+  const previousOnlineRef = useRef(null);
+  const settingsSyncRef = useRef({ hydratedUserId: null, lastSerialized: '' });
+
+  useEffect(() => {
+    const previous = previousOnlineRef.current;
+    if (previous === null) {
+      previousOnlineRef.current = workspaceOnline;
+      return;
+    }
+    if (previous !== workspaceOnline) {
+      if (workspaceOnline) {
+        pushToast({
+          type: 'success',
+          title: 'Daemon connected',
+          message: workspaceMachine ? `Connected to ${workspaceMachine}.` : 'Connected to local daemon.',
+        });
+      } else {
+        pushToast({
+          type: 'warning',
+          title: 'Daemon disconnected',
+          message: 'Trying to reconnect. Run npx @shubh_prajapati99/soupz if the daemon is down.',
+        });
+      }
+      previousOnlineRef.current = workspaceOnline;
+    }
+  }, [workspaceOnline, workspaceMachine]);
 
   useEffect(() => {
     localStorage.setItem(MODE_KEY, mode);
@@ -263,16 +474,37 @@ export default function App() {
 
   useEffect(() => {
     function handleKey(e) {
-      // Cmd+1: Chat mode, Cmd+2: IDE mode, Cmd+3: Builder mode
-      if ((e.metaKey || e.ctrlKey) && e.key === '1') { e.preventDefault(); setMode('simple'); }
-      if ((e.metaKey || e.ctrlKey) && e.key === '2') { e.preventDefault(); setMode('pro'); }
-      if ((e.metaKey || e.ctrlKey) && e.key === '3') { e.preventDefault(); setMode('builder'); }
+      const key = String(e.key || '').toLowerCase();
+
+      // Browser-safe mode switching: Alt+1/2/3.
+      // Cross-platform fallback: Cmd/Ctrl+Shift+1/2/3 (avoids browser tab switch conflicts).
+      const toSimple =
+        (e.altKey && !e.metaKey && !e.ctrlKey && key === '1')
+        || ((e.metaKey || e.ctrlKey) && e.shiftKey && key === '1');
+      if (toSimple) { e.preventDefault(); setMode('simple'); return; }
+
+      const toPro =
+        (e.altKey && !e.metaKey && !e.ctrlKey && key === '2')
+        || ((e.metaKey || e.ctrlKey) && e.shiftKey && key === '2');
+      if (toPro) { e.preventDefault(); setMode('pro'); return; }
+
+      const toBuilder =
+        (e.altKey && !e.metaKey && !e.ctrlKey && key === '3')
+        || ((e.metaKey || e.ctrlKey) && e.shiftKey && key === '3');
+      if (toBuilder) { e.preventDefault(); setMode('builder'); return; }
+
       // Cmd+Shift+P: Command Palette
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'p') { e.preventDefault(); setCmdPaletteOpen(v => !v); }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && key === 'p') { e.preventDefault(); setCmdPaletteOpen(v => !v); }
+      // Cmd+Shift+K and Cmd+/: Keyboard shortcuts overlay
+      if ((e.metaKey || e.ctrlKey) && ((e.shiftKey && key === 'k') || key === '/')) {
+        e.preventDefault();
+        setShortcutsOpen(v => !v);
+        return;
+      }
       // Cmd+K: also opens palette (common shortcut)
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && !e.shiftKey) { e.preventDefault(); setCmdPaletteOpen(v => !v); }
+      if ((e.metaKey || e.ctrlKey) && key === 'k' && !e.shiftKey) { e.preventDefault(); setCmdPaletteOpen(v => !v); return; }
       // Cmd+O: Open folder on connected machine
-      if ((e.metaKey || e.ctrlKey) && e.key === 'o' && !e.shiftKey) { e.preventDefault(); setFolderPickerOpen(v => !v); }
+      if ((e.metaKey || e.ctrlKey) && key === 'o' && !e.shiftKey) { e.preventDefault(); setFolderPickerOpen(v => !v); }
     }
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
@@ -286,7 +518,7 @@ export default function App() {
       if (treeData?.tree) {
         const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
         setFileTree(children);
-        setChangedFiles(treeData.changedFiles || []);
+        setChangedFiles(normalizeChangedEntries(treeData.porcelain || treeData.changedFiles));
       }
     } catch { /* failed to load */ }
     // Switch to IDE mode to show the files
@@ -325,14 +557,20 @@ export default function App() {
 
     async function upsertProfile(u) {
       if (!u || u.id === 'local') return;
-      const githubUsername = u.user_metadata?.user_name || u.user_metadata?.preferred_username || u.email?.split('@')[0];
+      const metrics = readProfileMetricsSnapshot();
+      const displayName = readPreferredDisplayName(u);
       try {
         await supabase
           .from('soupz_profiles')
           .upsert({
             id: u.id,
-            display_name: githubUsername,
+            display_name: displayName,
             avatar_url: u.user_metadata?.avatar_url || null,
+            xp: metrics.xp,
+            level: metrics.level,
+            streak: metrics.streak,
+            message_count: metrics.messageCount,
+            agent_count: metrics.agentCount,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'id' });
       } catch (err) {
@@ -340,11 +578,33 @@ export default function App() {
       }
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    async function hydrateProfileSettings(userId) {
+      if (!userId) return;
+      try {
+        const { data, error } = await supabase
+          .from('soupz_profiles')
+          .select('settings')
+          .eq('id', userId)
+          .single();
+        if (error || !data?.settings) return;
+        applySyncedSettingsSnapshot(data.settings, { setMode, setTheme });
+        settingsSyncRef.current = {
+          hydratedUserId: userId,
+          lastSerialized: JSON.stringify(readSyncedSettingsSnapshot()),
+        };
+      } catch (err) {
+        console.error('Failed to hydrate profile settings:', err);
+      }
+    }
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       const curr = session?.user ?? null;
       console.log('Soupz Auth: Session loaded', curr ? `User: ${curr.email}` : 'No session');
       setUser(curr);
-      if (curr) upsertProfile(curr);
+      if (curr) {
+        await upsertProfile(curr);
+        await hydrateProfileSettings(curr.id);
+      }
       setAuthLoading(false);
     });
 
@@ -353,11 +613,59 @@ export default function App() {
       console.log(`Soupz Auth: Event [${event}]`, curr ? `User: ${curr.email}` : 'No user');
       setUser(curr);
       if (curr && (event === 'SIGNED_IN' || event === 'USER_UPDATED')) {
-        upsertProfile(curr);
+        void upsertProfile(curr);
+        if (event === 'SIGNED_IN') void hydrateProfileSettings(curr.id);
       }
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  // Periodically sync key local settings to soupz_profiles.settings for cross-device continuity.
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    if (!user || user.id === 'local') return;
+
+    let cancelled = false;
+
+    async function syncSettings() {
+      const snapshot = readSyncedSettingsSnapshot();
+      const serialized = JSON.stringify(snapshot);
+      const alreadyHydrated = settingsSyncRef.current.hydratedUserId === user.id;
+      if (alreadyHydrated && serialized === settingsSyncRef.current.lastSerialized) return;
+
+      try {
+        const metrics = readProfileMetricsSnapshot();
+        await supabase
+          .from('soupz_profiles')
+          .upsert({
+            id: user.id,
+            settings: snapshot,
+            xp: metrics.xp,
+            level: metrics.level,
+            streak: metrics.streak,
+            message_count: metrics.messageCount,
+            agent_count: metrics.agentCount,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'id' });
+
+        if (!cancelled) {
+          settingsSyncRef.current = {
+            hydratedUserId: user.id,
+            lastSerialized: serialized,
+          };
+        }
+      } catch (err) {
+        console.error('Failed to sync profile settings:', err);
+      }
+    }
+
+    void syncSettings();
+    const timer = setInterval(() => { void syncSettings(); }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [user]);
 
   // Workspace health check + auto-fetch file tree for local connections
   useEffect(() => {
@@ -373,7 +681,7 @@ export default function App() {
           if (treeData?.tree) {
             const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
             setFileTree(children);
-            setChangedFiles(treeData.changedFiles || []);
+            setChangedFiles(normalizeChangedEntries(treeData.porcelain || treeData.changedFiles));
           }
         } catch (err) {
           console.error('Failed to auto-fetch file tree:', err);
@@ -394,14 +702,11 @@ export default function App() {
   function handleWorkspaceResponse(response) {
     if (response.type === 'FILE_TREE') {
       setFileTree(response.payload?.tree);
-      setChangedFiles(response.payload?.changedFiles || []);
+      setChangedFiles(normalizeChangedEntries(response.payload?.porcelain || response.payload?.changedFiles));
     }
     if (response.type === 'FILE_CHANGED') {
       const path = response.path;
-      setChangedFiles(prev => {
-        if (prev.includes(path)) return prev;
-        return [...prev, `M  ${path}`]; // Add mock git status for dot
-      });
+      setChangedFiles(prev => normalizeChangedEntries([...prev, { path, type: 'M' }]));
     }
   }
 
@@ -419,16 +724,14 @@ export default function App() {
         if (treeData?.tree) {
           const children = Array.isArray(treeData.tree) ? treeData.tree : (treeData.tree.children || []);
           setFileTree(children);
-          // If porcelain exists, use it for file tree coloring
-          if (treeData.porcelain) setChangedFiles(treeData.porcelain);
-          else if (treeData.changedFiles) setChangedFiles(treeData.changedFiles);
+          setChangedFiles(normalizeChangedEntries(treeData.porcelain || treeData.changedFiles));
         }
       } catch (err) {
         console.error('Failed to auto-fetch file tree:', err);
       }
     },
-    async sendPrompt({ prompt, agentId, allowedAgents, sameAgentOnly, buildMode, cwd, orchestrationMode, useAiPlanner, plannerStyle, plannerNotes, returnOrderImmediately }, onChunk) {
-      return sendAgentPrompt({ prompt, agentId, allowedAgents, sameAgentOnly, buildMode, cwd, orchestrationMode, useAiPlanner, plannerStyle, plannerNotes, returnOrderImmediately }, user?.id, onChunk);
+    async sendPrompt(request, onChunk) {
+      return sendAgentPrompt(request || {}, user?.id, onChunk);
     },
     async readFile(path) {
       return readFile(path, user?.id, activeWorkspaceRoot);
@@ -440,11 +743,18 @@ export default function App() {
       const { runFile } = await import('./lib/daemon.js');
       return runFile(path, user?.id, activeWorkspaceRoot);
     },
+    async getDevServerUrl(cwd) {
+      return getDevServerUrl(cwd);
+    },
     async gitStatus() {
       return getGitStatus(null, user?.id, activeWorkspaceRoot);
     },
     async gitDiff() {
       return getGitDiff(null, user?.id, activeWorkspaceRoot);
+    },
+    async getGitFileVersion(filePath, ref = 'HEAD') {
+      const { getGitFileVersion } = await import('./lib/daemon.js');
+      return getGitFileVersion(filePath, ref, user?.id, activeWorkspaceRoot);
     },
     async gitStage(paths) {
       for (const p of paths) await gitStage(p, user?.id, activeWorkspaceRoot);
@@ -477,14 +787,14 @@ export default function App() {
 
   // AUTH GUARD: If not logged in and using Supabase, block internal routes
   const isAuthRequired = isSupabaseConfigured();
-  const isInternalRoute = path !== '/' && path !== '/connect' && path !== '/auth' && path !== '/core';
+  const isInternalRoute = path !== '/' && path !== '/docs' && path !== '/connect' && path !== '/code' && path !== '/auth' && path !== '/core';
   
   if (isAuthRequired && !user && !authLoading && isInternalRoute) {
     return <AuthScreen supabase={supabase} onAuth={() => navigate('/dashboard')} />;
   }
 
-  // /connect route
-  if (path === '/connect') {
+  // /connect and /code routes
+  if (path === '/connect' || path === '/code') {
     return (
       <ErrorBoundary name="Connect Page">
         <Suspense fallback={routeLoader}><ConnectPage getParam={getParam} navigate={navigate} /></Suspense>
@@ -492,9 +802,36 @@ export default function App() {
     );
   }
 
+  // /terminal route (standalone terminal)
+  if (path === '/terminal') {
+    return (
+      <ErrorBoundary name="Terminal Page">
+        <Suspense fallback={routeLoader}><TerminalPage workspace={workspace} getParam={getParam} /></Suspense>
+      </ErrorBoundary>
+    );
+  }
+
   // /core route (minimal orchestrator demo)
   if (path === '/core') {
-    return <CoreConsole workspace={workspace} />;
+    return (
+      <div className="h-[100dvh] min-h-screen flex flex-col bg-bg-base overflow-hidden">
+        <main className="flex-1 flex flex-col min-h-0 overflow-y-auto relative">
+          {!workspaceOnline && !!localStorage.getItem('soupz_daemon_token') && (
+            <WorkspaceOfflineBanner navigate={navigate} />
+          )}
+          <CoreConsole workspace={workspace} />
+        </main>
+        <StatusBar
+          workspaceOnline={workspaceOnline}
+          machine={workspaceMachine}
+          mode="core"
+          editorState={null}
+          daemon={workspace}
+          rootPath={activeWorkspaceRoot}
+          devServerUrl={devServerUrl}
+        />
+      </div>
+    );
   }
 
   // Default home site
@@ -502,6 +839,15 @@ export default function App() {
     return (
       <ErrorBoundary name="Landing Page">
         <Suspense fallback={routeLoader}><LandingPage navigate={navigate} theme={theme} setTheme={setTheme} themes={THEMES} /></Suspense>
+      </ErrorBoundary>
+    );
+  }
+
+  // /docs route
+  if (path === '/docs') {
+    return (
+      <ErrorBoundary name="Docs Page">
+        <Suspense fallback={routeLoader}><DocsPage navigate={navigate} workspace={workspace} /></Suspense>
       </ErrorBoundary>
     );
   }
@@ -538,7 +884,7 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-bg-base flex items-center justify-center">
+      <div className="min-h-[100dvh] min-h-screen bg-bg-base flex items-center justify-center">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
             <Terminal size={16} className="text-white" />
@@ -550,25 +896,46 @@ export default function App() {
   }
 
   const CurrentThemeIcon = THEMES.find(t => t.id === theme)?.icon || Moon;
+  const dashboardSection = path === '/dashboard/chat'
+    ? 'chat'
+    : path === '/dashboard/build'
+      ? 'build'
+      : path === '/dashboard/code'
+        ? 'code'
+        : null;
+  const isDashboardHome = path === '/dashboard';
+  const statusMode = dashboardSection === 'chat' ? 'simple' : dashboardSection === 'build' ? 'builder' : dashboardSection === 'code' ? 'pro' : mode;
 
   return (
-    <div className="h-screen flex flex-col bg-bg-base overflow-hidden">
+    <div className="h-[100dvh] min-h-screen flex flex-col bg-bg-base overflow-hidden">
       {/* Nav */}
-      <nav className="h-11 bg-bg-surface border-b border-border-subtle flex items-center px-3 gap-3 shrink-0 z-10">
+      <nav className="h-[calc(56px+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] bg-bg-surface/95 border-b border-border-subtle flex items-center px-4 gap-3 shrink-0 z-10 backdrop-blur-sm">
         {/* Logo */}
-        <div className="flex items-center gap-2 mr-2">
-          <div className="w-6 h-6 rounded-md bg-accent flex items-center justify-center shrink-0">
-            <Terminal size={12} className="text-white" />
+        <div className="flex items-center gap-2.5 mr-1 shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center shrink-0">
+            <Terminal size={14} className="text-accent" />
           </div>
-          <span className="text-text-pri font-ui font-semibold text-sm tracking-tight hidden sm:block">soupz</span>
+          <div className="hidden sm:flex flex-col leading-tight">
+            <span className="text-text-pri font-ui font-semibold text-sm tracking-tight">Soupz</span>
+            <span className="text-text-faint font-ui text-[10px] uppercase tracking-wider">Command Studio</span>
+          </div>
         </div>
 
-        {/* Mode toggle */}
-        <div className="flex items-center gap-0.5 bg-bg-base rounded-md p-0.5 border border-border-subtle">
-          <ModeBtn active={mode === 'simple'} onClick={() => setMode('simple')} icon={<Layers size={12} />} label="Chat" />
-          <ModeBtn active={mode === 'builder'} onClick={() => setMode('builder')} icon={<Sparkles size={12} />} label="Build" />
-          <ModeBtn active={mode === 'pro'}    onClick={() => setMode('pro')}    icon={<Code2 size={12} />}  label="Code" />
-        </div>
+        {/* Mode / dashboard navigation */}
+        {path.startsWith('/dashboard') ? (
+          <div className="flex items-center gap-1 bg-bg-base rounded-xl p-1 border border-border-subtle">
+            <ModeBtn active={isDashboardHome} onClick={() => navigate('/dashboard')} icon={<Layers size={12} />} label="Dashboard" />
+            <ModeBtn active={dashboardSection === 'chat'} onClick={() => navigate('/dashboard/chat')} icon={<Layers size={12} />} label="Chat" />
+            <ModeBtn active={dashboardSection === 'build'} onClick={() => navigate('/dashboard/build')} icon={<Sparkles size={12} />} label="Build" />
+            <ModeBtn active={dashboardSection === 'code'} onClick={() => navigate('/dashboard/code')} icon={<Code2 size={12} />} label="Code" />
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 bg-bg-base rounded-xl p-1 border border-border-subtle">
+            <ModeBtn active={mode === 'simple'} onClick={() => setMode('simple')} icon={<Layers size={12} />} label="Chat" />
+            <ModeBtn active={mode === 'builder'} onClick={() => setMode('builder')} icon={<Sparkles size={12} />} label="Build" />
+            <ModeBtn active={mode === 'pro'} onClick={() => setMode('pro')} icon={<Code2 size={12} />} label="Code" />
+          </div>
+        )}
 
         {/* Spacer */}
         <div className="flex-1" />
@@ -576,7 +943,7 @@ export default function App() {
         {/* Command Palette trigger */}
         <button
           onClick={() => setCmdPaletteOpen(true)}
-          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-text-faint hover:text-text-sec hover:bg-bg-elevated transition-all border border-transparent hover:border-border-subtle"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-text-faint hover:text-text-sec hover:bg-bg-elevated transition-all border border-border-subtle/70"
           title="Command Palette (Cmd+Shift+P)"
         >
           <Search size={13} />
@@ -590,7 +957,7 @@ export default function App() {
         <div className="relative">
           <button
             onClick={() => setThemeOpen(o => !o)}
-            className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-text-faint hover:text-text-sec hover:bg-bg-elevated transition-all"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-text-faint hover:text-text-sec hover:bg-bg-elevated transition-all border border-border-subtle/70"
             title="Change theme"
           >
             <CurrentThemeIcon size={13} />
@@ -683,18 +1050,78 @@ export default function App() {
           <WorkspaceOfflineBanner navigate={navigate} />
         )}
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-          {mode === 'simple' ? (
-            <SimpleMode daemon={workspace} filePaths={flattenedFilePaths} />
-          ) : mode === 'builder' ? (
-            <ErrorBoundary name="Builder Mode">
+          {isDashboardHome ? (
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6">
+              <div className="mx-auto max-w-6xl grid gap-4 lg:grid-cols-3">
+                <div className="lg:col-span-3 rounded-2xl border border-border-subtle bg-bg-surface p-6">
+                  <p className="text-[11px] uppercase tracking-widest text-text-faint mb-2">Dashboard</p>
+                  <h1 className="text-2xl font-semibold text-text-pri">Choose one workspace.</h1>
+                  <p className="mt-2 text-sm text-text-sec max-w-2xl">Each page is now focused on a single job: chat for conversation, build for prompt-driven assembly, code for editor work. That keeps the UI easier to navigate and reduces clutter.</p>
+                </div>
+                <button onClick={() => navigate('/dashboard/chat')} className="rounded-2xl border border-border-subtle bg-bg-surface p-5 text-left hover:border-accent/30 hover:bg-bg-elevated transition-colors">
+                  <p className="text-xs uppercase tracking-widest text-text-faint mb-2">Chat</p>
+                  <h2 className="text-lg font-semibold text-text-pri">Conversation workspace</h2>
+                  <p className="mt-2 text-sm text-text-sec">Open the lightweight chat page for prompts, answers, and quick task handling.</p>
+                </button>
+                <button onClick={() => navigate('/dashboard/build')} className="rounded-2xl border border-border-subtle bg-bg-surface p-5 text-left hover:border-accent/30 hover:bg-bg-elevated transition-colors">
+                  <p className="text-xs uppercase tracking-widest text-text-faint mb-2">Build</p>
+                  <h2 className="text-lg font-semibold text-text-pri">Project builder</h2>
+                  <p className="mt-2 text-sm text-text-sec">Use the build page for prompt-driven generation without extra panels competing for space.</p>
+                </button>
+                <button onClick={() => navigate('/dashboard/code')} className="rounded-2xl border border-border-subtle bg-bg-surface p-5 text-left hover:border-accent/30 hover:bg-bg-elevated transition-colors">
+                  <p className="text-xs uppercase tracking-widest text-text-faint mb-2">Code</p>
+                  <h2 className="text-lg font-semibold text-text-pri">Editor workspace</h2>
+                  <p className="mt-2 text-sm text-text-sec">Open the IDE view for files, git, terminal, and compare flows.</p>
+                </button>
+              </div>
+            </div>
+          ) : dashboardSection === 'chat' ? (
+            <ErrorBoundary name="Dashboard Chat Page">
               <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
-                <BuilderMode daemon={workspace} />
+                <DashboardChatPage
+                  daemon={workspace}
+                  filePaths={flattenedFilePaths}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          ) : dashboardSection === 'build' ? (
+            <ErrorBoundary name="Dashboard Build Page">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
+                <DashboardBuildPage daemon={workspace} />
+              </Suspense>
+            </ErrorBoundary>
+          ) : dashboardSection === 'code' ? (
+            <ErrorBoundary name="Dashboard Pro Page">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
+                <DashboardProPage
+                  daemon={workspace}
+                  fileTree={fileTree}
+                  changedPaths={changedFiles}
+                  onEditorStateChange={setEditorState}
+                  theme={theme}
+                  onOpenCommandPalette={() => setCmdPaletteOpen(true)}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          ) : mode === 'simple' ? (
+            <ErrorBoundary name="Dashboard Chat Page">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
+                <DashboardChatPage
+                  daemon={workspace}
+                  filePaths={flattenedFilePaths}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          ) : mode === 'builder' ? (
+            <ErrorBoundary name="Dashboard Build Page">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
+                <DashboardBuildPage daemon={workspace} />
               </Suspense>
             </ErrorBoundary>
           ) : (
-            <ErrorBoundary name="Pro Mode">
+            <ErrorBoundary name="Dashboard Pro Page">
               <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 size={16} className="text-text-faint animate-spin" /></div>}>
-                <ProMode
+                <DashboardProPage
                   daemon={workspace}
                   fileTree={fileTree}
                   changedPaths={changedFiles}
@@ -757,17 +1184,20 @@ export default function App() {
       <StatusBar
         workspaceOnline={workspaceOnline}
         machine={workspaceMachine}
-        mode={mode}
+        mode={statusMode}
         editorState={editorState}
         daemon={workspace}
         rootPath={activeWorkspaceRoot}
         devServerUrl={devServerUrl}
       />
 
-      {/* Onboarding Overlay (only on dashboard) */}
+      {/* Onboarding Checklist (only on dashboard) */}
       <Suspense fallback={null}>
-        <OnboardingOverlay />
+        <OnboardingChecklist workspaceOnline={workspaceOnline} devServerUrl={devServerUrl} />
       </Suspense>
+
+      <KeyboardShortcuts open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <NotificationToast />
     </div>
   );
 }
@@ -777,10 +1207,10 @@ function ModeBtn({ active, onClick, icon, label }) {
     <button
       onClick={onClick}
       className={cn(
-        'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-ui font-medium transition-all',
+        'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-ui font-medium transition-all',
         active
-          ? 'bg-bg-elevated text-text-pri border border-border-subtle'
-          : 'text-text-faint hover:text-text-sec',
+          ? 'bg-accent/12 text-accent border border-accent/25'
+          : 'text-text-faint hover:text-text-sec hover:bg-bg-elevated/60',
       )}
     >
       {icon}
@@ -795,7 +1225,7 @@ function WorkspaceStatus({ online, machine, navigate, onShowShare }) {
       type="button"
       onClick={() => {
         if (online) onShowShare?.();
-        else navigate('/connect');
+        else navigate('/code');
       }}
       title={online
         ? `Click to show pairing code for ${machine || 'your machine'}`
@@ -823,7 +1253,7 @@ function WorkspaceOfflineBanner({ navigate }) {
       <WifiOff size={13} className="text-warning shrink-0" />
       <span className="text-text-sec">
         Not connected — run{' '}
-        <code className="font-mono text-warning bg-warning/10 px-1 rounded">npx soupz</code>
+        <code className="font-mono text-warning bg-warning/10 px-1 rounded">npx @shubh_prajapati99/soupz</code>
         {' '}in your terminal to start
       </span>
       <div className="ml-auto flex items-center gap-3 shrink-0">
@@ -834,7 +1264,7 @@ function WorkspaceOfflineBanner({ navigate }) {
           View demo
         </button>
         <button
-          onClick={() => navigate('/connect')}
+          onClick={() => navigate('/code')}
           className="text-accent hover:text-accent-hover transition-colors"
         >
           Connect

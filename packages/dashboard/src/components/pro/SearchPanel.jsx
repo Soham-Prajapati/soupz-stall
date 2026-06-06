@@ -197,6 +197,10 @@ export default function SearchPanel({ daemon, fileTree, onOpenFile }) {
           </button>
         </div>
 
+        <div className="rounded border border-border-subtle bg-bg-base px-2 py-1.5 text-[10px] text-text-faint">
+          Scope: this panel searches all workspace files. Use editor find for current file, and command palette for commands/files.
+        </div>
+
         {/* Result count */}
         {(query.length >= 2 || searching) && (
           <div className="flex items-center gap-1.5 text-[11px] font-ui text-text-faint">

@@ -6,9 +6,46 @@
 import { supabase } from './supabase.js';
 
 const DEFAULT_DAEMON_URL = import.meta.env.VITE_DAEMON_URL || 'http://localhost:7533';
+const DAEMON_URL_KEY = 'soupz_daemon_url';
+const DAEMON_URL_SESSION_KEY = 'soupz_daemon_url_session';
+const DAEMON_TOKEN_KEY = 'soupz_daemon_token';
+const DAEMON_TOKEN_ISSUED_AT_KEY = 'soupz_daemon_token_issued_at';
+const DAEMON_TOKEN_LAST_REFRESH_ATTEMPT_KEY = 'soupz_daemon_token_last_refresh_attempt_at';
+const DAEMON_TOKEN_REFRESH_THRESHOLD_MS = 23 * 60 * 60 * 1000;
+const DAEMON_TOKEN_REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 
 export function getDaemonUrl() {
-  return localStorage.getItem('soupz_daemon_url') || DEFAULT_DAEMON_URL;
+  return localStorage.getItem(DAEMON_URL_KEY)
+    || sessionStorage.getItem(DAEMON_URL_SESSION_KEY)
+    || DEFAULT_DAEMON_URL;
+}
+
+function normalizeDaemonUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  let candidate = url.trim();
+  if (!candidate) return null;
+  if (!/^https?:\/\//i.test(candidate)) {
+    candidate = `http://${candidate}`;
+  }
+  try {
+    const parsed = new URL(candidate);
+    return `${parsed.origin}`;
+  } catch {
+    return null;
+  }
+}
+
+export function setDaemonUrl(url) {
+  const normalized = normalizeDaemonUrl(url);
+  if (!normalized) return false;
+  localStorage.setItem(DAEMON_URL_KEY, normalized);
+  sessionStorage.setItem(DAEMON_URL_SESSION_KEY, normalized);
+  return true;
+}
+
+export function clearDaemonUrl() {
+  localStorage.removeItem(DAEMON_URL_KEY);
+  sessionStorage.removeItem(DAEMON_URL_SESSION_KEY);
 }
 
 export function getDaemonWsUrl() {
@@ -22,10 +59,140 @@ let wsInstance = null;
 let wsToken    = null;
 let wsUrl      = null;
 const wsChunkHandlers = new Map(); // orderId → (chunk, done) => void
+const wsMessageSubscribers = new Set();
+
+const INTERNAL_TOOL_TRACE_RE = /^\s*↳\s*[a-z_][\w.-]*\s*\.\.\.\s*$/i;
+const BARE_TOOL_TRACE_RE = /^\s*(read_file|write_file|list_directory|list_dir|replace|apply_patch|run_in_terminal|grep_search|file_search|semantic_search|fetch_webpage|get_errors|create_file|create_directory|run_notebook_cell|edit_notebook_file|vscode_[\w.-]+)\s*\.\.\.\s*$/i;
+const TOOL_CALL_HEADER_RE = /^\s*(assistant|tool)\s+to=functions\.[\w.-]+/i;
+
+function sanitizeAgentChunk(chunk) {
+  const text = String(chunk ?? '');
+  if (!text) return '';
+
+  const cleaned = text
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      if (INTERNAL_TOOL_TRACE_RE.test(trimmed)) return false;
+      if (BARE_TOOL_TRACE_RE.test(trimmed)) return false;
+      if (TOOL_CALL_HEADER_RE.test(trimmed)) return false;
+      return true;
+    })
+    .join('\n');
+
+  return cleaned;
+}
+
+function emitWsMessage(msg) {
+  for (const handler of wsMessageSubscribers) {
+    try {
+      handler?.(msg);
+    } catch {
+      // Ignore subscriber errors so one bad listener does not break streaming.
+    }
+  }
+}
+
+export function subscribeDaemonMessages(handler) {
+  if (typeof handler !== 'function') return () => {};
+  wsMessageSubscribers.add(handler);
+  return () => wsMessageSubscribers.delete(handler);
+}
 
 function getStoredToken() {
-  return localStorage.getItem('soupz_daemon_token')
-    || sessionStorage.getItem('soupz_daemon_token');
+  return localStorage.getItem(DAEMON_TOKEN_KEY)
+    || sessionStorage.getItem(DAEMON_TOKEN_KEY);
+}
+
+function getStoredTokenIssuedAt() {
+  const raw = localStorage.getItem(DAEMON_TOKEN_ISSUED_AT_KEY)
+    || sessionStorage.getItem(DAEMON_TOKEN_ISSUED_AT_KEY);
+  const parsed = Number.parseInt(raw || '', 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function setDaemonToken(token, issuedAt = Date.now()) {
+  if (!token) return;
+  const issued = Number.isFinite(issuedAt) ? issuedAt : Date.now();
+  localStorage.setItem(DAEMON_TOKEN_KEY, token);
+  sessionStorage.setItem(DAEMON_TOKEN_KEY, token);
+  localStorage.setItem(DAEMON_TOKEN_ISSUED_AT_KEY, String(issued));
+  sessionStorage.setItem(DAEMON_TOKEN_ISSUED_AT_KEY, String(issued));
+}
+
+export function clearDaemonToken() {
+  localStorage.removeItem(DAEMON_TOKEN_KEY);
+  sessionStorage.removeItem(DAEMON_TOKEN_KEY);
+  localStorage.removeItem(DAEMON_TOKEN_ISSUED_AT_KEY);
+  sessionStorage.removeItem(DAEMON_TOKEN_ISSUED_AT_KEY);
+  localStorage.removeItem(DAEMON_TOKEN_LAST_REFRESH_ATTEMPT_KEY);
+  sessionStorage.removeItem(DAEMON_TOKEN_LAST_REFRESH_ATTEMPT_KEY);
+}
+
+function setLastRefreshAttempt(at = Date.now()) {
+  localStorage.setItem(DAEMON_TOKEN_LAST_REFRESH_ATTEMPT_KEY, String(at));
+  sessionStorage.setItem(DAEMON_TOKEN_LAST_REFRESH_ATTEMPT_KEY, String(at));
+}
+
+function getLastRefreshAttempt() {
+  const raw = localStorage.getItem(DAEMON_TOKEN_LAST_REFRESH_ATTEMPT_KEY)
+    || sessionStorage.getItem(DAEMON_TOKEN_LAST_REFRESH_ATTEMPT_KEY);
+  const parsed = Number.parseInt(raw || '', 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export async function refreshDaemonToken({ force = false } = {}) {
+  const currentToken = getStoredToken();
+  if (!currentToken) return { ok: false, skipped: true, reason: 'missing-token' };
+
+  const now = Date.now();
+  if (!force) {
+    const ageMs = now - getStoredTokenIssuedAt();
+    const sinceLastAttempt = now - getLastRefreshAttempt();
+    if (ageMs > 0 && ageMs < DAEMON_TOKEN_REFRESH_THRESHOLD_MS) {
+      return { ok: false, skipped: true, reason: 'fresh-token' };
+    }
+    if (sinceLastAttempt > 0 && sinceLastAttempt < DAEMON_TOKEN_REFRESH_COOLDOWN_MS) {
+      return { ok: false, skipped: true, reason: 'cooldown' };
+    }
+  }
+
+  setLastRefreshAttempt(now);
+
+  try {
+    const res = await fetch(`${getDaemonUrl()}/api/session/refresh-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Soupz-Token': currentToken,
+      },
+      body: JSON.stringify({ force }),
+    });
+
+    if (res.status === 401) {
+      clearDaemonToken();
+      disconnectDaemonWS();
+      return { ok: false, skipped: false, reason: 'unauthorized' };
+    }
+
+    if (!res.ok) {
+      return { ok: false, skipped: false, reason: `http-${res.status}` };
+    }
+
+    const body = await res.json().catch(() => null);
+    const nextToken = body?.token || currentToken;
+    const issuedAt = Number.parseInt(body?.createdAt, 10);
+    setDaemonToken(nextToken, Number.isFinite(issuedAt) ? issuedAt : Date.now());
+    return {
+      ok: true,
+      refreshed: !!body?.refreshed,
+      token: nextToken,
+      expiresIn: body?.expiresIn,
+    };
+  } catch {
+    return { ok: false, skipped: false, reason: 'network' };
+  }
 }
 
 export function connectDaemonWS(token) {
@@ -51,9 +218,16 @@ export function connectDaemonWS(token) {
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
+      emitWsMessage(msg);
+
+      if (typeof window !== 'undefined' && msg.type === 'order_update') {
+        window.dispatchEvent(new CustomEvent('soupz_order_update', { detail: msg.data || null }));
+      }
+
       if (msg.type === 'agent_chunk') {
         const handler = wsChunkHandlers.get(msg.orderId) || wsChunkHandlers.get('*');
-        handler?.(msg.chunk, false);
+        const safeChunk = sanitizeAgentChunk(msg.chunk);
+        if (safeChunk) handler?.(safeChunk, false);
       } else if (msg.type === 'order_update' && (msg.data?.status === 'completed' || msg.data?.status === 'failed')) {
         const handler = wsChunkHandlers.get(msg.data.id) || wsChunkHandlers.get('*');
         handler?.('', true); // signal done
@@ -100,6 +274,15 @@ export function disconnectDaemonWS() {
   wsUrl = null;
 }
 
+if (typeof window !== 'undefined') {
+  const refreshOnActive = () => { void refreshDaemonToken(); };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshOnActive();
+  });
+  window.addEventListener('focus', refreshOnActive);
+  setInterval(() => { void refreshDaemonToken(); }, 15 * 60 * 1000);
+}
+
 export function getWSState() {
   if (!wsInstance) return 'disconnected';
   const state = wsInstance.readyState;
@@ -115,13 +298,13 @@ export function getWSState() {
  * Detect a running dev server on the connected machine for live preview.
  * @returns {Promise<{ url: string, detected: boolean } | null>}
  */
-export async function getDevServerUrl() {
+export async function getDevServerUrl(cwd = '') {
   const t = getStoredToken();
-  if (!t) return null;
+  if (!t && !isLocalDaemon()) return null;
   try {
-    const res = await fetch(`${getDaemonUrl()}/api/dev-server`, {
-      headers: { 'X-Soupz-Token': t },
-      signal: AbortSignal.timeout(5000),
+    const suffix = cwd ? `?cwd=${encodeURIComponent(cwd)}` : '';
+    const res = await fetch(`${getDaemonUrl()}/api/dev-server${suffix}`, {
+      headers: t ? { 'X-Soupz-Token': t } : {},
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -145,7 +328,6 @@ export async function listDirectories(path) {
     const url = `${getDaemonUrl()}/api/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ''}`;
     const res = await fetch(url, {
       headers: { 'X-Soupz-Token': t },
-      signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return null;
     return await res.json();
@@ -186,9 +368,16 @@ export async function initProject({ name, path, supabase, github }) {
 export async function checkAgentAvailability() {
   try {
     const res = await fetch(`${getDaemonUrl()}/api/agents?detailed=true`, {
-      signal: AbortSignal.timeout(2000),
     });
-    if (!res.ok) return { simple: {} };
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: `http-${res.status}`,
+        simple: {},
+        detailed: null,
+        available: [],
+      };
+    }
     const data = await res.json();
     if (data?.agents) {
       const simple = {};
@@ -196,6 +385,7 @@ export async function checkAgentAvailability() {
         simple[id] = !!details.ready;
       }
       return {
+        ok: true,
         simple,
         detailed: data.agents,
         available: data.available || Object.keys(simple).filter(key => simple[key]),
@@ -203,12 +393,40 @@ export async function checkAgentAvailability() {
     }
     const fallback = data || {};
     return {
+      ok: true,
       simple: fallback,
       detailed: null,
       available: Object.keys(fallback).filter(key => fallback[key]),
     };
   } catch {
-    return { simple: {} };
+    return {
+      ok: false,
+      error: 'network',
+      simple: {},
+      detailed: null,
+      available: [],
+    };
+  }
+}
+
+export async function getAgentModels({ refresh = false } = {}) {
+  const t = getStoredToken();
+  if (!t && !isLocalDaemon()) return {};
+  try {
+    if (refresh) {
+      await fetch(`${getDaemonUrl()}/api/models/refresh`, {
+        method: 'POST',
+        headers: t ? { 'X-Soupz-Token': t } : {},
+      });
+    }
+    const res = await fetch(`${getDaemonUrl()}/api/models`, {
+      headers: t ? { 'X-Soupz-Token': t } : {},
+    });
+    if (!res.ok) return {};
+    const body = await res.json();
+    return body?.agents || {};
+  } catch {
+    return {};
   }
 }
 
@@ -216,7 +434,7 @@ export async function checkAgentAvailability() {
 
 export async function checkDaemonHealth() {
   try {
-    const res = await fetch(`${getDaemonUrl()}/health`, { signal: AbortSignal.timeout(2000) });
+    const res = await fetch(`${getDaemonUrl()}/health`);
     const data = await res.json();
     return { online: true, version: data.version, machine: data.hostname || data.machine };
   } catch {
@@ -229,7 +447,7 @@ export async function checkDaemonHealth() {
 /**
  * Send an AI prompt. Streams chunks via WebSocket if connected locally,
  * falls back to Supabase relay for remote access.
- * @param {{prompt: string, agentId?: string, specialist?: string, temperature?: number, maxTokens?: number, allowedAgents?: string[], buildMode?: string, cwd?: string, orchestrationMode?: string, workerCount?: number, sameAgentOnly?: boolean, primaryCopies?: number, timeoutMs?: number, images?: Array}} request
+ * @param {{prompt: string, agentId?: string, specialist?: string, temperature?: number, maxTokens?: number, allowedAgents?: string[], buildMode?: string, cwd?: string, orchestrationMode?: string, workerCount?: number, sameAgentOnly?: boolean, primaryCopies?: number, selectedModel?: string, agentModels?: Record<string,string>, images?: Array}} request
  * @param {string} userId
  * @param {(chunk: string, done: boolean) => void} onChunk
  */
@@ -246,17 +464,12 @@ export async function sendAgentPrompt(request, userId, onChunk) {
   const workerCount = request?.workerCount;
   const sameAgentOnly = request?.sameAgentOnly;
   const primaryCopies = request?.primaryCopies;
-
-  // Set default timeouts based on build mode if not provided
-  let timeoutMs = request?.timeoutMs;
-  if (!Number.isFinite(timeoutMs)) {
-    const timeoutDefaults = {
-      'quick': 90 * 1000,    // 90 seconds for quick mode
-      'planned': 180 * 1000, // 180 seconds for planned mode
-      'deep': 300 * 1000,    // 300 seconds for deep mode
-    };
-    timeoutMs = timeoutDefaults[mode] || 180 * 1000; // default to planned (180s)
-  }
+  const selectedModel = typeof request?.selectedModel === 'string' ? request.selectedModel.trim() : '';
+  const agentModels = request?.agentModels && typeof request.agentModels === 'object'
+    ? Object.fromEntries(Object.entries(request.agentModels)
+      .map(([id, model]) => [String(id || '').trim(), String(model || '').trim()])
+      .filter(([id, model]) => id && model))
+    : undefined;
   const useAiPlanner = typeof request?.useAiPlanner === 'boolean' ? request.useAiPlanner : undefined;
   const plannerStyle = request?.plannerStyle;
   const plannerNotes = request?.plannerNotes;
@@ -277,7 +490,6 @@ export async function sendAgentPrompt(request, userId, onChunk) {
         if (ws.readyState === 1) return resolve();
         ws.addEventListener('open', resolve, { once: true });
         ws.addEventListener('error', resolve, { once: true });
-        setTimeout(resolve, 3000);
       });
     }
 
@@ -304,7 +516,8 @@ export async function sendAgentPrompt(request, userId, onChunk) {
             if (Number.isFinite(workerCount)) payload.workerCount = workerCount;
             if (typeof sameAgentOnly === 'boolean') payload.sameAgentOnly = sameAgentOnly;
             if (Number.isFinite(primaryCopies)) payload.primaryCopies = primaryCopies;
-            if (Number.isFinite(timeoutMs)) payload.timeoutMs = timeoutMs;
+            if (selectedModel) payload.selectedModel = selectedModel;
+            if (agentModels && Object.keys(agentModels).length > 0) payload.agentModels = agentModels;
             if (typeof useAiPlanner === 'boolean') payload.useAiPlanner = useAiPlanner;
             if (typeof plannerStyle === 'string' && plannerStyle.trim()) payload.plannerStyle = plannerStyle.trim();
             if (typeof plannerNotes === 'string' && plannerNotes.trim()) payload.plannerNotes = plannerNotes.trim().slice(0, 4000);
@@ -349,13 +562,6 @@ export async function sendAgentPrompt(request, userId, onChunk) {
           if (returnOrderImmediately) {
             settle(order.id);
           }
-          
-          // Safety cleanup resolving after timeout
-          setTimeout(() => {
-            wsChunkHandlers.delete(order.id);
-            wsChunkHandlers.delete('*');
-            settle(order.id);
-          }, 300000);
         } else {
           settle(order?.id);
         }
@@ -369,14 +575,18 @@ export async function sendAgentPrompt(request, userId, onChunk) {
   if (supabase && userId) {
     return new Promise(async (resolve, reject) => {
       try {
-        const commandId = await sendCommand('AGENT_PROMPT', { prompt, agentId, mode }, userId);
+        const commandPayload = { prompt, agentId, mode };
+        if (selectedModel) commandPayload.selectedModel = selectedModel;
+        if (agentModels && Object.keys(agentModels).length > 0) commandPayload.agentModels = agentModels;
+        const commandId = await sendCommand('AGENT_PROMPT', commandPayload, userId);
         if (onChunk) {
           const unsub = subscribeToChunks(commandId, (chunk) => {
-            onChunk(chunk);
+            const safeChunk = sanitizeAgentChunk(chunk);
+            if (safeChunk) onChunk(safeChunk);
           });
-          // Wait blindly for some time? Remote relay might lack 'done' events. We can just resolve after 300 seconds if it's the only way, but ideally the remote returns a done signal. For now, resolve immediately like it did before, to avoid breaking remote too much, or wait 10s.
-          // Wait! The user is local, they connect directly to the daemon.
-          setTimeout(() => { unsub(); resolve(commandId); }, 30000);
+          // Relay path has no guaranteed done signal yet; resolve immediately and keep streaming.
+          void unsub;
+          resolve(commandId);
         } else {
           resolve(commandId);
         }
@@ -386,7 +596,7 @@ export async function sendAgentPrompt(request, userId, onChunk) {
     });
   }
 
-  throw new Error('Not connected — run npx soupz on your machine first');
+  throw new Error('Not connected — run npx @shubh_prajapati99/soupz on your machine first');
 }
 
 // ─── Generic command (Supabase relay) ────────────────────────────────────────
@@ -465,7 +675,6 @@ export async function getOrders() {
   try {
     const res = await fetch(`${getDaemonUrl()}/api/orders`, {
       headers: t ? { 'X-Soupz-Token': t } : {},
-      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
     const data = await res.json();
@@ -481,7 +690,6 @@ export async function getOrderDetail(orderId) {
   try {
     const res = await fetch(`${getDaemonUrl()}/api/orders/${orderId}`, {
       headers: t ? { 'X-Soupz-Token': t } : {},
-      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -502,7 +710,6 @@ export async function submitOrderInput(orderId, answers) {
         ...(t ? { 'X-Soupz-Token': t } : {}),
       },
       body: JSON.stringify({ answers: answers || {} }),
-      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) {
       const body = await res.text();
@@ -529,7 +736,6 @@ export async function cancelOrder(orderId) {
         'Content-Type': 'application/json',
         ...(t ? { 'X-Soupz-Token': t } : {}),
       },
-      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) {
       const body = await res.text();
@@ -551,7 +757,6 @@ export async function checkSystemCLIs() {
   try {
     const res = await fetch(`${getDaemonUrl()}/api/system/check-clis`, {
       headers: { 'X-Soupz-Token': t },
-      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
     const data = await res.json();
@@ -578,7 +783,6 @@ export async function manageSystemCLI(name, action = 'install') {
         'X-Soupz-Token': t,
       },
       body: JSON.stringify({ cli: name, action }),
-      signal: AbortSignal.timeout(15000),
     });
     const data = await res.json().catch(() => ({ success: false }));
     if (!res.ok || data?.success === false) {
@@ -604,7 +808,6 @@ async function localGet(path) {
   const t = token();
   const res = await fetch(`${getDaemonUrl()}${path}`, {
     headers: t ? { 'X-Soupz-Token': t } : {},
-    signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
@@ -616,7 +819,6 @@ async function localPost(path, body) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(t ? { 'X-Soupz-Token': t } : {}) },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
@@ -627,7 +829,6 @@ async function localDelete(path) {
   const res = await fetch(`${getDaemonUrl()}${path}`, {
     method: 'DELETE',
     headers: t ? { 'X-Soupz-Token': t } : {},
-    signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
@@ -711,6 +912,21 @@ export async function getGitDiff(filePath, userId, rootPath) {
   return sendCommand('GIT_DIFF', { path: filePath, root: rootPath }, userId);
 }
 
+export async function getGitFileVersion(filePath, ref = 'HEAD', userId, rootPath) {
+  const params = new URLSearchParams();
+  if (filePath) params.set('file', filePath);
+  if (ref) params.set('ref', ref);
+  if (rootPath) params.set('root', rootPath);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+
+  if (token() || isLocalDaemon()) {
+    const res = await localGet(`/api/git/file-version${suffix}`);
+    return res?.content || '';
+  }
+
+  return '';
+}
+
 export async function gitStage(filePath, userId, rootPath) {
   if (token() || isLocalDaemon()) return localPost('/api/git/stage', { path: filePath, root: rootPath });
   return sendCommand('GIT_STAGE', { path: filePath, root: rootPath }, userId);
@@ -732,6 +948,16 @@ export async function fetchBranches(rootPath, userId) {
   return sendCommand('GIT_BRANCHES', { root: rootPath }, userId);
 }
 
+export async function getGitLog(rootPath, userId, limit = 8) {
+  const params = new URLSearchParams();
+  if (rootPath) params.set('root', rootPath);
+  if (Number.isFinite(limit)) params.set('limit', String(limit));
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+
+  if (token() || isLocalDaemon()) return localGet(`/api/git/log${suffix}`);
+  return { commits: [] };
+}
+
 export async function checkoutBranch(branch, userId, rootPath) {
   if (token() || isLocalDaemon()) return localPost('/api/git/checkout', { branch, root: rootPath, cwd: rootPath });
   return sendCommand('GIT_CHECKOUT', { branch, root: rootPath }, userId);
@@ -740,4 +966,39 @@ export async function checkoutBranch(branch, userId, rootPath) {
 export async function runFile(path, userId, rootPath) {
   if (token() || isLocalDaemon()) return localPost('/api/exec', { path, root: rootPath });
   return sendCommand('RUN_FILE', { path, root: rootPath }, userId);
+}
+
+export async function validateTerminalToken(daemonUrl, token) {
+  const url = daemonUrl.startsWith('http') ? daemonUrl : `http://${daemonUrl}`;
+  const res = await fetch(`${url}/api/terminal/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Validation failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+export async function sendTerminalCommand(daemonUrl, token, command) {
+  const url = daemonUrl.startsWith('http') ? daemonUrl : `http://${daemonUrl}`;
+  const res = await fetch(`${url}/api/terminal/exec`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, command }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Command failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+export function getTerminalPageUrl(daemonUrl, token) {
+  const url = new URL('https://soupz.vercel.app/terminal');
+  url.searchParams.set('token', token);
+  url.searchParams.set('remote', daemonUrl);
+  return url.toString();
 }

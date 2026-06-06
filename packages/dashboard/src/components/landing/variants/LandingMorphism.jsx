@@ -135,6 +135,8 @@ const STYLES = `
 }
 `;
 
+const SHOW_SOURCE_LINKS = import.meta.env.VITE_SHOW_SOURCE_LINKS === 'true';
+
 function BackgroundElements() {
   return (
     <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
@@ -223,13 +225,13 @@ function CopyBtn({ text }) {
       )}
     >
       {copied ? <Check size={14} /> : <Copy size={14} />}
-      {copied ? 'Copied' : 'NPM Copy'}
+      {copied ? 'Copied' : 'Copy Command'}
     </button>
   );
 }
 
 const TERM_LINES = [
-  { d: 0,    t: 'cmd',  text: '$ npx soupz' },
+  { d: 0,    t: 'cmd',  text: '$ npx @shubh_prajapati99/soupz' },
   { d: 600,  t: 'out',  text: 'Starting agent server...' },
   { d: 1100, t: 'out',  text: 'Tunnel established' },
   { d: 1600, t: 'pair', text: '4 7 B - 2 9 X - 1 K 5' },
@@ -369,6 +371,12 @@ export default function LandingMorphism({ navigate }) {
 
           <div className="flex items-center gap-6">
             <button
+              onClick={() => navigate?.('/docs')}
+              className="hidden md:inline-flex text-sm font-medium text-text-sec hover:text-text-pri transition-colors"
+            >
+              Documentation
+            </button>
+            <button
               onClick={() => navigate?.('/dashboard')}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white text-black hover:scale-105 active:scale-95 text-sm font-semibold transition-transform"
             >
@@ -408,13 +416,19 @@ export default function LandingMorphism({ navigate }) {
           <Reveal delay={450}>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                <div className="flex items-center rounded-xl p-1.5 border border-white/10 bg-bg-surface/50 backdrop-blur-3xl shadow-2xl transition-all hover:border-white/20">
-                 <div className="px-6 py-2 font-mono text-base font-bold text-text-pri select-all">npx soupz</div>
-                 <CopyBtn text="npx soupz" />
+                 <div className="px-6 py-2 font-mono text-base font-bold text-text-pri select-all">npx @shubh_prajapati99/soupz</div>
+                 <CopyBtn text="npx @shubh_prajapati99/soupz" />
                </div>
-               <a href="https://github.com/Soham-Prajapati" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-6 py-3.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:-translate-y-1 text-text-pri font-bold transition-all shadow-xl group">
-                 <Github size={18} className="group-hover:rotate-12 transition-transform" />
-                 Open Source
+               <a href="https://www.npmjs.com/package/soupz" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-6 py-3.5 rounded-xl border border-success/25 bg-success/10 hover:bg-success/20 hover:-translate-y-1 text-success font-bold transition-all shadow-xl group">
+                 <Zap size={18} className="group-hover:scale-110 transition-transform" />
+                 npm Package
                </a>
+               {SHOW_SOURCE_LINKS ? (
+                 <a href="https://github.com/Soham-Prajapati/soupz-stall" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-6 py-3.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:-translate-y-1 text-text-pri font-bold transition-all shadow-xl group">
+                   <Github size={18} className="group-hover:rotate-12 transition-transform" />
+                   GitHub Repo
+                 </a>
+               ) : null}
             </div>
           </Reveal>
         </div>

@@ -83,7 +83,7 @@ ${html}
         <div className="flex items-center gap-2">
           <ModeIcon className="w-4 h-4 text-text-sec" />
           <span className="text-xs font-ui text-text-sec">
-            {shouldShowUrl ? 'Dev Server' : 'HTML Preview'}
+            {shouldShowUrl ? 'Local Preview' : 'HTML Preview'}
           </span>
           {displayUrl && (
             <span className="text-xs font-mono text-text-faint ml-1 max-w-[120px] truncate">

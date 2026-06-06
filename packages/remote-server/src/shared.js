@@ -92,6 +92,11 @@ export const authenticatedClients = new WeakSet();
 
 export const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+// Terminal sessions: { token: { createdAt, expiresAt, terminalId } }
+// Issued by POST /api/terminal/token; used by POST /api/terminal/exec to write to a PTY.
+export const terminalSessions = new Map();
+export const TERMINAL_SESSION_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+
 // ─── Tunnel URLs ──────────────────────────────────────────────────────────────
 
 export const runtimeTunnelBaseUrls = new Set();
@@ -118,6 +123,13 @@ export const wsConnectionsPerIp = new Map(); // ip -> count
 
 export const WEB_AGENT_ALIASES = new Map([
     ['soupz-workflow', 'soupz-soupz'],
+    ['codex-cli', 'codex'],
+    ['openai-codex', 'codex'],
+    ['gqt', 'codex'],
+    ['gpt', 'codex'],
+    ['code-kito', 'kiro'],
+    ['code-kito-cli', 'kiro'],
+    ['kito', 'kiro'],
 ]);
 
 // In-memory order tracking for web dashboard workflow
@@ -153,8 +165,10 @@ export function resolveTimeoutMs(value, fallbackMs = 0) {
     return Math.max(0, parsed);
 }
 
+export const DEEP_INPUT_TIMEOUT_MS = Math.max(15000, resolveTimeoutMs(process.env.SOUPZ_DEEP_INPUT_TIMEOUT_MS, 90000));
+export const DEEP_WORKER_TIMEOUT_MS = Math.max(30000, resolveTimeoutMs(process.env.SOUPZ_DEEP_WORKER_TIMEOUT_MS, 180000));
 export const DEEP_SYNTHESIS_TIMEOUT_MS = resolveTimeoutMs(process.env.SOUPZ_DEEP_SYNTHESIS_TIMEOUT_MS, 0);
-export const DEEP_NESTED_ENABLED_DEFAULT = process.env.SOUPZ_DEEP_NESTED_DEFAULT !== 'false';
+export const DEEP_NESTED_ENABLED_DEFAULT = process.env.SOUPZ_DEEP_NESTED_DEFAULT === 'true';
 export const DEEP_NESTED_MAX_PARENTS = Math.max(1, Number.parseInt(process.env.SOUPZ_DEEP_NESTED_MAX_PARENTS || '3', 10) || 3);
 export const DEEP_NESTED_SUBAGENTS_PER_PARENT = Math.max(1, Number.parseInt(process.env.SOUPZ_DEEP_NESTED_SUBAGENTS_PER_PARENT || '2', 10) || 2);
 export const DEEP_NESTED_TIMEOUT_MS = Math.max(5000, Number.parseInt(process.env.SOUPZ_DEEP_NESTED_TIMEOUT_MS || '45000', 10) || 45000);
@@ -172,24 +186,69 @@ export const ORDER_STREAM_CHUNK_MAX = Math.max(512, Number.parseInt(process.env.
 // Agent binary map for checking availability at order time
 export const AGENT_BINARY_MAP = {
     'gemini': 'gemini',
+    'codex': 'gh',
     'claude-code': 'claude',
     'copilot': 'gh',
     'kiro': 'kiro-cli',
-    'ollama': 'ollama',
 };
+const MODEL_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,119}$/;
+
+export function normalizeModelId(value) {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return null;
+    if (!MODEL_ID_RE.test(trimmed)) return null;
+    return trimmed;
+}
+
+export function normalizeAgentModelMap(raw) {
+    if (!raw || typeof raw !== 'object') return {};
+    const normalized = {};
+    for (const [agentId, model] of Object.entries(raw)) {
+        if (!agentId || !AGENT_BINARY_MAP[agentId]) continue;
+        const safeModel = normalizeModelId(model);
+        if (safeModel) normalized[agentId] = safeModel;
+    }
+    return normalized;
+}
+
+export function getSelectedModelForAgent(order, agentId) {
+    if (!order || !agentId) return null;
+    const mapModel = normalizeModelId(order.agentModels?.[agentId]);
+    if (mapModel) return mapModel;
+
+    const directModel = normalizeModelId(order.selectedModel);
+    if (!directModel) return null;
+    if (order.agent === agentId || order.runAgent === agentId) return directModel;
+    return null;
+}
+export const AGENT_BINARY_CANDIDATES = {
+    gemini: ['gemini'],
+    codex: ['codex', 'codex-cli', 'openai-codex', 'gh'],
+    'claude-code': ['claude'],
+    copilot: ['copilot', 'gh'],
+    kiro: ['kiro-cli', 'kiro'],
+};
+const CODEX_MODEL_HINTS = String(
+    process.env.SOUPZ_CODEX_MODEL_HINTS ||
+    'gpt-5.3-codex,gpt-5.1-codex,gpt-5.1-codex-mini,codex'
+)
+    .split(',')
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+const CODEX_RUNTIME_CACHE = { at: 0, status: null };
 
 export const AUTO_ENABLE_KIRO = process.env.SOUPZ_ENABLE_KIRO_AUTO === 'true';
 export const DEFAULT_DEEP_WORKERS = Math.max(1, Number.parseInt(process.env.SOUPZ_DEEP_WORKER_COUNT || '4', 10) || 4);
 export const DEFAULT_SPECIALIST_SEQUENCE = ['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security'];
 export const AGENT_SPECIALIST_ALLOWLIST = {
-    'ollama': new Set(['researcher', 'analyst']),
+    'codex': new Set(['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security']),
     'copilot': new Set(['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security']),
     'gemini': new Set(['researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator']),
     'claude-code': new Set(['architect', 'researcher', 'strategist', 'pm', 'developer', 'designer', 'qa', 'devops', 'analyst', 'evaluator', 'finance', 'security']),
     'kiro': new Set(['developer', 'qa', 'devops', 'analyst']),
 };
 export const DEFAULT_SPECIALIST_BY_AGENT = {
-    'ollama': 'researcher',
+    'codex': 'developer',
     'copilot': 'developer',
     'gemini': 'analyst',
     'claude-code': 'architect',
@@ -197,11 +256,101 @@ export const DEFAULT_SPECIALIST_BY_AGENT = {
 };
 
 // Ordered fallback chain — try free agents first
-export const AGENT_FALLBACK_CHAIN = ['gemini', 'copilot', 'ollama', 'claude-code'];
+export const AGENT_FALLBACK_CHAIN = ['gemini', 'codex', 'copilot', 'claude-code'];
+const AGENT_RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000;
+const agentRateLimitCooldowns = new Map(); // agentId -> { until, reason, at }
+
+const AGENT_DETECT_PATH = (() => {
+    const existing = String(process.env.PATH || '')
+        .split(':')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+    const extras = [
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+        '/usr/bin',
+        '/bin',
+        join(os.homedir(), 'Library/Application Support/Code/User/globalStorage/github.copilot-chat/copilotCli'),
+    ];
+
+    return Array.from(new Set([...existing, ...extras])).join(':');
+})();
+
+function shellEscape(value) {
+    return `'${String(value || '').replace(/'/g, `'\\''`)}'`;
+}
+
+function commandExists(commandName) {
+    if (!commandName) return false;
+    try {
+        execSync(`command -v ${shellEscape(commandName)} >/dev/null 2>&1`, {
+            timeout: 1200,
+            stdio: 'ignore',
+            env: {
+                ...process.env,
+                PATH: AGENT_DETECT_PATH,
+            },
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export function resolveAgentBinary(agentId) {
+    const candidates = AGENT_BINARY_CANDIDATES[agentId] || [AGENT_BINARY_MAP[agentId]].filter(Boolean);
+    for (const candidate of candidates) {
+        if (commandExists(candidate)) return candidate;
+    }
+    return null;
+}
 export const MAX_DEEP_WORKERS = Math.max(
     DEFAULT_DEEP_WORKERS,
     Number.parseInt(process.env.SOUPZ_DEEP_WORKER_MAX || '64', 10) || 64,
 );
+export const SAFE_DEEP_WORKER_MAX = Math.max(
+    DEFAULT_DEEP_WORKERS,
+    Math.min(
+        MAX_DEEP_WORKERS,
+        Number.parseInt(process.env.SOUPZ_DEEP_WORKER_SAFE_MAX || '8', 10) || 8,
+    ),
+);
+export const ALLOW_UNSAFE_DEEP_WORKERS = process.env.SOUPZ_DEEP_ALLOW_UNSAFE_BURST === 'true';
+
+export function resolveDeepWorkerLimit() {
+    return ALLOW_UNSAFE_DEEP_WORKERS ? MAX_DEEP_WORKERS : SAFE_DEEP_WORKER_MAX;
+}
+
+export function clampDeepWorkerCount(value, fallback = DEFAULT_DEEP_WORKERS) {
+    const parsed = Number.parseInt(value, 10);
+    const base = Number.isFinite(parsed) ? parsed : fallback;
+    const upper = resolveDeepWorkerLimit();
+    return Math.max(1, Math.min(upper, base));
+}
+
+function getAgentRateLimitCooldown(agentId) {
+    const entry = agentRateLimitCooldowns.get(agentId);
+    if (!entry) return null;
+    if (Date.now() >= entry.until) {
+        agentRateLimitCooldowns.delete(agentId);
+        return null;
+    }
+    return entry;
+}
+
+export function reportAgentRateLimit(agentId, reason = 'rate_limited') {
+    if (!agentId) return;
+    agentRateLimitCooldowns.set(agentId, {
+        at: Date.now(),
+        until: Date.now() + AGENT_RATE_LIMIT_COOLDOWN_MS,
+        reason,
+    });
+}
+
+export function isAgentCoolingDown(agentId) {
+    return !!getAgentRateLimitCooldown(agentId);
+}
 
 // ─── processOrderQueue — late-bound to avoid circular imports ─────────────────
 
@@ -608,6 +757,8 @@ export function pushOrderEvent(order, type, data = {}) {
         'synthesis.started',
         'synthesis.finished',
         'synthesis.fallback.used',
+        'input.requested',
+        'input.received',
         'order.completed',
         'order.failed',
         'order.cancelled',
@@ -669,9 +820,7 @@ export async function persistOrder(order) {
 // ─── Agent utilities ──────────────────────────────────────────────────────────
 
 export function isAgentInstalled(agentId) {
-    const bin = AGENT_BINARY_MAP[agentId];
-    if (!bin) return false;
-    try { execSync(`which ${bin}`, { timeout: 1000 }); return true; } catch { return false; }
+    return !!resolveAgentBinary(agentId);
 }
 
 export function normalizeAllowedAgents(input) {
@@ -689,18 +838,23 @@ export function resolveRunAgent(requestedAgent, allowedAgents = null) {
     const isAllowed = (agentId) => !allowedSet || allowedSet.has(agentId);
 
     // If requested agent is installed, use it
-    if (requestedAgent !== 'auto' && isAllowed(requestedAgent) && isAgentInstalled(requestedAgent)) {
-        return { agent: requestedAgent, fallback: false };
+    if (requestedAgent !== 'auto' && isAllowed(requestedAgent) && isAgentInstalled(requestedAgent) && !isAgentCoolingDown(requestedAgent)) {
+        const requestedState = getAgentRuntimeReadiness(requestedAgent);
+        if (requestedState.ready) {
+            return { agent: requestedAgent, fallback: false };
+        }
     }
     // Otherwise, walk the fallback chain
     for (const candidate of AGENT_FALLBACK_CHAIN) {
-        if (isAllowed(candidate) && isAgentInstalled(candidate)) {
+        if (!isAllowed(candidate) || !isAgentInstalled(candidate) || isAgentCoolingDown(candidate)) continue;
+        const state = getAgentRuntimeReadiness(candidate);
+        if (state.ready) {
             return { agent: candidate, fallback: requestedAgent !== 'auto', originalRequest: requestedAgent };
         }
     }
     // Last resort — try the configured web agent
     const envAgent = (process.env.SOUPZ_WEB_AGENT || 'gemini').trim();
-    if (isAllowed(envAgent)) {
+    if (isAllowed(envAgent) && getAgentRuntimeReadiness(envAgent).ready) {
         return { agent: envAgent, fallback: true, originalRequest: requestedAgent };
     }
 
@@ -713,7 +867,7 @@ export function resolveRunAgent(requestedAgent, allowedAgents = null) {
 
 export function getInstalledAgentsInPriorityOrder() {
     // Keep stronger coding-capable agents ahead of local tiny models for mixed-worker deep runs.
-    const ordered = ['gemini', 'copilot', 'claude-code', 'ollama', 'kiro'];
+    const ordered = ['gemini', 'codex', 'copilot', 'claude-code', 'kiro'];
     return ordered.filter((id) => isAgentInstalled(id));
 }
 
@@ -810,10 +964,10 @@ export function inferExecutionRole(agentId, prompt = '') {
     const text = String(prompt || '').toLowerCase();
 
     if (/\b(ui|ux|design|visual|layout|css|theme|accessibility)\b/.test(text)) {
-        return agentId === 'ollama' ? 'researcher' : 'designer';
+        return 'designer';
     }
     if (/\b(product|user journey|experience|workflow|persona|journey|interaction|frontend|web app|mobile app)\b/.test(text)) {
-        return agentId === 'ollama' ? 'researcher' : 'designer';
+        return 'designer';
     }
     if (/\b(devops|infra|infrastructure|docker|k8s|kubernetes|deploy|ci\/cd|pipeline|aws|gcp|azure)\b/.test(text)) {
         return 'devops';
@@ -826,9 +980,9 @@ export function inferExecutionRole(agentId, prompt = '') {
     }
 
     const defaults = {
+        codex: 'developer',
         copilot: 'developer',
         gemini: 'analyst',
-        ollama: 'researcher',
         'claude-code': 'architect',
         kiro: 'devops',
     };
@@ -866,7 +1020,7 @@ export function inferSpecialistsFromPrompt(prompt = '', count = DEFAULT_DEEP_WOR
 
 export function estimateDeepWorkerCount(prompt = '', requestedWorkerCount = null) {
     if (Number.isFinite(requestedWorkerCount)) {
-        return Math.max(1, Math.min(MAX_DEEP_WORKERS, requestedWorkerCount));
+        return clampDeepWorkerCount(requestedWorkerCount, DEFAULT_DEEP_WORKERS);
     }
 
     const text = String(prompt || '');
@@ -900,7 +1054,7 @@ export function estimateDeepWorkerCount(prompt = '', requestedWorkerCount = null
     const base = DEFAULT_DEEP_WORKERS;
 
     const estimated = base + sizeScore + structureScore + domainScore;
-    return Math.max(1, Math.min(MAX_DEEP_WORKERS, estimated));
+    return clampDeepWorkerCount(estimated, DEFAULT_DEEP_WORKERS);
 }
 
 export function specialistFocusSummary(specialist) {
@@ -939,13 +1093,45 @@ export function nestedFocusSummary(specialist) {
     return map[specialist] || 'validate and improve this worker lane with concrete, actionable findings';
 }
 
-export function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
-    if (!isAgentInstalled(agentId)) {
-        return { ready: false, reason: 'not_installed' };
+export function getCodexModelCapabilityStatus() {
+    const now = Date.now();
+    if (CODEX_RUNTIME_CACHE.status && (now - CODEX_RUNTIME_CACHE.at) < 30000) {
+        return CODEX_RUNTIME_CACHE.status;
     }
 
-    if (agentId === 'gemini' && !isPathInside(REPO_ROOT, cwd)) {
-        return { ready: false, reason: 'workspace_mismatch' };
+    try {
+        const raw = execSync('gh copilot models 2>/dev/null', {
+            timeout: 2500,
+            encoding: 'utf8',
+        }).trim().toLowerCase();
+
+        if (!raw) {
+            const state = { ready: true, reason: 'codex_models_probe_empty' };
+            CODEX_RUNTIME_CACHE.at = now;
+            CODEX_RUNTIME_CACHE.status = state;
+            return state;
+        }
+
+        const hasCodexModel = CODEX_MODEL_HINTS.some((token) => raw.includes(token));
+        const state = hasCodexModel
+            ? { ready: true, reason: 'codex_models_available' }
+            : { ready: false, reason: 'codex_model_unavailable', requiredHints: CODEX_MODEL_HINTS.slice(0, 6) };
+
+        CODEX_RUNTIME_CACHE.at = now;
+        CODEX_RUNTIME_CACHE.status = state;
+        return state;
+    } catch {
+        const state = { ready: true, reason: 'codex_models_probe_unavailable' };
+        CODEX_RUNTIME_CACHE.at = now;
+        CODEX_RUNTIME_CACHE.status = state;
+        return state;
+    }
+}
+
+export function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
+    const resolvedBinary = resolveAgentBinary(agentId);
+    if (!resolvedBinary) {
+        return { ready: false, reason: 'not_installed' };
     }
 
     if (agentId === 'claude-code') {
@@ -965,11 +1151,50 @@ export function getAgentRuntimeReadiness(agentId, cwd = REPO_ROOT) {
         }
     }
 
-    if (agentId === 'copilot') {
+    if (agentId === 'copilot' || agentId === 'codex') {
+        // New standalone CLIs are considered runtime-ready once installed.
+        // Keep gh-copilot checks only for gh-backed flows.
+        if (resolvedBinary !== 'gh') {
+            return { ready: true, reason: 'ready', binary: resolvedBinary };
+        }
+
         try {
-            execSync('gh auth status', { timeout: 2000, stdio: 'pipe' });
+            execSync('gh auth status', {
+                timeout: 2000,
+                stdio: 'pipe',
+                env: {
+                    ...process.env,
+                    PATH: AGENT_DETECT_PATH,
+                },
+            });
         } catch {
             return { ready: false, reason: 'gh_not_logged_in' };
+        }
+
+        try {
+            const exts = execSync('gh extension list 2>/dev/null', {
+                timeout: 2000,
+                encoding: 'utf8',
+                env: {
+                    ...process.env,
+                    PATH: AGENT_DETECT_PATH,
+                },
+            }).toString();
+            if (!exts.includes('copilot')) {
+                return { ready: false, reason: 'copilot_extension_missing' };
+            }
+        } catch {
+            return { ready: false, reason: 'copilot_extension_missing' };
+        }
+
+        if (agentId === 'codex') {
+            const codexState = getCodexModelCapabilityStatus();
+            if (!codexState.ready) {
+                return codexState;
+            }
+            if (codexState.reason && codexState.reason !== 'ready') {
+                return codexState;
+            }
         }
     }
 
@@ -989,6 +1214,11 @@ export function getReadyAgentsInPriorityOrder(cwd = REPO_ROOT, allowedAgents = n
     const skipped = [];
 
     for (const agent of installed) {
+        const cooldown = getAgentRateLimitCooldown(agent);
+        if (cooldown) {
+            skipped.push({ agent, reason: 'rate_limit_cooldown', until: cooldown.until });
+            continue;
+        }
         const state = getAgentRuntimeReadiness(agent, cwd);
         if (state.ready) {
             ready.push(agent);
@@ -1013,20 +1243,41 @@ export async function resolveAutoRunAgent(prompt, cwd = REPO_ROOT, allowedAgents
     }
 
     try {
-        const picked = await selectAgent(prompt, ready);
+        const explained = await selectAgent(prompt, ready, { withJustification: true });
+        const picked = explained?.agent;
         if (picked && ready.includes(picked)) {
-            return { agent: picked, method: 'classifier', available: installed, ready, skipped };
+            return {
+                agent: picked,
+                method: explained?.method || 'reasoning-scorecard',
+                available: installed,
+                ready,
+                skipped,
+                justification: explained?.justification || null,
+                confidence: explained?.confidence ?? null,
+            };
         }
     } catch {
         // Fall through to deterministic fallback.
     }
 
-    return { agent: ready[0], method: 'priority-fallback', available: installed, ready, skipped };
+    return {
+        agent: ready[0],
+        method: 'priority-fallback',
+        available: installed,
+        ready,
+        skipped,
+        justification: {
+            selected: ready[0],
+            reason: 'Classifier unavailable; selected first runtime-ready agent by stable priority order.',
+            candidates: ready.map((agentId, idx) => ({ agent: agentId, score: Math.max(0, 100 - (idx * 10)) })),
+            signals: [],
+        },
+    };
 }
 
 export function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WORKERS, cwd = REPO_ROOT, deepPolicy = {}, allowedAgents = null) {
     const { ready, skipped } = getReadyAgentsInPriorityOrder(cwd, allowedAgents);
-    const count = Math.max(1, maxWorkers);
+    const count = clampDeepWorkerCount(maxWorkers, DEFAULT_DEEP_WORKERS);
     const readySet = new Set(ready);
     const workerSlots = [];
     const perAgentCounts = {};
@@ -1068,16 +1319,75 @@ export function selectParallelWorkers(primaryAgent, maxWorkers = DEFAULT_DEEP_WO
 
 // ─── runChildAgent ────────────────────────────────────────────────────────────
 
-export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStderr, runtime, childKey, childMeta, timeoutMs = 0 }) {
+function isTrustDirectoryFailure(text = '') {
+    const sample = String(text || '').toLowerCase();
+    if (!sample) return false;
+    return (
+        sample.includes('not inside a trusted directory') ||
+        sample.includes('--skip-git-repo-check') ||
+        sample.includes('detected dubious ownership') ||
+        sample.includes('unsafe repository') ||
+        sample.includes('not a git repository')
+    );
+}
+
+function ensureGitSafeDirectory(targetCwd = '') {
+    const safePath = resolve(targetCwd || REPO_ROOT);
+    const quotedPath = JSON.stringify(safePath);
+
+    try {
+        execSync(`git -C ${quotedPath} rev-parse --is-inside-work-tree`, {
+            timeout: 2500,
+            stdio: 'ignore',
+        });
+    } catch {
+        return false;
+    }
+
+    let configured = '';
+    try {
+        configured = String(execSync('git config --global --get-all safe.directory', {
+            timeout: 2500,
+            encoding: 'utf8',
+        }) || '');
+    } catch {
+        configured = '';
+    }
+
+    const entries = configured
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+    if (entries.includes('*') || entries.includes(safePath)) {
+        return true;
+    }
+
+    try {
+        execSync(`git config --global --add safe.directory ${quotedPath}`, {
+            timeout: 2500,
+            stdio: 'ignore',
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, onStderr, runtime, childKey, childMeta, model = null, timeoutMs = 0 }) {
     const args = [CLI_ENTRY, 'ask', agent, prompt];
+    const selectedModel = normalizeModelId(model);
+    if (selectedModel) {
+        args.push('--model', selectedModel);
+    }
     const spawnEnv = { ...process.env };
     if (mcpServers.length > 0) {
         spawnEnv.SOUPZ_MCP_SERVERS = JSON.stringify(mcpServers);
     }
 
-    return await new Promise((resolve) => {
+    const runOnce = async (attemptCwd) => await new Promise((resolveAttempt) => {
         const child = spawn(process.execPath, args, {
-            cwd,
+            cwd: attemptCwd,
             env: spawnEnv,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -1088,15 +1398,49 @@ export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, 
         let stdout = '';
         let stderr = '';
         let settled = false;
+        let timeoutHandle = null;
+        let killHandle = null;
 
         const finish = (payload) => {
             if (settled) return;
             settled = true;
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            if (killHandle) clearTimeout(killHandle);
             if (runtime && childKey) {
                 setChildFinished(runtime, childKey, payload.code);
             }
-            resolve(payload);
+            resolveAttempt(payload);
         };
+
+        const timeoutBudget = Math.max(0, Number.parseInt(timeoutMs, 10) || 0);
+        if (timeoutBudget > 0) {
+            timeoutHandle = setTimeout(() => {
+                if (settled) return;
+                try {
+                    child.kill('SIGTERM');
+                } catch {
+                    // Ignore kill failures and rely on close/error events.
+                }
+                killHandle = setTimeout(() => {
+                    if (settled) return;
+                    try {
+                        child.kill('SIGKILL');
+                    } catch {
+                        // Ignore kill failures.
+                    }
+                }, 1500);
+                killHandle.unref?.();
+                finish({
+                    code: 124,
+                    stdout,
+                    stderr: `${stderr}\n[timeout] Agent execution exceeded ${timeoutBudget}ms`.trim(),
+                    pid: child.pid,
+                    timedOut: true,
+                    cwd: attemptCwd,
+                });
+            }, timeoutBudget);
+            timeoutHandle.unref?.();
+        }
 
         child.stdout.on('data', (chunk) => {
             const text = chunk.toString();
@@ -1113,13 +1457,36 @@ export async function runChildAgent({ agent, prompt, cwd, mcpServers, onStdout, 
         });
 
         child.on('error', (err) => {
-            finish({ code: 1, stdout, stderr: `${stderr}\n${err.message}`.trim(), pid: child.pid, errored: true });
+            finish({ code: 1, stdout, stderr: `${stderr}\n${err.message}`.trim(), pid: child.pid, errored: true, cwd: attemptCwd });
         });
 
         child.on('close', (code) => {
-            finish({ code: code ?? 1, stdout, stderr, pid: child.pid });
+            finish({ code: code ?? 1, stdout, stderr, pid: child.pid, cwd: attemptCwd });
         });
     });
+
+    const primaryCwd = resolve(cwd || REPO_ROOT);
+    const first = await runOnce(primaryCwd);
+    if (first.code === 0) return first;
+
+    const trustFailure = isTrustDirectoryFailure(`${first.stderr || ''}\n${first.stdout || ''}`);
+    if (trustFailure) {
+        const trusted = ensureGitSafeDirectory(primaryCwd);
+        if (trusted) {
+            onStderr?.(`[auto-retry] ${agent} detected git trust error in ${primaryCwd}; added safe.directory and retrying in place\n`, first.pid);
+            const retriedInPlace = await runOnce(primaryCwd);
+            if (retriedInPlace.code === 0) return retriedInPlace;
+        }
+    }
+
+    const fallbackCwd = resolve(REPO_ROOT);
+    const canRetryFromRoot = trustFailure && primaryCwd !== fallbackCwd;
+
+    if (!canRetryFromRoot) return first;
+
+    onStderr?.(`[auto-retry] ${agent} failed workspace trust checks in ${primaryCwd}; retrying from ${fallbackCwd}\n`, first.pid);
+    const retried = await runOnce(fallbackCwd);
+    return retried;
 }
 
 // ─── Network utilities ────────────────────────────────────────────────────────
@@ -1324,77 +1691,122 @@ export function getSystemHealth() {
     };
 }
 
-// ─── Agent classifier ─────────────────────────────────────────────────────────
+// ─── Agent classifier (deterministic + explainable) ─────────────────────────
 
-// Routing priority:
-// 1. Try GitHub Copilot locally for classification
-// 2. Try Ollama locally for classification
-// 3. Keyword matching
-// 4. Default to 'gemini'
+const ROUTING_SIGNALS = {
+    code: ['code', 'function', 'bug', 'fix', 'debug', 'implement', 'typescript', 'javascript', 'python', 'module', 'feature'],
+    architecture: ['architecture', 'system design', 'tradeoff', 'boundary', 'scalable', 'design pattern', 'refactor'],
+    research: ['research', 'analyze', 'benchmark', 'compare', 'insight', 'study', 'market', 'summarize'],
+    github: ['github', 'pull request', 'pr', 'issue', 'workflow', 'action', 'merge', 'branch', 'commit'],
+    devops: ['devops', 'infra', 'deploy', 'docker', 'kubernetes', 'k8s', 'terraform', 'pipeline', 'ci', 'cd', 'aws', 'gcp', 'azure'],
+    privacy: ['local', 'offline', 'privacy', 'on-device', 'airgapped', 'no cloud'],
+    product: ['ux', 'ui', 'design', 'user journey', 'persona', 'prototype', 'content', 'copy'],
+    security: ['security', 'auth', 'authorization', 'threat', 'vulnerability', 'compliance', 'privacy policy'],
+};
 
-export async function selectAgent(prompt, availableAgents) {
-    // 1. Try GitHub Copilot (most capable classification)
-    try {
-        const classifyPrompt = `Task classifier. Reply with ONLY the agent id from the list, no explanation.
-Given this task: "${prompt.slice(0, 300)}"
-Pick the best agent from this list: ${availableAgents.join(', ')}
-Reply with ONLY the agent id.`;
+const AGENT_SIGNAL_WEIGHTS = {
+    codex:       { code: 1.35, architecture: 1.2, research: 0.8, github: 1.0, devops: 0.85, privacy: 0.5, product: 0.7, security: 1.0 },
+    gemini:      { code: 0.95, architecture: 1.0, research: 1.4, github: 0.75, devops: 0.8, privacy: 0.55, product: 1.15, security: 0.95 },
+    copilot:     { code: 1.1, architecture: 0.95, research: 0.75, github: 1.4, devops: 1.0, privacy: 0.45, product: 0.7, security: 0.85 },
+    'claude-code': { code: 1.25, architecture: 1.35, research: 0.95, github: 0.85, devops: 0.95, privacy: 0.5, product: 1.0, security: 1.35 },
+    kiro:        { code: 0.85, architecture: 1.0, research: 0.75, github: 0.65, devops: 1.45, privacy: 0.5, product: 0.6, security: 0.9 },
+};
 
-        const out = execSync(
-            `gh copilot suggest -t shell ${JSON.stringify(classifyPrompt)} 2>/dev/null`,
-            { timeout: 5000, encoding: 'utf8' }
-        ).trim();
+function normalizeText(text = '') {
+    return String(text || '').toLowerCase();
+}
 
-        // Look for any of the available agent IDs in the output
-        const lowerOut = out.toLowerCase();
-        
-        // Priority for claude-code if output contains 'claude'
-        if (availableAgents.includes('claude-code') && lowerOut.includes('claude')) {
-            return 'claude-code';
+function scorePromptSignals(prompt = '') {
+    const lower = normalizeText(prompt);
+    const signals = [];
+    for (const [signal, keywords] of Object.entries(ROUTING_SIGNALS)) {
+        const matched = keywords.filter((kw) => lower.includes(kw));
+        if (matched.length > 0) {
+            signals.push({ signal, hits: matched.length, keywords: matched.slice(0, 6) });
         }
+    }
+    return signals;
+}
 
-        for (const agent of availableAgents) {
-            const lowerAgent = agent.toLowerCase();
-            if (lowerOut.includes(lowerAgent)) {
-                return agent;
+function buildAgentScorecard(prompt = '', availableAgents = []) {
+    const signalScores = scorePromptSignals(prompt);
+    const signalMap = new Map(signalScores.map((item) => [item.signal, item.hits]));
+    const lowerPrompt = normalizeText(prompt);
+    const isComplexPrompt = /\b(complex|end-to-end|full stack|production|architecture|orchestration|multi-service|distributed)\b/.test(lowerPrompt);
+    const isBasicAuditPrompt = /\b(test|qa|check|checklist|report|summary|track|monitor|log|lint output|error report)\b/.test(lowerPrompt);
+    const candidates = [];
+
+    for (const agent of availableAgents) {
+        const weights = AGENT_SIGNAL_WEIGHTS[agent] || {};
+        let score = 0;
+        const reasons = [];
+
+        for (const [signal, hits] of signalMap.entries()) {
+            const weight = Number(weights[signal] || 0.5);
+            const contribution = hits * weight;
+            score += contribution;
+            if (contribution > 0) {
+                reasons.push(`${signal} x${hits} @ ${weight.toFixed(2)}`);
             }
         }
-    } catch { /* Copilot unavailable or failed */ }
 
-    // 2. Try Ollama locally
-    try {
-        const res = await fetch('http://localhost:11434/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: 'qwen2.5:0.5b',
-                prompt: `Given this task: "${prompt}", which agent should handle it? Options: ${availableAgents.join(', ')}. Reply with ONLY the agent id, nothing else.`,
-                stream: false,
-            }),
-            signal: AbortSignal.timeout(5000),
-        });
-        const data = await res.json();
-        const picked = data.response?.trim().toLowerCase();
-        if (availableAgents.includes(picked)) return picked;
-    } catch { /* Ollama not running */ }
-
-    // 3. Keyword matching (fastest fallback)
-    const keywords = {
-        'claude-code': ['code', 'function', 'bug', 'refactor', 'implement', 'fix', 'typescript', 'javascript'],
-        'gemini': ['analyze', 'research', 'explain', 'document', 'summarize'],
-        'copilot': ['github', 'pull request', 'issue', 'workflow', 'action'],
-        'ollama': [], // local-only tasks
-    };
-    for (const [agent, words] of Object.entries(keywords)) {
-        if (words.some(w => prompt.toLowerCase().includes(w))) {
-            if (availableAgents.includes(agent)) return agent;
+        const complexityBoost = isComplexPrompt ? 0.35 : 0;
+        if (complexityBoost > 0 && (agent === 'codex' || agent === 'claude-code' || agent === 'gemini')) {
+            score += complexityBoost;
+            reasons.push(`complexity bonus ${complexityBoost.toFixed(2)}`);
         }
+
+        candidates.push({
+            agent,
+            score: Number(score.toFixed(3)),
+            reasons,
+        });
     }
 
-    // 4. Default: Return best available in priority order
-    const priority = ['claude-code', 'gemini', 'copilot', 'ollama'];
-    for (const p of priority) {
-        if (availableAgents.includes(p)) return p;
+    candidates.sort((a, b) => b.score - a.score);
+    return { signalScores, candidates };
+}
+
+export function explainAgentSelection(prompt = '', availableAgents = []) {
+    const agents = Array.isArray(availableAgents) ? availableAgents.filter(Boolean) : [];
+    if (agents.length === 0) {
+        return {
+            agent: 'gemini',
+            confidence: 0,
+            method: 'reasoning-scorecard-v2',
+            justification: {
+                selected: 'gemini',
+                reason: 'No available agents supplied; using safe default.',
+                candidates: [],
+                signals: [],
+            },
+        };
     }
-    return availableAgents[0] || 'gemini';
+
+    const { signalScores, candidates } = buildAgentScorecard(prompt, agents);
+    const selected = candidates[0]?.agent || agents[0];
+    const top = candidates[0]?.score || 0;
+    const second = candidates[1]?.score || 0;
+    const margin = Math.max(0, top - second);
+    const confidence = Math.max(0.2, Math.min(0.98, 0.5 + (margin * 0.15)));
+
+    return {
+        agent: selected,
+        confidence: Number(confidence.toFixed(2)),
+        method: 'reasoning-scorecard-v2',
+        justification: {
+            selected,
+            reason: candidates.length > 1
+                ? `Selected ${selected} with highest score (${top.toFixed(2)}) over ${candidates[1].agent} (${second.toFixed(2)}).`
+                : `Selected ${selected} as the only available agent.`,
+            candidates: candidates.map((c) => ({ agent: c.agent, score: c.score, reasons: c.reasons.slice(0, 4) })),
+            signals: signalScores,
+        },
+    };
+}
+
+export async function selectAgent(prompt, availableAgents, options = {}) {
+    const explained = explainAgentSelection(prompt, availableAgents);
+    if (options?.withJustification) return explained;
+    return explained.agent;
 }

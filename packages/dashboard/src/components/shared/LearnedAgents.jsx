@@ -6,6 +6,7 @@ import {
   History, Sparkles, Plus, Trash2, X, Check, ChevronDown, ChevronUp, Info,
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import Select from './Select';
 import { CLI_AGENTS, SPECIALISTS } from '../../lib/agents';
 import {
   getTopAgents,
@@ -153,20 +154,24 @@ function CreateAgentForm({ onCreated, onCancel }) {
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="text-[10px] text-text-faint font-ui block mb-1">CLI Agent</label>
-          <select className={selectCls} value={cliAgent} onChange={e => setCliAgent(e.target.value)}>
-            {CLI_AGENTS.map(a => (
-              <option key={a.id} value={a.id}>{a.name}</option>
-            ))}
-          </select>
+          <Select 
+            className={selectCls} 
+            value={cliAgent} 
+            onChange={val => setCliAgent(val)}
+            options={CLI_AGENTS.map(a => ({ value: a.id, label: a.name }))}
+          />
         </div>
         <div>
           <label className="text-[10px] text-text-faint font-ui block mb-1">Specialist</label>
-          <select className={selectCls} value={specialist} onChange={e => setSpecialist(e.target.value)}>
-            <option value="auto">Auto</option>
-            {SPECIALISTS.filter(s => s.id !== 'auto' && s.id !== 'orchestrator').map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+          <Select 
+            className={selectCls} 
+            value={specialist} 
+            onChange={val => setSpecialist(val)}
+            options={[
+              { value: 'auto', label: 'Auto' },
+              ...SPECIALISTS.filter(s => s.id !== 'auto' && s.id !== 'orchestrator').map(s => ({ value: s.id, label: s.name }))
+            ]}
+          />
         </div>
       </div>
 

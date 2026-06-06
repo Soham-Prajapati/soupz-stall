@@ -35,6 +35,8 @@ export const COMMANDS = [
     { cmd: '/delegate',   desc: 'Delegate to chef: /delegate designer "prompt"', icon: '📤', cat: 'cooking' },
     { cmd: '/parallel',   desc: 'Run chefs in parallel: /parallel a b c "prompt"', icon: '⚡', cat: 'cooking' },
     { cmd: '/fleet',      desc: 'Spawn hidden parallel workers: /fleet "prompt"', icon: '🚀', cat: 'cooking' },
+    { cmd: '/fleet runs', desc: 'List recent fleet runs', icon: '🧾', cat: 'cooking' },
+    { cmd: '/fleet result', desc: 'Show synthesized fleet result: /fleet result <run-id>', icon: '📄', cat: 'cooking' },
     { cmd: '/subagent',   desc: 'Spawn isolated sub-agents & synthesize: /subagent "prompt"', icon: '🧬', cat: 'cooking' },
     { cmd: '/team',       desc: 'Run a collaborative agent team: /team "prompt"', icon: '👥', cat: 'cooking' },
     { cmd: '/svgart',     desc: 'Generate SVG asset: /svgart logo "HealthAI logo, blue, geometric"', icon: '🎨', cat: 'cooking' },

@@ -27,17 +27,17 @@ export class Orchestrator extends EventEmitter {
         return this.semanticRouter.route(prompt, options);
     }
 
-    /** Async AI-powered route (uses Ollama when available) */
+    /** Async AI-powered route (uses the provider chain when available) */
     async routeAI(prompt, options = {}) {
         return this.semanticRouter.routeAI(prompt, options);
     }
 
     async routeAndRun(prompt, cwd) {
-        // Use AI routing (Ollama) when available, fall back to rule-based
+        // Use provider-backed routing when available, fall back to rule-based
         const routing = await this.routeAI(prompt);
         if (!routing) throw new Error('No headless agents available');
 
-        // Pick the best persona (chef) — AI-powered when Ollama is up
+        // Pick the best persona (chef) with the same routing chain
         const persona = await this.semanticRouter.routePersonaAI(prompt);
 
         this.emit('route', { 
@@ -188,7 +188,7 @@ export class Orchestrator extends EventEmitter {
         return Math.min(score, 4);
     }
 
-    /** AI-powered quality grading — Copilot → Ollama → rules fallback */
+    /** AI-powered quality grading — Copilot → rules fallback */
     async _assessQualityAI(result, prompt) {
         const ruleScore = this._assessQuality(result, prompt);
         const gradePrompt = `Rate this AI response quality from 1-5. Reply with ONLY a number, nothing else.
@@ -209,27 +209,9 @@ Rating (1-5):`;
                 });
             });
             return Math.min((ruleScore * 0.4 + aiScore * 0.6), 5);
-        } catch { /* fall through to Ollama */ }
-
-        // Layer 2: Try Ollama (local, fast)
-        try {
-            const ollamaUrl = process.env.OLLAMA_HOST || 'http://localhost:11434';
-            const res = await fetch(`${ollamaUrl}/api/generate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: process.env.OLLAMA_ROUTER_MODEL || 'qwen2.5:1.5b',
-                    prompt: gradePrompt, stream: false,
-                    options: { temperature: 0, num_predict: 5 }
-                }),
-                signal: AbortSignal.timeout(8000),
-            });
-            const data = await res.json();
-            const aiScore = parseInt(data.response?.trim()) || 3;
-            return Math.min((ruleScore * 0.4 + aiScore * 0.6), 5);
         } catch { /* fall through to rules */ }
 
-        // Layer 3: Pure rule-based
+        // Pure rule-based fallback
         return ruleScore;
     }
 
@@ -368,7 +350,7 @@ Rating (1-5):`;
     }
 
     /** AI-powered prompt decomposition — breaks freeform text into structured tasks.
-     *  3-layer: Copilot GPT-5-mini → Ollama → rule-based splitting */
+     *  2-layer: Copilot GPT-5-mini → rule-based splitting */
     async decompose(prompt) {
         const decomposePrompt = `Break this prompt into a JSON array of distinct tasks. Each task: {"title": "short title", "prompt": "detailed task description", "type": "ui|dev|research|planning|testing"}.
 Reply with ONLY valid JSON array, nothing else. If it's a single task, return array with one item.
@@ -393,28 +375,7 @@ JSON:`;
             }
         } catch { /* fall through */ }
 
-        // Layer 2: Ollama
-        try {
-            const ollamaUrl = process.env.OLLAMA_HOST || 'http://localhost:11434';
-            const res = await fetch(`${ollamaUrl}/api/generate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: process.env.OLLAMA_ROUTER_MODEL || 'qwen2.5:1.5b',
-                    prompt: decomposePrompt, stream: false,
-                    options: { temperature: 0, num_predict: 500 }
-                }),
-                signal: AbortSignal.timeout(10000),
-            });
-            const data = await res.json();
-            const jsonMatch = (data.response || '').match(/\[[\s\S]*\]/);
-            if (jsonMatch) {
-                const tasks = JSON.parse(jsonMatch[0]);
-                if (Array.isArray(tasks) && tasks.length > 0) return tasks;
-            }
-        } catch { /* fall through */ }
-
-        // Layer 3: Rule-based splitting
+        // Rule-based splitting
         return this._decomposeRuleBased(prompt);
     }
 

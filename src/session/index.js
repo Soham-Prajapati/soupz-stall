@@ -27,11 +27,6 @@ const COPILOT_MODELS = [
     { id: 'gpt-5.1-codex', desc: '1x', cost: 1 },
     { id: 'gpt-4.1-mini', desc: '0x (FREE)', cost: 0 }
 ];
-const OLLAMA_MODELS = [
-    { id: 'llama3.1:8b', desc: 'Meta 8B model' },
-    { id: 'qwen2.5-coder:7b', desc: 'Alibaba coder 7B' },
-    { id: 'phi3:3.8b', desc: 'Microsoft 3.8B model' }
-];
 
 export class Session {
     constructor({ registry, spawner, orchestrator, contextManager, memory, grading, auth, userAuth, cwd, compressor, preprocessor, kitchenMonitor, mcpClient, memoryPool }) {
@@ -231,9 +226,12 @@ export class Session {
             if (input.startsWith('/chain ')) { await this.handleChain(input.slice(7)); return; }
             if (input.startsWith('/delegate ')) { await this.handleDelegateCmd(input.slice(10)); return; }
             if (input.startsWith('/parallel ')) { await this.handleParallel(input.slice(10)); return; }
+            if (input.startsWith('/fleet peek ')) { this.peekFleetWorker(input.slice(12).trim()); return; }
+            if (input.startsWith('/fleet result ')) { this.showFleetRunResult(input.slice(14).trim()); return; }
+            if (input === '/fleet result') { this.showFleetRunResult(); return; }
+            if (input === '/fleet runs') { this.listFleetRuns(); return; }
             if (input.startsWith('/fleet ')) { await this.spawnFleet(input.slice(7)); return; }
             if (input === '/fleet') { this.showFleetStatus(); return; }
-            if (input.startsWith('/fleet peek ')) { this.peekFleetWorker(input.slice(12).trim()); return; }
             if (input.startsWith('/subagent ')) { await this.runSubAgents(input.slice(10)); return; }
             if (input.startsWith('/team ')) { await this.runAgentTeam(input.slice(6)); return; }
             if (input.startsWith('/svgart')) { await this.handleSvgArt(input); return; }
@@ -303,9 +301,20 @@ export class Session {
         const available = this.registry.headless().filter(a => a.available);
         if (available.length === 0) return null;
         const lower = prompt.toLowerCase();
-        const geminiSignals = /\b(ui|design|frontend|css|html|visual|style|color|animation|svg|image|icon|logo|illustration|landing|page|component|react|tailwind)\b/i;
-        if (geminiSignals.test(lower) && available.find(a => a.id === 'gemini')) return 'gemini';
-        return available.find(a => a.id === 'copilot') ? 'copilot' : available[0].id;
+        const has = (id) => !!available.find(a => a.id === id);
+
+        const geminiSignals = /\b(ui|design|frontend|css|html|visual|style|color|animation|svg|image|icon|logo|illustration|landing|page|component|react|tailwind|research|analyze|compare|summarize)\b/i;
+        const codexSignals = /\b(refactor|architecture|module|implementation|bug|fix|debug|typescript|javascript|python|codebase)\b/i;
+        const copilotSignals = /\b(github|pull request|pr|issue|merge|commit|branch|workflow|actions|terminal|shell|cli|command|devops)\b/i;
+
+        if (geminiSignals.test(lower) && has('gemini')) return 'gemini';
+        if (codexSignals.test(lower) && has('codex')) return 'codex';
+        if (copilotSignals.test(lower) && has('copilot')) return 'copilot';
+
+        if (has('gemini')) return 'gemini';
+        if (has('codex')) return 'codex';
+        if (has('copilot')) return 'copilot';
+        return available[0].id;
     }
 
     pickDiverseTools(count) {
