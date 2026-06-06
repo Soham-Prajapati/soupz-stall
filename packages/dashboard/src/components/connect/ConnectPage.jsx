@@ -201,6 +201,7 @@ export function CountdownRing({ remainingMs, totalMs = CODE_TTL_MS, size = 120 }
 
 export default function ConnectPage({ getParam, navigate }) {
   const urlCode = getParam?.('code') || '';
+  const urlRemote = getParam?.('remote') || '';
   const [digits, setDigits] = useState(urlCode.replace(/-/g, '').slice(0, 9).split('').concat(Array(9).fill('')).slice(0, 9));
   const [status, setStatus] = useState('idle');
   const [machine, setMachine] = useState(null);
@@ -340,6 +341,16 @@ export default function ConnectPage({ getParam, navigate }) {
     const recordException = (source, endpoint, err) => {
       attemptLog.push({ source, endpoint, status: 0, message: normalizeAttemptError(err) });
     };
+
+    try {
+      if (urlRemote) {
+        const result = await tryPairAgainstBase(urlRemote, c);
+        recordResult('url-param', result);
+        if (result.ok) { finishConnect(result.data, result.baseUrl); return; }
+      }
+    } catch (err) {
+      recordException('url-param', urlRemote, err);
+    }
 
     try {
       const proxied = await tryPairAgainstBase(null, c);

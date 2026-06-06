@@ -57,9 +57,40 @@ const cli = meow(`
     }
 });
 
-const command = cli.input[0];
-const args = cli.input.slice(1);
+import fs from 'fs';
+import path from 'path';
+
+const commandArgs = [];
+for (const arg of cli.input) {
+    if (arg.includes('=')) {
+        const [key, ...valParts] = arg.split('=');
+        const val = valParts.join('=');
+        process.env[key] = val;
+        
+        // Persist to .env
+        const envPath = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../.env');
+        let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+        const regex = new RegExp(`^${key}=.*$`, 'm');
+        if (regex.test(envContent)) {
+            envContent = envContent.replace(regex, `${key}=${val}`);
+        } else {
+            envContent += `\n${key}=${val}\n`;
+        }
+        fs.writeFileSync(envPath, envContent.replace(/\n{3,}/g, '\n\n').trim() + '\n');
+        console.log(chalk.green(`  ✔ Saved config: ${key}=${val}`));
+    } else {
+        commandArgs.push(arg);
+    }
+}
+
+const command = commandArgs[0];
+const args = commandArgs.slice(1);
 const options = cli.flags;
+
+if (command === 'version' || options.version) {
+    console.log(`soupz v${VERSION}`);
+    process.exit(0);
+}
 
 if (options.yolo || options.dangerouslySkipPermissions) {
     process.env.SOUPZ_YOLO = '1';
