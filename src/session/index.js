@@ -88,7 +88,7 @@ export class Session {
             const c = this.registry.get('copilot');
             if (c) {
                 c.build_args = ['copilot', '-p', '{prompt}', '--model', copilotModel, ...(this.yolo ? ['--allow-all-tools'] : [])];
-                this.activeModel = copilotModel;
+                // Do not set this.activeModel globally here since default is AUTO mode
             }
         }
         const geminiModel = this.modelPrefs.gemini;
@@ -287,7 +287,11 @@ export class Session {
 
         const toolId = this.activeTool || this.pickBestTool(input);
         const tool = this.registry.get(toolId);
-        console.log(chalk.hex(tool?.color || '#888')(`  ${tool?.icon || '○'} ${toolId}`) + (this.activeModel ? chalk.dim(` (${this.activeModel})`) : ''));
+        
+        let printModel = this.activeModel;
+        if (!this.activeTool) printModel = this.modelPrefs[toolId] || null;
+
+        console.log(chalk.hex(tool?.color || '#888')(`  ${tool?.icon || '○'} ${toolId}`) + (printModel ? chalk.dim(` (${printModel})`) : ''));
         this.startSpinner(toolId);
         this.pushToLog({ role: 'user', text: input, ts: Date.now() });
         try {
@@ -323,6 +327,83 @@ export class Session {
         const result = [];
         for (let i = 0; i < count; i++) result.push(available[i % available.length]);
         return result;
+    }
+
+    switchTool(id) {
+        if (id === 'auto') { this.activeTool = null; this.activeModel = null; console.log(chalk.hex('#4ECDC4')('  🎯 AUTO KITCHEN — head chef decides')); return; }
+        const a = this.registry.get(id);
+        if (!a || a.type === 'persona') { console.log(chalk.red(`  Unknown kitchen: ${id}. /agents`)); return; }
+        this.activeTool = id;
+        // Restore saved model preference for this tool
+        const savedModel = this.modelPrefs[id];
+        if (savedModel) {
+            this.activeModel = savedModel;
+            console.log(chalk.hex(a.color)(`  ${a.icon} Kitchen: ${a.name}`) + chalk.dim(` (utensil: ${savedModel})`));
+        } else {
+            this.activeModel = null;
+            console.log(chalk.hex(a.color)(`  ${a.icon} Kitchen: ${a.name}`));
+        }
+        console.log(chalk.dim(`    ${this.getPersonas().length} chefs ready. /model to pick utensil. /auto for best kitchen.`));
+    }
+
+    async processDelegations(output, sourcePersonaId) {
+        if (!output) return;
+        const delegatePattern = /@DELEGATE\[([^\]]+)\]:\s*(.+?)(?=\n@DELEGATE|\n\n|$)/gms;
+        const matches = [...output.matchAll(delegatePattern)];
+        if (!matches.length) return;
+        
+        const tools = this.pickDiverseTools(matches.length);
+        if (!tools.length) { console.log(chalk.red('  No kitchen open for delegation — install gh (Copilot) or gemini')); return; }
+        
+        console.log(chalk.hex('#A855F7')(`\n  ⚡ ${matches.length} delegation(s) from @${sourcePersonaId} — running in PARALLEL`));
+        
+        // Resolve agents (create dynamic personas for unknowns)
+        const tasks = await Promise.all(matches.map(async ([, agentId, delegatePrompt], i) => {
+            let targetPersona = this.registry.get(agentId.trim());
+            if (!targetPersona) {
+                // Dynamically create a persona for unknown agents
+                if (typeof this.createDynamicPersona === 'function') {
+                    targetPersona = await this.createDynamicPersona(agentId.trim());
+                }
+                if (!targetPersona) return null;
+            }
+            const toolId = tools[i];
+            const sysPrompt = targetPersona.type === 'persona' ? (targetPersona.system_prompt || targetPersona.body || '') : '';
+            const fullPrompt = sysPrompt ? `${sysPrompt}\n\nUser: ${delegatePrompt.trim()}` : delegatePrompt.trim();
+            return { agentId: agentId.trim(), toolId, fullPrompt, persona: targetPersona, delegatePrompt: delegatePrompt.trim() };
+        }));
+        
+        const valid = tasks.filter(Boolean);
+        
+        // Print what's about to happen
+        for (const t of valid) {
+            const tAgent = this.registry.get(t.toolId);
+            console.log(chalk.hex('#4ECDC4')(`  📤 @${t.agentId} ${t.persona.icon || ''} → ${tAgent?.icon || '○'} ${t.toolId}`));
+            console.log(chalk.dim(`     "${t.delegatePrompt.slice(0, 70)}${t.delegatePrompt.length > 70 ? '…' : ''}"`));
+        }
+        console.log(chalk.dim(`\n  ─── Parallel execution start ─────────────────────────────`));
+        
+        // Run all in parallel
+        const results = await Promise.allSettled(
+            valid.map(t => this.orchestrator.runOn(t.toolId, t.fullPrompt, this.cwd))
+        );
+        
+        let successCount = 0;
+        let failCount = 0;
+        for (let i = 0; i < results.length; i++) {
+            const r = results[i];
+            const t = valid[i];
+            if (r.status === 'fulfilled') {
+                successCount++;
+                console.log(chalk.hex('#A855F7')(`\n  ✅ @${t.agentId} completed delegation:`));
+                console.log(chalk.gray(r.value));
+            } else {
+                failCount++;
+                console.log(chalk.red(`\n  ❌ @${t.agentId} failed delegation:`));
+                console.log(chalk.red(r.reason));
+            }
+        }
+        console.log(chalk.hex('#A855F7')(`\n  ⚡ Delegations finished. ${successCount} succeeded, ${failCount} failed.`));
     }
 }
 
