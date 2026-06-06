@@ -212,26 +212,21 @@ async function startDaemon(options) {
                 && process.env.SOUPZ_SHOW_CODE_TIMER === '1';
 
             if (!shouldAnimateCountdown) {
-                console.log(chalk.dim(`  Code expires in ${pairing.expiresIn}s. Set SOUPZ_SHOW_CODE_TIMER=1 to show animated timer.`));
+                console.log(chalk.dim(`  Code expires in ${pairing.expiresIn}s.`));
                 return null;
             }
 
-            // Optional live countdown (disabled by default to avoid noisy terminals).
+            // Print the initial code valid state, but do not animate via setInterval 
+            // as it overwrites the REPL prompt at the bottom of the terminal.
             const expiresAt = Date.now() + pairing.expiresIn * 1000;
-            const countdownInterval = setInterval(() => {
-                const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
-                if (remaining <= 0) {
-                    clearInterval(countdownInterval);
-                    return;
-                }
-                const mins = Math.floor(remaining / 60);
-                const secs = remaining % 60;
-                const timeStr = `${mins}:${String(secs).padStart(2, '0')}`;
-                const bar = '█'.repeat(Math.ceil(remaining / 10)) + chalk.dim('░'.repeat(Math.max(0, 30 - Math.ceil(remaining / 10))));
-                process.stdout.write(`\r  ${chalk.dim('Code valid:')} ${bar} ${chalk.hex('#F59E0B')(timeStr)} `);
-            }, 1000);
-
-            return countdownInterval;
+            const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+            const mins = Math.floor(remaining / 60);
+            const secs = remaining % 60;
+            const timeStr = `${mins}:${String(secs).padStart(2, '0')}`;
+            const bar = '█'.repeat(Math.ceil(remaining / 10)) + chalk.dim('░'.repeat(Math.max(0, 30 - Math.ceil(remaining / 10))));
+            console.log(`  ${chalk.dim('Code valid:')} ${bar} ${chalk.hex('#F59E0B')(timeStr)}`);
+            
+            return null;
         }
 
         const pairing = serverInfo.getCode();
@@ -301,11 +296,9 @@ async function startDaemon(options) {
     const compressor = new TokenCompressor();
     const kitchenMonitor = new StallMonitor();
     const memory = new MemoryStore();
-    await memory.init();
     const memoryPool = new MemoryPool();
     const auth = new AuthManager(registry);
     const userAuth = new UserAuth();
-    await userAuth.init();
     const grading = new GradingSystem();
     const contextManager = new ContextManager();
     const orchestrator = new Orchestrator(registry, spawner, contextManager, memory, mcpClient);
@@ -330,7 +323,7 @@ async function startDaemon(options) {
     
     // Give a visual separation before the REPL starts
     console.log(chalk.dim('  ──────────────────────────────────────────'));
-    session.start();
+    await session.init();
 }
 
 // ─── Utility Commands ─────────────────────────────────────────────────────────

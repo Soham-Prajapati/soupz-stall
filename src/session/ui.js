@@ -1,5 +1,7 @@
 import chalk from 'chalk';
-
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 export const VIBES = [
     '🍳 cooking up some magic…', '☕ brewing intelligence…', '🧪 mixing the perfect formula…',
     '🚀 locked in. let\'s build.', '💅 slay mode activated.', '🔥 it\'s giving productivity.',
@@ -204,6 +206,264 @@ export const UIMixin = {
         console.log(`  ${chalk.hex('#4ECDC4')('Opt+⌫')} Delete word   ${chalk.hex('#4ECDC4')('Ctrl+U')} Clear line`);
         console.log(`  ${chalk.hex('#4ECDC4')('Esc')} Close / Cancel   ${chalk.hex('#4ECDC4')('Ctrl+C')} Quit   ${chalk.hex('#4ECDC4')('Ctrl+L')} Clear screen`);
         console.log();
+    },
+
+    resetPromptState() { this._prompted = false; },
+
+    handleKeypress(ch, key) {
+        if (!key) { if (ch) this.insertChar(ch); return; }
+        if (key.ctrl && key.name === 'c') { this.exitSession(); return; }
+        if (key.ctrl && key.name === 'l') { this.closeDropdown(); process.stdout.write('\x1b[2J\x1b[H'); this.resetPromptState(); this.renderPrompt(); return; }
+
+        // Ctrl+U: delete entire line (standard unix)
+        if (key.ctrl && key.name === 'u') {
+            this.closeDropdown(); this.inputBuffer = ''; this.renderPrompt(); return;
+        }
+        // Ctrl+W: delete previous word (standard unix)
+        if (key.ctrl && key.name === 'w') {
+            this.closeDropdown();
+            this.inputBuffer = this.inputBuffer.replace(/\S+\s*$/, '');
+            this.renderPrompt();
+            const buf = this.inputBuffer;
+            if (buf.startsWith('/') || (buf.startsWith('@') && !buf.includes(' ')) || (buf.startsWith('#') && !buf.includes(' '))) this.buildDropdown();
+            return;
+        }
+
+        // ↑↓ navigate dropdown
+        if (key.name === 'up' && this.dropdownItems && this.dropdownItems.length > 0) {
+            this.dropdownIndex = Math.max(0, this.dropdownIndex - 1);
+            this.refreshDropdown(); return;
+        }
+        if (key.name === 'down' && this.dropdownItems && this.dropdownItems.length > 0) {
+            this.dropdownIndex = Math.min(this.dropdownItems.length - 1, this.dropdownIndex + 1);
+            this.refreshDropdown(); return;
+        }
+
+        // ↑↓ command history when no dropdown
+        if (key.name === 'up' && (!this.dropdownItems || this.dropdownItems.length === 0) && this.cmdHistory && this.cmdHistory.length > 0) {
+            if (this.cmdHistoryIndex < 0) this.cmdHistoryIndex = this.cmdHistory.length;
+            this.cmdHistoryIndex = Math.max(0, this.cmdHistoryIndex - 1);
+            this.inputBuffer = this.cmdHistory[this.cmdHistoryIndex] || '';
+            this.renderPrompt(); return;
+        }
+        if (key.name === 'down' && (!this.dropdownItems || this.dropdownItems.length === 0) && this.cmdHistoryIndex >= 0) {
+            this.cmdHistoryIndex++;
+            if (this.cmdHistoryIndex >= this.cmdHistory.length) {
+                this.cmdHistoryIndex = -1;
+                this.inputBuffer = '';
+            } else {
+                this.inputBuffer = this.cmdHistory[this.cmdHistoryIndex] || '';
+            }
+            this.renderPrompt(); return;
+        }
+
+        // Tab on dropdown → fill buffer (for continued typing)
+        if (key.name === 'tab' && this.dropdownItems && this.dropdownItems.length > 0 && this.dropdownIndex >= 0) {
+            const item = this.dropdownItems[this.dropdownIndex];
+            this.closeDropdown();
+            this.inputBuffer = item.value;
+            this.renderPrompt();
+            return;
+        }
+
+        // Enter on dropdown → auto-submit command
+        if (key.name === 'return' && this.dropdownItems && this.dropdownItems.length > 0 && this.dropdownIndex >= 0) {
+            const item = this.dropdownItems[this.dropdownIndex];
+            this.closeDropdown();
+            // Echo the full selected command so user sees what's executing
+            this.inputBuffer = item.value;
+            this.renderPrompt();
+            this.inputBuffer = '';
+            process.stdout.write('\n');
+            this.resetPromptState();
+            this.busy = true;
+            this.handleInput(item.value).then(() => { this.busy = false; this.busyAgentId = null; this.resetPromptState(); this.renderPrompt(); })
+                .catch((err) => { console.log(chalk.red(`  ✖ ${err.message}`)); this.busy = false; this.busyAgentId = null; this.resetPromptState(); this.renderPrompt(); });
+            return;
+        }
+
+        // Shift+Enter → multiline (add newline to buffer)
+        if (key?.sequence === '\x1b[13;2u' || (key.name === 'return' && (key.shift || key.meta))) {
+            if (!this._shiftEnterHandled) {
+                this.inputBuffer += '\n';
+                process.stdout.write('\n' + chalk.dim('  … '));
+            }
+            this._shiftEnterHandled = false;
+            return;
+        }
+        // Ctrl+J as alternative for multiline (Shift+Enter fallback)
+        if (key.ctrl && key.name === 'j') {
+            this.inputBuffer += '\n';
+            process.stdout.write('\n' + chalk.dim('  … '));
+            return;
+        }
+
+        // If raw data handler caught a shift+enter but readline emitted a plain 'return'
+        if (this._shiftEnterHandled && key.name === 'return') {
+            this._shiftEnterHandled = false;
+            return;
+        }
+
+        // Enter → submit
+        if (key.name === 'return') {
+            this.closeDropdown();
+            const input = this.inputBuffer.trim();
+            this.inputBuffer = '';
+            this.resetPromptState();
+            this.cmdHistoryIndex = -1;
+            process.stdout.write('\n');
+            if (!input) { this.renderPrompt(); return; }
+            // Save to command history
+            if (!this.cmdHistory) this.cmdHistory = [];
+            if (this.cmdHistory[this.cmdHistory.length - 1] !== input) {
+                this.cmdHistory.push(input);
+                if (this.cmdHistory.length > 100) this.cmdHistory.shift();
+            }
+            this.busy = true;
+            this.handleInput(input).then(() => { this.busy = false; this.busyAgentId = null; this.resetPromptState(); this.renderPrompt(); })
+                .catch((err) => { console.log(chalk.red(`  ✖ ${err.message}`)); this.busy = false; this.busyAgentId = null; this.resetPromptState(); this.renderPrompt(); });
+            return;
+        }
+
+        // Backspace
+        if (key.name === 'backspace') {
+            if (key.meta) {
+                this.closeDropdown();
+                this.inputBuffer = this.inputBuffer.replace(/\S+\s*$/, '');
+                this.renderPrompt();
+                const buf = this.inputBuffer;
+                if (buf.startsWith('/') || (buf.startsWith('@') && !buf.includes(' ')) || (buf.startsWith('#') && !buf.includes(' '))) this.buildDropdown();
+                return;
+            }
+            if (this.inputBuffer.length > 0) {
+                this.closeDropdown();
+                this.inputBuffer = this.inputBuffer.slice(0, -1);
+                this.renderPrompt();
+                const buf = this.inputBuffer;
+                if (buf.startsWith('/') || (buf.startsWith('@') && !buf.includes(' ')) || (buf.startsWith('#') && !buf.includes(' '))) {
+                    this.buildDropdown();
+                }
+            }
+            return;
+        }
+
+        // Delete character at a time when holding ctrl+backspace
+        if (key.name === 'backspace' && key.ctrl) {
+            this.closeDropdown(); this.inputBuffer = ''; this.renderPrompt(); return;
+        }
+
+        if (key.name === 'escape') { if (this.dropdownItems && this.dropdownItems.length > 0) this.closeDropdown(); return; }
+        if (ch && !key.ctrl && !key.meta && key.name !== 'up' && key.name !== 'down') this.insertChar(ch);
+    },
+
+    insertChar(ch) { this.eraseDropdownLines(); this.inputBuffer += ch; this.renderPrompt(); this.buildDropdown(); },
+
+    buildDropdown() {
+        const input = this.inputBuffer;
+        const dedup = (items) => { const seen = new Set(); return items.filter((i) => { if (seen.has(i.label)) return false; seen.add(i.label); return true; }); };
+        
+        if (input.startsWith('/station ') || input.startsWith('/tool ')) {
+            const prefix = input.startsWith('/station ') ? input.slice(9).toLowerCase() : input.slice(6).toLowerCase();
+            const tools = [
+                { label: 'auto', desc: '🎯 Smart routing', icon: '🎯', value: '/station auto' },
+                ...this.getTools().map((t) => {
+                    const saved = this.modelPrefs ? this.modelPrefs[t.id] : null;
+                    const desc = saved ? `${t.description || t.name} (utensil: ${saved})` : (t.description || t.name);
+                    return { label: t.id, desc, icon: t.icon, value: `/station ${t.id}` };
+                })
+            ].filter((i) => i.label.startsWith(prefix) || !prefix);
+            this.dropdownItems = dedup(tools);
+            this.dropdownIndex = tools.length > 0 ? 0 : -1;
+            this.refreshDropdown();
+            return;
+        }
+
+        if (input.startsWith('/utensil ') || input.startsWith('/model ')) {
+            const prefix = input.startsWith('/utensil ') ? input.slice(9).toLowerCase() : input.slice(7).toLowerCase();
+            let allModels = [];
+            if (!this.activeTool || this.activeTool === 'gemini') {
+                allModels.push({ id: 'gemini-2.5-flash', desc: '0.1x (FAST)', tool: 'gemini', icon: '🔮' });
+                allModels.push({ id: 'gemini-2.5-pro', desc: '1x (SMART)', tool: 'gemini', icon: '🔮' });
+            }
+            if (!this.activeTool || this.activeTool === 'copilot') {
+                allModels.push({ id: 'gpt-5.1-codex', desc: '1x', tool: 'copilot', icon: '🐙' });
+                allModels.push({ id: 'gpt-4.1-mini', desc: '0x (FREE)', tool: 'copilot', icon: '🐙' });
+            }
+            const models = allModels
+                .filter((m) => !prefix || m.id.toLowerCase().startsWith(prefix) || m.id.toLowerCase().includes(prefix))
+                .map((m) => ({
+                    label: m.id, desc: `🔪 ${m.desc} [${m.tool} kitchen]` + (this.activeModel === m.id ? ' ← active utensil' : ''),
+                    icon: m.icon, value: `/utensil ${m.id}`
+                }));
+            this.dropdownItems = dedup(models);
+            this.dropdownIndex = models.length > 0 ? 0 : -1;
+            this.refreshDropdown();
+            return;
+        }
+
+        if (input.startsWith('/')) {
+            const prefix = input.toLowerCase();
+            this.dropdownItems = dedup(COMMANDS.filter((c) => c.cmd.startsWith(prefix))
+                .map((c) => ({ label: c.cmd, desc: c.desc, icon: c.icon, value: c.cmd, type: 'command' })));
+            this.dropdownIndex = this.dropdownItems.length > 0 ? 0 : -1;
+            this.refreshDropdown();
+            return;
+        }
+
+        if (input.startsWith('@')) {
+            const prefix = input.toLowerCase().slice(1);
+            if (prefix.includes(' ')) { this.closeDropdown(); return; }
+            this.dropdownItems = dedup(this.getPersonas().filter((a) => a.id.startsWith(prefix))
+                .map((a) => ({ label: `@${a.id}`, desc: a.description || a.name, icon: a.icon, value: `@${a.id} `, type: 'persona' })));
+            this.dropdownIndex = this.dropdownItems.length > 0 ? 0 : -1;
+            this.refreshDropdown();
+            return;
+        }
+
+        if (input.startsWith('#')) {
+            const prefix = input.slice(1);
+            if (prefix.includes(' ')) { this.closeDropdown(); return; }
+            try {
+                const cwd = this.cwd;
+                let dir = cwd;
+                let filter = prefix;
+                if (prefix.includes('/')) {
+                    const parts = prefix.split('/');
+                    filter = parts.pop();
+                    dir = path.join(cwd, parts.join('/'));
+                }
+                const files = fs.readdirSync(dir).filter(f => !f.startsWith('.') && f !== 'node_modules').map(f => {
+                    const isDir = fs.statSync(path.join(dir, f)).isDirectory();
+                    return { label: f + (isDir ? '/' : ''), desc: isDir ? 'directory' : 'file', icon: isDir ? '📁' : '📄', value: '#' + (prefix.includes('/') ? prefix.slice(0, prefix.lastIndexOf('/') + 1) : '') + f + (isDir ? '/' : ' '), type: 'file' };
+                }).filter(f => f.label.startsWith(filter));
+                this.dropdownItems = dedup(files).slice(0, 10);
+                this.dropdownIndex = this.dropdownItems.length > 0 ? 0 : -1;
+                this.refreshDropdown();
+            } catch { this.closeDropdown(); }
+            return;
+        }
+        this.closeDropdown();
+    },
+
+    exitSession() {
+        this.closeDropdown();
+        if (this.sessionName) this.saveSession();
+        if (this.context) this.context.save();
+        if (this.spawner) this.spawner.killAll();
+        try { 
+            fs.writeFileSync(path.join(os.homedir(), '.soupz-agents', 'history'), this.cmdHistory.slice(-100).join('\n')); 
+        } catch {}
+        if (this._modelRefreshTimer) clearInterval(this._modelRefreshTimer);
+        if (this._cloudKitchen) { this._cloudKitchen.stop(); this._cloudKitchen = null; }
+        if (this._tunnel?.proc) { try { this._tunnel.proc.kill(); } catch {} this._tunnel = null; }
+        if (this._fleet) {
+            for (const w of this._fleet) {
+                if (w.proc && w.status === 'running') try { w.proc.kill(); } catch {}
+            }
+            this._fleet = [];
+        }
+        process.stdout.write(`\n${chalk.hex('#A855F7')(`  ${BYES[Math.floor(Math.random() * BYES.length)]}`)}\n\n`);
+        process.exit(0);
     },
 
     showToolAgents() {

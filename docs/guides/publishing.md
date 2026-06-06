@@ -40,7 +40,7 @@ npm publish
 
 ```bash
 # Global install
-npm install -g soupz-stall
+npm install -g @shubh_prajapati99/soupz
 
 # Or run without installing
 npx @shubh_prajapati99/soupz

@@ -4,17 +4,22 @@
 
 ### Option 1: NPM (Recommended)
 ```bash
-npm install -g soupz-stall
-soupz-stall
+# Using NPM
+npm install -g @shubh_prajapati99/soupz
 ```
 
-### Option 2: From Source
+Once installed, you can start the daemon from any directory:
+
 ```bash
-git clone https://github.com/yourusername/soupz-agents.git
-cd soupz-agents
-npm install
-npm link
-soupz-stall
+soupz
+```
+
+## Running without Installation
+
+If you don't want to install it globally, you can run it on-demand:
+
+```bash
+npx @shubh_prajapati99/soupz
 ```
 
 ### Option 3: Homebrew (Coming Soon)
