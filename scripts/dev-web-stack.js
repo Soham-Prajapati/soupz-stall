@@ -118,23 +118,23 @@ async function createToken() {
   throw lastError || new Error('Failed to obtain pairing token');
 }
 
-function extractTryCloudflareUrl(line) {
-  const match = line.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
+function extractPinggyUrl(line) {
+  const match = line.match(/https:\/\/[a-z0-9-.]+\.pinggy-free\.link/i);
   return match ? match[0] : null;
 }
 
-function waitForTryCloudflareUrl(proc, prefix, timeoutMs = TUNNEL_TIMEOUT_MS) {
+function waitForPinggyUrl(proc, prefix, timeoutMs = TUNNEL_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error(`${prefix} tunnel URL not received within ${timeoutMs}ms`));
+      reject(new Error(`${prefix} Pinggy tunnel URL not received within ${timeoutMs}ms`));
     }, timeoutMs);
 
     const onData = (buf) => {
       const text = buf.toString();
       for (const line of text.split('\n')) {
-        if (line.trim()) log(`${prefix} ${line}`);
-        const url = extractTryCloudflareUrl(line);
+        if (line.trim() && !line.includes('Pseudo-terminal')) log(`${prefix} ${line}`);
+        const url = extractPinggyUrl(line);
         if (url) {
           cleanup();
           resolve(url);
@@ -172,42 +172,45 @@ async function updatePairingRuntimeConfig({ webappUrl, tunnelUrls }) {
 }
 
 async function startFreeTunnels(webPort) {
-  if (!hasCmd('cloudflared')) {
-    log('cloudflared not found; skipping free tunnel setup. Install via: brew install cloudflared');
-    return null;
-  }
+  log('Starting zero-config Pinggy tunnels (daemon + web)...');
 
-  log('Starting free cloudflared tunnels (daemon + web)...');
+  const sshArgs = (port) => [
+    '-p', '443',
+    `-R0:localhost:${port}`,
+    '-o', 'StrictHostKeyChecking=no',
+    '-o', 'ServerAliveInterval=30',
+    'a.pinggy.io'
+  ];
 
-  daemonTunnelProc = spawn('cloudflared', ['tunnel', '--url', `http://localhost:${REMOTE_PORT}`], {
+  daemonTunnelProc = spawn('ssh', sshArgs(REMOTE_PORT), {
     cwd: REPO_ROOT,
     env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  webTunnelProc = spawn('cloudflared', ['tunnel', '--url', `http://localhost:${webPort}`], {
+  webTunnelProc = spawn('ssh', sshArgs(webPort), {
     cwd: REPO_ROOT,
     env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   const [daemonTunnelUrl, webTunnelUrl] = await Promise.all([
-    waitForTryCloudflareUrl(daemonTunnelProc, '[tunnel:daemon]'),
-    waitForTryCloudflareUrl(webTunnelProc, '[tunnel:web]'),
+    waitForPinggyUrl(daemonTunnelProc, '[tunnel:daemon]'),
+    waitForPinggyUrl(webTunnelProc, '[tunnel:web]'),
   ]);
 
   await updatePairingRuntimeConfig({
-    webappUrl: webTunnelUrl,
+    webappUrl: 'https://soupz.vercel.app', // Force to hosted site by default for better UX
     tunnelUrls: [daemonTunnelUrl],
   });
 
   log('');
-  log('Free tunnel endpoints:');
+  log('Free Pinggy endpoints (expires in 60m):');
   log(`Daemon tunnel: ${daemonTunnelUrl}`);
-  log(`Web tunnel:    ${webTunnelUrl}`);
+  log(`Web tunnel:    ${webTunnelUrl} (Local dev)`);
   log('');
-  log('Phone testing URL (fresh local build):');
-  log(`${webTunnelUrl}/code`);
+  log('Phone testing URL (using Hosted Vercel App):');
+  log(`https://soupz.vercel.app/code`);
   log('');
 
   return { daemonTunnelUrl, webTunnelUrl };
