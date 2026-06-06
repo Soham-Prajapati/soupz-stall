@@ -45,6 +45,15 @@ Open your browser to `https://soupz.vercel.app/code`. Scan the QR code from your
   - GitHub Copilot CLI (`gh copilot --version`)
   - Ollama (`ollama pull <model>`)
 
+## Security Architecture (Why do scanners flag this?)
+
+Because Soupz acts as a **Remote IDE Daemon**, it intentionally spawns PTY shells, reads the local file system, and executes terminal commands (like `git` or `gh copilot`). Automated NPM security scanners (like Socket.dev) often flag these behaviors as "Medium Risk" or "Malware" because they assume NPM packages are simple libraries, not Remote Access Daemons.
+
+**How we keep it secure:**
+- **Pairing Tokens:** The daemon only accepts WebSocket connections that present a cryptographically secure, short-lived (5-min) OTP.
+- **Local-First Execution:** Your codebase never leaves your machine. The web app is purely a thin client/remote control.
+- **Strict Command Primitives:** The daemon strictly avoids vulnerable shell interpolation (like `execSync`) and uses raw binary execution (`execFileSync`) to prevent command injection from malicious prompts.
+
 ## Documentation
 
 - [Setup & Troubleshooting](docs/SETUP.md)

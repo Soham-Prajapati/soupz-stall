@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { spawn, execSync } from 'child_process';
+import { spawn, execSync, execFileSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { synthesizeResults } from './synthesis.js';
 
@@ -25,7 +25,7 @@ Respond ONLY with a JSON object: {"strategy": "direct|subagent|team", "primaryAg
 
 Request: "${prompt.slice(0, 1000)}"`;
             
-            const out = execSync(`gh copilot explain --model ${COPILOT_ROUTING_MODEL} -p ${JSON.stringify(routerPrompt)}`, { timeout: 15000, encoding: 'utf8' });
+            const out = execFileSync('gh', ['copilot', 'explain', '--model', COPILOT_ROUTING_MODEL, '-p', routerPrompt], { timeout: 15000, encoding: 'utf8' });
             const result = out.toString() || '';
             const match = result.match(/\{\s*"strategy"\s*:\s*"(direct|subagent|team)"\s*,\s*"primaryAgent"\s*:\s*"(\w+)"\s*\}/i);
             if (match) return { strategy: match[1].toLowerCase(), agent: match[2].toLowerCase() };
@@ -154,7 +154,7 @@ Tasks:
 ${tasks.map((t, i) => `${i + 1}. ${t.title}: ${t.prompt}`).join('\n')}
 
 Implementation Plan:`;
-            const planOut = execSync(`gh copilot explain --model ${COPILOT_FAST_MODEL} -p ${JSON.stringify(planPrompt)}`, { timeout: 20000, encoding: 'utf8' });
+            const planOut = execFileSync('gh', ['copilot', 'explain', '--model', COPILOT_FAST_MODEL, '-p', planPrompt], { timeout: 20000, encoding: 'utf8' });
             plan = planOut.toString().trim();
             console.log(chalk.dim(plan.slice(0, 500) + '...'));
         } catch { plan = 'Execute tasks in parallel.'; }

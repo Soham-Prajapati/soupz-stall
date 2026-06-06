@@ -21,7 +21,7 @@
         "smoke:pairing": "node scripts/pairing-smoke-check.mjs",
         "snapshot:mobile": "node scripts/mobile-viewport-snapshots.mjs",
         "lint:docs-links": "node scripts/check-doc-links.mjs",
-        "postinstall": "node --max-old-space-size=4096 src/auto-import.js && (cd packages/remote-server && npm install --silent 2>/dev/null) || true"
+        "prepare": "node --max-old-space-size=4096 src/auto-import.js && (cd packages/remote-server && npm install --silent 2>/dev/null) || true"
     },
     "devDependencies": {
         "vitest": "^3.2.4"
@@ -49,17 +49,16 @@
     },
     "keywords": [
         "ai",
+        "ide",
         "cli",
+        "remote-execution",
+        "terminal",
         "agent",
-        "orchestrator",
-        "jarvis",
         "copilot",
-        "gemini",
-        "personas",
-        "kiro",
-        "soupz"
+        "claude",
+        "gemini"
     ],
-    "author": "Your Name",
+    "author": "Shubh Prajapati",
     "license": "MIT",
     "repository": {
         "type": "git",
