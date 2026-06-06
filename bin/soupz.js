@@ -173,102 +173,164 @@ async function startDaemon(options) {
 
     if (!serverInfo) {
         // Port already in use — daemon already running
-        console.log(chalk.yellow(`  ⚡ Daemon already running on port ${DAEMON_PORT}`));
-        console.log(chalk.dim(`  Open ${WEBAPP_URL} to continue.\n`));
-        process.exit(0);
-    }
+        console.log(chalk.yellow(`  ⚡ Web daemon is already running in the background (port ${DAEMON_PORT})`));
+        console.log(chalk.dim(`  Open ${WEBAPP_URL} to connect remotely.\n`));
+        // Do NOT exit here! We still want to launch the interactive REPL.
+    } else {
+        const QRCode = (await import('qrcode')).default;
 
-    const QRCode = (await import('qrcode')).default;
+        async function printPairingBlock(pairing) {
+            const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/code?code=${pairing.code}`;
+            const tunnelUrl = process.env.SOUPZ_TUNNEL_URL || process.env.SOUPZ_TUNNEL_URLS || '';
 
-    async function printPairingBlock(pairing) {
-        const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/code?code=${pairing.code}`;
-        const tunnelUrl = process.env.SOUPZ_TUNNEL_URL || process.env.SOUPZ_TUNNEL_URLS || '';
+            // Generate ASCII QR code for terminal
+            let qrAscii = '';
+            try {
+                qrAscii = await QRCode.toString(connectUrl, { type: 'terminal', small: true, errorCorrectionLevel: 'L' });
+            } catch { /* QR generation failed, skip */ }
 
-        // Generate ASCII QR code for terminal
-        let qrAscii = '';
-        try {
-            qrAscii = await QRCode.toString(connectUrl, { type: 'terminal', small: true, errorCorrectionLevel: 'L' });
-        } catch { /* QR generation failed, skip */ }
+            console.log(`  ${chalk.bold('Status:')}   ${chalk.green('● Online')}  ${chalk.dim(`localhost:${DAEMON_PORT}`)}`);
+            console.log(`  ${chalk.bold('Code:')}     ${chalk.hex('#F59E0B').bold(pairing.code)}  ${chalk.dim(`(expires in ${pairing.expiresIn}s)`)}`);
+            console.log(`  ${chalk.bold('Connect:')}  ${chalk.cyan(connectUrl)}\n`);
 
-        console.log(`  ${chalk.bold('Status:')}   ${chalk.green('● Online')}  ${chalk.dim(`localhost:${DAEMON_PORT}`)}`);
-        console.log(`  ${chalk.bold('Code:')}     ${chalk.hex('#F59E0B').bold(pairing.code)}  ${chalk.dim(`(expires in ${pairing.expiresIn}s)`)}`);
-        console.log(`  ${chalk.bold('Connect:')}  ${chalk.cyan(connectUrl)}\n`);
-
-        if (qrAscii) {
-            console.log(chalk.dim('  Scan with your phone camera:\n'));
-            // Indent QR code for visual alignment
-            const indented = qrAscii.split('\n').map(line => `    ${line}`).join('\n');
-            console.log(indented);
-            console.log();
-        }
-
-        if (tunnelUrl) {
-            console.log(`  ${chalk.bold('Tunnel:')}   ${chalk.cyan(tunnelUrl)}`);
-            console.log(chalk.dim('  Phone can connect over internet using this tunnel target.\n'));
-        }
-
-        const shouldAnimateCountdown =
-            process.stdout.isTTY
-            && process.env.TERM !== 'dumb'
-            && process.env.SOUPZ_SHOW_CODE_TIMER === '1';
-
-        if (!shouldAnimateCountdown) {
-            console.log(chalk.dim(`  Code expires in ${pairing.expiresIn}s. Set SOUPZ_SHOW_CODE_TIMER=1 to show animated timer.`));
-            return null;
-        }
-
-        // Optional live countdown (disabled by default to avoid noisy terminals).
-        const expiresAt = Date.now() + pairing.expiresIn * 1000;
-        const countdownInterval = setInterval(() => {
-            const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
-            if (remaining <= 0) {
-                clearInterval(countdownInterval);
-                return;
+            if (qrAscii) {
+                console.log(chalk.dim('  Scan with your phone camera:\n'));
+                // Indent QR code for visual alignment
+                const indented = qrAscii.split('\n').map(line => `    ${line}`).join('\n');
+                console.log(indented);
+                console.log();
             }
-            const mins = Math.floor(remaining / 60);
-            const secs = remaining % 60;
-            const timeStr = `${mins}:${String(secs).padStart(2, '0')}`;
-            const bar = '█'.repeat(Math.ceil(remaining / 10)) + chalk.dim('░'.repeat(Math.max(0, 30 - Math.ceil(remaining / 10))));
-            process.stdout.write(`\r  ${chalk.dim('Code valid:')} ${bar} ${chalk.hex('#F59E0B')(timeStr)} `);
-        }, 1000);
 
-        return countdownInterval;
-    }
+            if (tunnelUrl) {
+                console.log(`  ${chalk.bold('Tunnel:')}   ${chalk.cyan(tunnelUrl)}`);
+                console.log(chalk.dim('  Phone can connect over internet using this tunnel target.\n'));
+            }
 
-    const pairing = serverInfo.getCode();
-    let activeCountdown = await printPairingBlock(pairing);
+            const shouldAnimateCountdown =
+                process.stdout.isTTY
+                && process.env.TERM !== 'dumb'
+                && process.env.SOUPZ_SHOW_CODE_TIMER === '1';
 
-    console.log(chalk.dim('\n  Opening browser...'));
-    console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
+            if (!shouldAnimateCountdown) {
+                console.log(chalk.dim(`  Code expires in ${pairing.expiresIn}s. Set SOUPZ_SHOW_CODE_TIMER=1 to show animated timer.`));
+                return null;
+            }
 
-    // Open browser to the connect page
+            // Optional live countdown (disabled by default to avoid noisy terminals).
+            const expiresAt = Date.now() + pairing.expiresIn * 1000;
+            const countdownInterval = setInterval(() => {
+                const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+                if (remaining <= 0) {
+                    clearInterval(countdownInterval);
+                    return;
+                }
+                const mins = Math.floor(remaining / 60);
+                const secs = remaining % 60;
+                const timeStr = `${mins}:${String(secs).padStart(2, '0')}`;
+                const bar = '█'.repeat(Math.ceil(remaining / 10)) + chalk.dim('░'.repeat(Math.max(0, 30 - Math.ceil(remaining / 10))));
+                process.stdout.write(`\r  ${chalk.dim('Code valid:')} ${bar} ${chalk.hex('#F59E0B')(timeStr)} `);
+            }, 1000);
+
+            return countdownInterval;
+        }
+
+        const pairing = serverInfo.getCode();
+        let activeCountdown = await printPairingBlock(pairing);
+
+        console.log(chalk.dim('\n  Opening browser...'));
+        console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
+
+        // Open browser to the connect page
         const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/code?code=${pairing.code}`;
-    const { exec } = await import('child_process');
-    if (options.open) {
-        if (process.platform === 'darwin') exec(`open "${connectUrl}"`);
-        else if (process.platform === 'linux') exec(`xdg-open "${connectUrl}"`);
-        else if (process.platform === 'win32') exec(`start "${connectUrl}"`);
+        const { exec } = await import('child_process');
+        if (options.open) {
+            if (process.platform === 'darwin') exec(`open "${connectUrl}"`);
+            else if (process.platform === 'linux') exec(`xdg-open "${connectUrl}"`);
+            else if (process.platform === 'win32') exec(`start "${connectUrl}"`);
+        }
+
+        // Handle refresh — show updated code with new QR
+        serverInfo.onCodeRefresh?.(async (newPairing) => {
+            if (activeCountdown) clearInterval(activeCountdown);
+            console.log(chalk.dim('\n\n  --- Code refreshed ---\n'));
+            activeCountdown = await printPairingBlock(newPairing);
+        });
+
+        // Re-bind SIGINT/SIGTERM to kill the spawner along with the daemon
+        process.removeAllListeners('SIGINT');
+        process.removeAllListeners('SIGTERM');
+
+        process.on('SIGINT', () => {
+            if (activeCountdown) clearInterval(activeCountdown);
+            console.log(chalk.dim('\n  Stopping daemon...'));
+            serverInfo.stop();
+            if (typeof spawner !== 'undefined' && spawner.killAll) spawner.killAll();
+            if (typeof contextManager !== 'undefined' && contextManager.save) contextManager.save();
+            process.exit(0);
+        });
+
+        process.on('SIGTERM', () => {
+            if (activeCountdown) clearInterval(activeCountdown);
+            serverInfo.stop();
+            if (typeof spawner !== 'undefined' && spawner.killAll) spawner.killAll();
+            if (typeof contextManager !== 'undefined' && contextManager.save) contextManager.save();
+            process.exit(0);
+        });
     }
 
-    // Handle refresh — show updated code with new QR
-    serverInfo.onCodeRefresh?.(async (newPairing) => {
-        if (activeCountdown) clearInterval(activeCountdown);
-        console.log(chalk.dim('\n\n  --- Code refreshed ---\n'));
-        activeCountdown = await printPairingBlock(newPairing);
-    });
+    // ── Interactive Session (Restored) ──────────────────────────────────────
+    const { AgentRegistry } = await import('../src/agents/registry.js');
+    const { AgentSpawner } = await import('../src/agents/spawner.js');
+    const { Orchestrator } = await import('../src/orchestrator/router.js');
+    const { ContextManager } = await import('../src/context/manager.js');
+    const { MemoryStore } = await import('../src/memory/store.js');
+    const { GradingSystem } = await import('../src/grading/scorer.js');
+    const { AuthManager } = await import('../src/auth/manager.js');
+    const { UserAuth } = await import('../src/auth/user-auth.js');
+    const { Session } = await import('../src/session.js');
+    const { TokenCompressor } = await import('../src/core/token-compressor.js');
+    const { StallMonitor } = await import('../src/core/stall-monitor.js');
+    const { MCPClient } = await import('../src/mcp/client.js');
+    const { MemoryPool } = await import('../src/memory/pool.js');
 
-    process.on('SIGINT', () => {
-        if (activeCountdown) clearInterval(activeCountdown);
-        console.log(chalk.dim('\n  Stopping daemon...'));
-        serverInfo.stop();
-        process.exit(0);
-    });
+    const registry = new AgentRegistry();
+    await registry.init();
+    const spawner = new AgentSpawner(registry);
+    const mcpClient = new MCPClient();
+    await mcpClient.init();
+    const compressor = new TokenCompressor();
+    const kitchenMonitor = new StallMonitor();
+    const memory = new MemoryStore();
+    await memory.init();
+    const memoryPool = new MemoryPool();
+    const auth = new AuthManager(registry);
+    const userAuth = new UserAuth();
+    await userAuth.init();
+    const grading = new GradingSystem();
+    const contextManager = new ContextManager();
+    const orchestrator = new Orchestrator(registry, spawner, contextManager, memory, mcpClient);
+    const cwd = process.cwd();
 
-    process.on('SIGTERM', () => {
-        if (activeCountdown) clearInterval(activeCountdown);
-        serverInfo.stop();
-        process.exit(0);
+    const session = new Session({ 
+        registry, 
+        spawner, 
+        orchestrator, 
+        contextManager, 
+        memory, 
+        grading, 
+        auth, 
+        userAuth, 
+        cwd, 
+        compressor, 
+        kitchenMonitor, 
+        mcpClient, 
+        memoryPool 
     });
+    if (options.yolo || options.dangerouslySkipPermissions) session.yolo = true;
+    
+    // Give a visual separation before the REPL starts
+    console.log(chalk.dim('  ──────────────────────────────────────────'));
+    session.start();
 }
 
 // ─── Utility Commands ─────────────────────────────────────────────────────────
