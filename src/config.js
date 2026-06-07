@@ -126,10 +126,8 @@ export function loadAgentDefinition(filePath) {
             agentAvailable = !!whichBinary(meta.uses_tool);
         }
     }
-    // Backward compatibility: older Kiro configs used `chat --prompt {prompt}`,
-    // but current kiro-cli expects prompt as a positional argument.
-    if (meta.id === 'kiro' && Array.isArray(meta.build_args) && meta.build_args.includes('--prompt')) {
-        meta.build_args = ['{prompt}'];
+    if (meta.id === 'kiro' && Array.isArray(meta.build_args) && (meta.build_args.includes('--prompt') || meta.build_args.length === 1)) {
+        meta.build_args = ['chat', '{prompt}'];
     }
 
     return {
