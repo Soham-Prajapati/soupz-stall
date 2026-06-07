@@ -22,7 +22,7 @@ routing_keywords:
 auth_command: "kiro auth login"
 logout_command: "kiro auth logout"
 status_command: "kiro --version"
-build_args: ["{prompt}"]
+build_args: ["chat", "{prompt}"]
 grade: 80
 usage_count: 0
 ---
