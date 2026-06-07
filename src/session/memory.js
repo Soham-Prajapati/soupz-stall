@@ -3,7 +3,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
 
-const SESSIONS_DIR = join(homedir(), '.soupz-agents', 'sessions');
+export const SESSIONS_DIR = join(homedir(), '.soupz-agents', 'sessions');
 
 export const MemoryMixin = {
     saveSession() {

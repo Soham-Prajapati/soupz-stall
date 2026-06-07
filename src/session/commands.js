@@ -2,6 +2,8 @@ import chalk from 'chalk';
 import { existsSync, readFileSync, readdirSync, statSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { GEMINI_MODELS, COPILOT_MODELS } from './index.js';
+import { SESSIONS_DIR } from './memory.js';
 
 export const CommandsMixin = {
     loadSession(name) {

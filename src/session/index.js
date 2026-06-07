@@ -21,11 +21,11 @@ import { TodoMixin } from './todo.js';
 import { UtilsMixin, generateSessionName } from './utils.js';
 
 const HISTORY_FILE = join(homedir(), '.soupz-agents', 'history');
-const GEMINI_MODELS = [
+export const GEMINI_MODELS = [
     { id: 'gemini-2.5-flash', desc: '0.1x (FAST)', cost: 0.1 },
     { id: 'gemini-2.5-pro', desc: '1x (SMART)', cost: 1 }
 ];
-const COPILOT_MODELS = [
+export const COPILOT_MODELS = [
     { id: 'gpt-5.1-codex', desc: '1x', cost: 1 },
     { id: 'gpt-4.1-mini', desc: '0x (FREE)', cost: 0 }
 ];
