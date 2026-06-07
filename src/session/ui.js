@@ -166,8 +166,6 @@ export const UIMixin = {
         if (linesToDraw.length > 0) {
             process.stdout.write(`\x1b[${linesToDraw.length}A`);
         }
-        // Ensure cursor is correctly positioned on the prompt
-        this.renderPrompt();
     },
 
     closeDropdown() { this.eraseDropdownLines(); this.dropdownItems = []; this.dropdownIndex = -1; this.dropdownScroll = 0; },
