@@ -288,11 +288,22 @@ export class Session {
             if (input === '/help' || input === '?') { this.showHelp(); return; }
             if (input === '/kitchen' || input === '/stations') { this.showToolAgents(); return; }
             if (input === '/chefs' || input === '/agents') { this.showPersonas(); return; }
+            
+            if (input === '/station' || input === '/tool' || input === '/tools') { this.inputBuffer = '/station '; this.resetPromptState(); this.renderPrompt(); this.buildDropdown(); return; }
             if (input.startsWith('/station ') || input.startsWith('/tool ')) { this.switchTool(input.split(' ')[1]); return; }
+            
+            if (input === '/utensil' || input === '/model') { this.inputBuffer = '/utensil '; this.resetPromptState(); this.renderPrompt(); this.buildDropdown(); return; }
             if (input.startsWith('/utensil ') || input.startsWith('/model ')) { this.handleModel(input); return; }
+            
             if (input === '/auto') { this.switchTool('auto'); return; }
+            
+            if (input === '/chain') { console.log(chalk.dim('  Usage: /chain designer→researcher "your prompt"')); return; }
             if (input.startsWith('/chain ')) { await this.handleChain(input.slice(7)); return; }
+            
+            if (input === '/delegate') { console.log(chalk.dim('  Usage: /delegate <agent> "prompt"')); return; }
             if (input.startsWith('/delegate ')) { await this.handleDelegateCmd(input.slice(10)); return; }
+            
+            if (input === '/parallel') { console.log(chalk.dim('  Usage: /parallel agent1 agent2 agent3 "shared prompt"')); return; }
             if (input.startsWith('/parallel ')) { await this.handleParallel(input.slice(10)); return; }
             if (input.startsWith('/fleet peek ')) { this.peekFleetWorker(input.slice(12).trim()); return; }
             if (input.startsWith('/fleet result ')) { this.showFleetRunResult(input.slice(14).trim()); return; }
@@ -300,14 +311,21 @@ export class Session {
             if (input === '/fleet runs') { this.listFleetRuns(); return; }
             if (input.startsWith('/fleet ')) { await this.spawnFleet(input.slice(7)); return; }
             if (input === '/fleet') { this.showFleetStatus(); return; }
+            if (input === '/subagent') { console.log(chalk.dim('  Usage: /subagent <command> <id> "prompt"')); return; }
             if (input.startsWith('/subagent ')) { await this.runSubAgents(input.slice(10)); return; }
+            
+            if (input === '/team') { console.log(chalk.dim('  Usage: /team "goal"')); return; }
             if (input.startsWith('/team ')) { await this.runAgentTeam(input.slice(6)); return; }
+            
             if (input.startsWith('/svgart')) { await this.handleSvgArt(input); return; }
             if (input.startsWith('/hackathon')) { await this.handleHackathon(input); return; }
             if (input === '/spill' || input === '/yolo') { this.toggleYolo(); return; }
             if (input.startsWith('/browse')) { await this.browseLocalhost(input); return; }
             if (input === '/todo') { this.showTodo(); return; }
+            
+            if (input === '/do') { this.showTodo(); return; }
             if (input.startsWith('/do ')) { await this.executeTodo(input.slice(4).trim()); return; }
+            
             if (input === '/tokens') { this.showTokens(); return; }
             if (input === '/costs') { this.showCosts(); return; }
             if (input === '/grades') { this.showGrades(); return; }
@@ -326,10 +344,17 @@ export class Session {
             if (input === '/memory') { this.showMemory(); return; }
             if (input.startsWith('/compress')) { this.handleCompress(input); return; }
             if (input === '/health') { await this.showHealth(); return; }
+            
+            if (input === '/recipe' || input === '/recipe list') { this.showRecipes(); return; }
             if (input.startsWith('/recipe ')) { await this.runRecipe(input.slice(8).trim()); return; }
+            
             if (input === '/skills') { this.showSkills(); return; }
+            
+            if (input === '/login' || input === '/logout') { console.log(chalk.dim(`  Usage: /${input.slice(1)} <agent-id>`)); return; }
             if (input.startsWith('/login ')) { this.loginAgent(input.slice(7).trim()); return; }
             if (input.startsWith('/logout ')) { this.logoutAgent(input.slice(8).trim()); return; }
+            
+            if (input === '/user') { await this.handleUserAuth(input); return; }
             if (input.startsWith('/user ')) { await this.handleUserAuth(input); return; }
             if (input.startsWith('/mcp')) { await this.handleMcp(input); return; }
             if (input === '/setup-multiline') { await this.setupMultilineKeybinding(); return; }
