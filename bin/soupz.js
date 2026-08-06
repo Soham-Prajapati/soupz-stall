@@ -18,19 +18,23 @@ import '../src/env.js';
 import chalk from 'chalk';
 import { ensureDirectories } from '../src/config.js';
 import { autoImport } from '../src/auto-import.js';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
 
-const VERSION = '0.2.0-alpha';
+const PACKAGE_JSON_PATH = fileURLToPath(new URL('../package.json', import.meta.url));
+const VERSION = JSON.parse(readFileSync(PACKAGE_JSON_PATH, 'utf8')).version;
 const WEBAPP_URL = process.env.SOUPZ_APP_URL || 'https://soupz.vercel.app';
 
 
 // Auto-import agents on startup (silent)
+ensureDirectories();
 autoImport();
 
 import meow from 'meow';
 
 const cli = meow(`
     Usage
-      $ soupz-stall [command] [options]
+      $ soupz-cli [command] [options]
 
     Commands
       agents      List all installed kitchens (agents)
@@ -44,15 +48,18 @@ const cli = meow(`
       --yolo                        Skip interactive confirmations (dangerously skip permissions)
       --dangerously-skip-permissions Alias for --yolo
       --no-open                     Prevent the browser from opening automatically
+      --no-motion                   Use static status lines instead of animation
       --version, -v                 Print the version
       --help, -h                    Show this help menu
 `, {
     importMeta: import.meta,
+    version: `soupz-cli v${VERSION}`,
     flags: {
         cloud: { type: 'boolean', shortFlag: 'c' },
         port: { type: 'string', shortFlag: 'p' },
         yolo: { type: 'boolean' },
         dangerouslySkipPermissions: { type: 'boolean' },
+        motion: { type: 'boolean', default: true },
         open: { type: 'boolean', default: true }
     }
 });
@@ -87,8 +94,12 @@ const command = commandArgs[0];
 const args = commandArgs.slice(1);
 const options = cli.flags;
 
+if (!options.motion) {
+    process.env.SOUPZ_REDUCE_MOTION = '1';
+}
+
 if (command === 'version' || options.version) {
-    console.log(`soupz v${VERSION}`);
+    console.log(`soupz-cli v${VERSION}`);
     process.exit(0);
 }
 
@@ -126,7 +137,7 @@ await startDaemon(options);
 async function startDaemon(options) {
     ensureDirectories();
 
-    const header = chalk.hex('#6C63FF').bold('Soupz Daemon') + chalk.dim(` v${VERSION}`);
+    const header = chalk.hex('#6C63FF').bold('Soupz CLI daemon') + chalk.dim(` v${VERSION}`);
     console.log(`\n  ${header}\n`);
 
     
@@ -165,7 +176,7 @@ async function startDaemon(options) {
         ({ startRemoteServer } = await import('../packages/remote-server/src/index.js'));
     } catch (err) {
         console.error(chalk.red(`  ✖ Failed to load daemon: ${err.message}`));
-        console.error(chalk.dim('  Run: npm install (in the soupz-agents directory)'));
+        console.error(chalk.dim('  Run: npm install (in the soupz-cli checkout directory)'));
         process.exit(1);
     }
 
@@ -232,7 +243,7 @@ async function startDaemon(options) {
         const pairing = serverInfo.getCode();
         let activeCountdown = await printPairingBlock(pairing);
 
-        console.log(chalk.dim('\n  Opening browser...'));
+        if (options.open) console.log(chalk.dim('\n  Opening browser...'));
         console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
 
         // Open browser to the connect page
@@ -422,8 +433,8 @@ async function handleAuth([subCmd, agentId]) {
             process.exit(1);
         }
     } else {
-        console.log('  Usage: soupz auth [status|login|logout] [agent-id]');
-        console.log('  Example: soupz auth login gemini\n');
+        console.log('  Usage: soupz-cli auth [status|login|logout] [agent-id]');
+        console.log('  Example: soupz-cli auth login gemini\n');
     }
 }
 
@@ -468,7 +479,7 @@ async function handleSupabase([subCmd]) {
             } catch {
                 console.log(chalk.yellow('\n  ⚠️  Link failed or was cancelled.'));
                 console.log(chalk.dim('  If you haven\'t linked your project, run: ') + chalk.bold(`supabase link --project-ref ${projectRef}`));
-                console.log(chalk.dim('  Then run: ') + chalk.bold('soupz sync\n'));
+                console.log(chalk.dim('  Then run: ') + chalk.bold('soupz-cli sync\n'));
                 process.exit(1);
             }
         }

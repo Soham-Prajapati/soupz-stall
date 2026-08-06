@@ -1,6 +1,6 @@
 # Soupz Documentation
 
-Welcome to the Soupz Stall (Soupz Cockpit) documentation.
+Welcome to the Soupz CLI documentation.
 
 All documentation has been consolidated into the **[Documentation Index](INDEX.md)**. 
 

@@ -1,8 +1,9 @@
 import chalk from 'chalk';
 import { existsSync, writeFileSync, mkdirSync, readFileSync } from 'fs';
 import { join, resolve } from 'path';
-import { homedir } from 'os';
 import { spawn } from 'child_process';
+import { DATA_DIR } from '../config.js';
+import { createActivity } from '../terminal/motion.js';
 
 const NAME_ADJECTIVES = ['spicy', 'smoky', 'crispy', 'tangy', 'zesty', 'golden', 'sizzling', 'savory', 'fiery', 'mellow', 'rustic', 'bold', 'fresh', 'hearty', 'silky'];
 const NAME_DISHES = ['ramen', 'curry', 'broth', 'stew', 'risotto', 'gumbo', 'chowder', 'bisque', 'pho', 'laksa', 'minestrone', 'gazpacho', 'dashi', 'congee', 'tom-yum'];
@@ -41,14 +42,20 @@ export const UtilsMixin = {
         } else if (sub === 'connect') {
             const name = parts[1];
             if (!name) { console.log(chalk.dim('  Usage: /mcp connect <name>')); return; }
+            const activity = createActivity(`Connecting to ${name}…`, {
+                accent: (value) => chalk.hex('#4ECDC4')(value),
+            }).start();
             try {
-                console.log(chalk.dim(`  Connecting to ${name}...`));
                 const conn = await this.mcpClient.connect(name);
+                activity.stop();
                 console.log(chalk.green(`  ✅ Connected to "${name}" — ${conn.tools.length} tools available`));
                 for (const t of conn.tools) {
                     console.log(chalk.dim(`    🔧 ${t.name}: ${t.description || ''}`));
                 }
-            } catch (err) { console.log(chalk.red(`  ❌ ${err.message}`)); }
+            } catch (err) {
+                activity.stop();
+                console.log(chalk.red(`  ❌ ${err.message}`));
+            }
         } else if (sub === 'tools') {
             const tools = this.mcpClient.allTools();
             if (!tools.length) { console.log(chalk.dim('  No tools available. Connect to a server first: /mcp connect <name>')); return; }
@@ -84,25 +91,37 @@ export const UtilsMixin = {
 
     async browseLocalhost(input) {
         const url = input.replace('/browse', '').trim() || 'http://localhost:3000';
-        console.log(chalk.hex('#4ECDC4')('  🌐 ') + chalk.dim(`browsing ${url}…`));
+        const activity = createActivity(`Checking ${url}…`, {
+            accent: (value) => chalk.hex('#4ECDC4')(value),
+        }).start();
+        let browser;
         try {
             const puppeteer = await import('puppeteer-core');
             const paths = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'];
             const execPath = paths.find((p) => existsSync(p));
-            if (!execPath) { console.log(chalk.red('  No Chrome found.')); return; }
-            const browser = await puppeteer.default.launch({ executablePath: execPath, headless: 'new' });
+            if (!execPath) {
+                activity.stop();
+                console.log(chalk.red('  No Chrome found.'));
+                return;
+            }
+            browser = await puppeteer.default.launch({ executablePath: execPath, headless: 'new' });
             const page = await browser.newPage();
             await page.setViewport({ width: 1280, height: 800 });
             await page.goto(url, { waitUntil: 'networkidle2', timeout: 10000 });
             const title = await page.title();
-            const ssPath = join(homedir(), '.soupz-agents', `screenshot-${Date.now()}.png`);
+            mkdirSync(DATA_DIR, { recursive: true });
+            const ssPath = join(DATA_DIR, `screenshot-${Date.now()}.png`);
             await page.screenshot({ path: ssPath, fullPage: false });
             const text = await page.evaluate(() => document.body?.innerText?.slice(0, 300) || '');
             await browser.close();
+            browser = null;
+            activity.stop();
             console.log(chalk.green(`  ✔ ${title || url}`));
             console.log(chalk.dim(`  📸 ${ssPath}`));
             if (text) console.log(chalk.dim(`  ${text.slice(0, 150).replace(/\n/g, ' ')}…`));
         } catch (err) {
+            activity.stop();
+            if (browser) await browser.close().catch(() => {});
             console.log(chalk.red(`  ✖ ${err.message}`));
         }
     },

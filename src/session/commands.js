@@ -4,8 +4,14 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { GEMINI_MODELS, COPILOT_MODELS } from './index.js';
 import { SESSIONS_DIR } from './memory.js';
+import { renderMeterView } from './monitoring.js';
+import { RECIPE_CHAINS } from './recipes.js';
 
 export const CommandsMixin = {
+    showMeter() {
+        console.log(`\n${renderMeterView(this.meter)}\n`);
+    },
+
     loadSession(name) {
         const fp = join(SESSIONS_DIR, `${name}.json`);
         if (!existsSync(fp)) { console.log(chalk.red(`  Session "${name}" not found.`)); return; }
@@ -260,19 +266,6 @@ export const CommandsMixin = {
     },
 
     async runRecipe(input) {
-        const recipes = {
-            'product-launch': 'researcher→strategist→pm→designer→dev→tester→devops',
-            'brand-identity': 'domain-scout→researcher→brand-chef→designer→svgart→contentwriter',
-            'mvp-sprint': 'quick-flow→dev→tester→devops',
-            'ux-audit': 'ux-designer→analyst→qa→presenter',
-            'pitch-deck': 'strategist→storyteller→presenter→svgart',
-            'code-quality': 'architect→dev→tea→qa',
-            'content-campaign': 'researcher→contentwriter→storyteller→designer',
-            'security-review': 'security→tea→devops',
-            'landing-page': 'researcher→ux-designer→designer→dev',
-            'api-design': 'architect→dev→tea→qa→devops',
-        };
-
         const match = input.match(/^([\w-]+)\s+"(.+)"$/s) || input.match(/^([\w-]+)\s+(.+)$/s);
         if (!match) {
             console.log(chalk.dim('  Usage: /recipe <recipe-id> "your prompt"'));
@@ -280,7 +273,7 @@ export const CommandsMixin = {
             return;
         }
         const [, recipeId, prompt] = match;
-        const chain = recipes[recipeId];
+        const chain = RECIPE_CHAINS[recipeId];
         if (!chain) {
             console.log(chalk.red(`  Unknown recipe: ${recipeId}`));
             this.showRecipes();
@@ -310,7 +303,7 @@ export const CommandsMixin = {
     async handleHackathon(input) {
         const HR2 = chalk.hex('#FF2D55')('━'.repeat(55));
         console.log('\n' + HR2);
-        console.log(chalk.hex('#FF2D55').bold('  🏁 HACKATHON MODE — Soupz Stall War Room'));
+        console.log(chalk.hex('#FF2D55').bold('  🏁 HACKATHON MODE — Soupz CLI War Room'));
         console.log(HR2);
 
         // Parse inline args: /hackathon 24h 3ppl "build a fintech app"

@@ -1,15 +1,23 @@
 {
-    "name": "@shubh_prajapati99/soupz",
+    "name": "soupz-cli",
     "version": "0.2.0",
     "description": "Code from anywhere — AI coding IDE that bridges your phone to your laptop",
     "type": "module",
-    "publishConfig": {
-        "access": "public"
-    },
     "bin": {
-        "soupz": "bin/soupz.js",
-        "soupz-cockpit": "bin/soupz.js"
+        "soupz-cli": "bin/soupz.js"
     },
+    "workspaces": [
+        "packages/*"
+    ],
+    "files": [
+        "bin/soupz.js",
+        "src/",
+        "defaults/",
+        "packages/remote-server/package.json",
+        "packages/remote-server/src/",
+        "README.md",
+        "LICENSE"
+    ],
     "scripts": {
         "setup": "node --max-old-space-size=4096 scripts/setup.js",
         "start": "node --max-old-space-size=4096 bin/soupz.js",
@@ -18,10 +26,11 @@
         "dev:web:pnpm": "SOUPZ_PM=pnpm node --max-old-space-size=4096 scripts/dev-web-stack.js",
         "dev:web:npm": "SOUPZ_PM=npm node --max-old-space-size=4096 scripts/dev-web-stack.js",
         "test": "vitest run",
+        "smoke:cli": "node scripts/cli-smoke-check.mjs",
         "smoke:pairing": "node scripts/pairing-smoke-check.mjs",
         "snapshot:mobile": "node scripts/mobile-viewport-snapshots.mjs",
         "lint:docs-links": "node scripts/check-doc-links.mjs",
-        "prepare": "node --max-old-space-size=4096 src/auto-import.js && (cd packages/remote-server && npm install --silent 2>/dev/null) || true"
+        "prepare": "node --max-old-space-size=4096 src/auto-import.js"
     },
     "devDependencies": {
         "vitest": "^3.2.4"
@@ -59,13 +68,5 @@
         "gemini"
     ],
     "author": "Shubh Prajapati",
-    "license": "MIT",
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/Soham-Prajapati/soupz-stall.git"
-    },
-    "bugs": {
-        "url": "https://github.com/Soham-Prajapati/soupz-stall/issues"
-    },
-    "homepage": "https://soupz.vercel.app"
+    "license": "MIT"
 }

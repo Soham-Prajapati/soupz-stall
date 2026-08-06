@@ -8,7 +8,7 @@ Complete examples showing how personas spawn subagents, ask for input, and colla
 
 ### Input
 ```bash
-$ soupz-stall
+$ soupz-cli
 > @brainstorm generate 10 ideas for a productivity app
 ```
 

@@ -1,6 +1,6 @@
-# Publishing Guide — Soupz Stall
+# Publishing Guide — Soupz CLI
 
-How to distribute Soupz Stall via npm, Homebrew, and other channels.
+How a release owner can distribute Soupz CLI. Do not publish as part of normal development or verification work.
 
 ---
 
@@ -12,11 +12,14 @@ Ensure `package.json` has these fields:
 
 ```json
 {
-  "name": "soupz-stall",
-  "version": "0.1.0-alpha",
+  "name": "soupz-cli",
+  "version": "0.2.0",
   "bin": {
-    "soupz": "./bin/soupz.js"
+    "soupz-cli": "./bin/soupz.js"
   },
+  "repository": { "type": "git", "url": "git+https://github.com/soupz/cli.git" },
+  "bugs": { "url": "https://github.com/soupz/cli/issues" },
+  "homepage": "https://github.com/soupz/cli#readme",
   "files": ["bin/", "src/", "defaults/", "scripts/", "docs/", "README.md", "LICENSE"],
   "engines": { "node": ">=18" }
 }
@@ -40,48 +43,17 @@ npm publish
 
 ```bash
 # Global install
-npm install -g @shubh_prajapati99/soupz
+npm install -g soupz-cli
 
 # Or run without installing
-npx @shubh_prajapati99/soupz
+npx soupz-cli
 ```
 
 ---
 
 ## 2. Homebrew
 
-### Create a Homebrew Formula
-
-Create a GitHub repo called `homebrew-soupz` with this formula:
-
-```ruby
-# Formula/soupz-stall.rb
-class SoupzStall < Formula
-  desc "Multi-agent CLI orchestrator with 38 specialized AI chef personas"
-  homepage "https://github.com/YourUsername/soupz-agents"
-  url "https://registry.npmjs.org/soupz-stall/-/soupz-stall-0.1.0.tgz"
-  sha256 "REPLACE_WITH_ACTUAL_SHA256"
-  license "MIT"
-
-  depends_on "node"
-
-  def install
-    system "npm", "install", *std_npm_args
-    bin.install_symlink Dir["#{libexec}/bin/*"]
-  end
-
-  test do
-    assert_match "Soupz Stall", shell_output("#{bin}/soupz --version")
-  end
-end
-```
-
-### Users Install With
-
-```bash
-brew tap YourUsername/soupz
-brew install soupz-stall
-```
+There is no supported Homebrew formula. Install with `npm install -g soupz-cli` or run `npx soupz-cli`.
 
 ---
 
@@ -99,8 +71,8 @@ gh release create v0.1.0-alpha --title "v0.1.0-alpha" --notes "Initial alpha rel
 Users can then:
 ```bash
 # Clone and install
-git clone https://github.com/YourUsername/soupz-agents.git
-cd soupz-agents && npm install && npm link
+git clone https://github.com/soupz/cli.git
+cd cli && npm install && npm link
 ```
 
 ---
@@ -123,12 +95,12 @@ cd soupz-agents && npm install && npm link
 # Create a tarball and test it
 npm pack
 # Install the tarball globally
-npm install -g soupz-stall-0.1.0-alpha.tgz
+npm install -g soupz-cli-0.2.0.tgz
 # Test it works
-soupz --help
+soupz-cli --help
 # Clean up
-npm uninstall -g soupz-stall
-rm soupz-stall-0.1.0-alpha.tgz
+npm uninstall -g soupz-cli
+rm soupz-cli-0.2.0.tgz
 ```
 
 ---

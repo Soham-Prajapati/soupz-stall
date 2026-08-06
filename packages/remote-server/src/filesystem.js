@@ -3,7 +3,7 @@
 import { execSync } from 'child_process';
 import { readdir, readFile, writeFile, stat, mkdir, watch } from 'fs/promises';
 import { existsSync, readFileSync, statSync } from 'fs';
-import { join, resolve, relative, dirname } from 'path';
+import { join, resolve, relative, dirname, isAbsolute } from 'path';
 import os from 'os';
 import {
     app,
@@ -24,6 +24,35 @@ import {
     invalidateCachedFile,
     broadcast,
 } from './shared.js';
+
+// ─── Path containment ─────────────────────────────────────────────────────────
+//
+// The file APIs let the caller name the root they want to browse — that is the
+// folder picker working as intended. But an unrestricted root made the
+// containment checks below vacuous: `?root=/&path=etc/hosts` resolves happily
+// "inside" /, so a leaked session token meant read/write across the entire disk
+// rather than one project. Roots are now resolved against a set of allowed bases.
+//
+// Defaults: the user's home directory, the repo root, and the daemon's cwd.
+// Widen it when you genuinely need to, with a colon-separated list:
+//     SOUPZ_ALLOWED_ROOTS=/Volumes/work:/opt/src
+const ALLOWED_ROOT_BASES = (process.env.SOUPZ_ALLOWED_ROOTS
+    ? process.env.SOUPZ_ALLOWED_ROOTS.split(':')
+    : [os.homedir(), REPO_ROOT, process.cwd()]
+).filter(Boolean).map((p) => resolve(p));
+
+// `a.startsWith(b)` is not path containment — root /home/x/proj would admit
+// /home/x/proj-secrets. Compare on path segments instead.
+export function isInside(base, target) {
+    const rel = relative(base, target);
+    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+// Returns the resolved root, or null when it escapes every allowed base.
+export function resolveRoot(requested) {
+    const rootPath = resolve(requested || REPO_ROOT || process.cwd());
+    return ALLOWED_ROOT_BASES.some((base) => isInside(base, rootPath)) ? rootPath : null;
+}
 
 // ─── File watcher ─────────────────────────────────────────────────────────────
 
@@ -215,7 +244,7 @@ app.get('/api/dev-server', requireAuth, async (req, res) => {
     const internalPorts = [7534, 7070, 7533];
     const ports = [...preferredPorts, ...internalPorts];
     const requestedCwd = String(req.query?.cwd || '').trim().toLowerCase();
-    const isSoupzWorkspace = requestedCwd.includes('/soupz-agents');
+    const isSoupzWorkspace = /\/(?:soupz-cli|cli)(?:\/|$)/.test(requestedCwd);
     const filterSoupzSelf = !isSoupzWorkspace;
     const soupzHtmlSignature = /soupz\s+command\s+studio|soupz\s+core\s+console|soupz\.vercel\.app|content=\"soupz|>\s*soupz\s*<|apple-mobile-web-app-title\"\s+content=\"soupz/i;
 
@@ -304,7 +333,8 @@ let lastTreeLogTime = 0;
 const TREE_LOG_DEBOUNCE_MS = 30000;
 
 app.get('/api/fs/tree', requireAuth, async (req, res) => {
-    const rootPath = resolve(req.query.root || REPO_ROOT || process.cwd());
+    const rootPath = resolveRoot(req.query.root);
+    if (!rootPath) return res.status(403).json({ error: 'Root is outside the allowed paths' });
     if (!existsSync(rootPath)) {
         console.error(`  ✖ File tree requested for non-existent path: ${rootPath}`);
         return res.status(404).json({ error: 'Path not found' });
@@ -330,9 +360,10 @@ app.get('/api/fs/tree', requireAuth, async (req, res) => {
 
 // GET /api/fs/file?path=/relative/path&root=/root (authenticated)
 app.get('/api/fs/file', requireAuth, async (req, res) => {
-    const rootPath = resolve(req.query.root || REPO_ROOT || process.cwd());
+    const rootPath = resolveRoot(req.query.root);
+    if (!rootPath) return res.status(403).json({ error: 'Root is outside the allowed paths' });
     const filePath = resolve(rootPath, req.query.path || '');
-    if (!filePath.startsWith(rootPath)) return res.status(403).json({ error: 'Access denied' });
+    if (!isInside(rootPath, filePath)) return res.status(403).json({ error: 'Access denied' });
     try {
         const cached = getCachedFile(filePath);
         if (cached) {
@@ -360,9 +391,10 @@ app.post('/api/fs/file', requireAuth, async (req, res) => {
     if (relPath && (relPath.includes('\0') || relPath.includes('..'))) {
         return res.status(400).json({ error: 'Invalid file path' });
     }
-    const rootPath = resolve(root || REPO_ROOT || process.cwd());
+    const rootPath = resolveRoot(root);
+    if (!rootPath) return res.status(403).json({ error: 'Root is outside the allowed paths' });
     const filePath = resolve(rootPath, relPath);
-    if (!filePath.startsWith(rootPath)) return res.status(403).json({ error: 'Access denied' });
+    if (!isInside(rootPath, filePath)) return res.status(403).json({ error: 'Access denied' });
     try {
         await writeFile(filePath, content, 'utf8');
         invalidateCachedFile(filePath);

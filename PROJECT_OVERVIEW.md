@@ -1,4 +1,4 @@
-# Soupz Stall — Master Project Overview (Updated: April 1, 2026)
+# Soupz CLI — Master Project Overview (Updated: April 1, 2026)
 
 ## Documentation Routing (Read This First)
 
@@ -40,7 +40,20 @@ This file remains a broad project compendium and includes historical/background 
 
 
 ## 1. What Is This Project?
-Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme speed, observability, and cost-efficiency. It solves the 'monolithic LLM' problem by utilizing a coordinated swarm of specialized agents (chefs) operating within a 'kitchen' metaphor, allowing local-first terminal execution with a remote real-time web dashboard. What makes it different is its local-first PTY bridging, automatic plan decomposition via DAGs, and 3-layer semantic routing that significantly reduces API costs by using local models (Ollama) when possible.
+Soupz is a multi-agent orchestrator CLI plus a local daemon that bridges the AI coding CLIs already installed on your machine to a web dashboard. It has no model of its own: it shells out to `gemini`, `copilot`, `claude`, `codex`, and `kiro`, applies a persona system prompt, and streams their output back. The differentiators that hold up in the code are local PTY bridging, a keyword-scored router with an availability-aware fallback chain, and a run archive that persists prompts, events, and stdout for every order.
+
+> **Accuracy note (2026-07-31).** This document is partly machine-generated and had
+> drifted from the code. Corrected in this pass: plan decomposition is a flat
+> `Promise.allSettled` fan-out, **not** a DAG (there is no topological ordering
+> anywhere in `src/orchestrator/`); §5a previously listed 41 persona handles, 15 of
+> which did not exist; token compression is string substitution, not AST-based; and
+> the corrupted §5b deep dive was removed. `defaults/agents/` is the only source of
+> truth for which personas are real.
+>
+> ⚠️ **Do not re-run `generate_project_overview.cjs`.** It regenerates this file from
+> scratch and will discard every hand-written correction above, including this note.
+> It also has two known bugs: it truncates persona descriptions mid-sentence, and it
+> drops dependencies on name collision. Fix the generator before using it again.
 
 ## 2. The Metaphor System (Glossary)
 
@@ -113,7 +126,7 @@ Soupz Stall is a Jarvis-like multi-agent orchestrator CLI tailored for extreme s
   - `packages/remote-server/` : The Express / node-pty server that bridges the local terminal to the dashboard.
   - `packages/mobile-ide/` : (Scaffold) React Native Expo app for mobile monitoring.
   - `packages/browser-extension/` : (Scaffold) Chrome extension for DOM injection.
-- `defaults/agents/` : The Markdown definitions for the 40+ specialized personas.
+- `defaults/agents/` : The Markdown persona definitions. 44 `.md` files ship, of which **34 currently load** (5 CLI lanes + 29 specialists). Two are documentation (`SKILL_TEMPLATE.md`, `SKILL_ANALYSIS.md`) and eight have unterminated YAML frontmatter, so the loader silently skips them — see §5a.
 - `docs/` : Documentation and knowledge base.
 
 ## 5. The Complete Chef Persona System
@@ -125,382 +138,76 @@ Routing policy note:
 
 ### 5a. Overview Table
 
-| # | Name | Invoke Handle | Icon | Underlying Agent | Core Specialty |
-|---|---|---|---|---|---|
-| 1 | Agent Builder (Bond) | `@agent-builder` | 🔧 | Dynamic (policy-routed) | Agent architecture specialist and Soupz compliance expert who creates robust, maintainable agents |
-| 2 | Business Analyst | `@analyst` | 📊 | Dynamic (policy-routed) | Senior business analyst — requirements, user stories, competitive analysis, market sizing, KPIs |
-| 3 | Tech Architect | `@architect` | 🏗️ | Dynamic (policy-routed) | CTO-level technical architect who plans for 50-person teams with production-grade systems |
-| 4 | Brainstorming Coach | `@brainstorm` | 💡 | Dynamic (policy-routed) | SCAMPER, Six Thinking Hats, Mind Mapping, Crazy 8s, Reverse Brainstorming — master ideation facilitator |
-| 5 | Brand Chef | `@brand-chef` | 🧑‍🍳 | Dynamic (policy-routed) | Brand identity specialist — naming, messaging, positioning, voice & tone, visual direction |
-| 6 | Content Writer | `@contentwriter` | ✍️ | Dynamic (policy-routed) | Marketing copy, blog posts, social media, SEO optimization |
-| 7 | GitHub Copilot | `@copilot` | 🐙 | Dynamic (policy-routed) | GitHub Copilot CLI — shell commands, DevOps, GitHub workflows |
-| 8 | Data Scientist | `@datascientist` | 📈 | Dynamic (policy-routed) | CRISP-DM, ML pipelines, statistical analysis, experiment design, data storytelling |
-| 9 | Design Thinking Coach (Maya) | `@design-thinking-coach` | 💡 | Dynamic (policy-routed) | Human-centered design expert and empathy architect guiding design thinking processes with 15+ years experience |
-| 10 | Design Agency | `@designer` | 🎨 | Dynamic (policy-routed) | World-class design agency — 8-phase brand engagement, Awwwards-quality HTML prototypes, 3-second clarity test. |
-| 11 | Developer (Amelia) | `@dev` | 💻 | Dynamic (policy-routed) | Senior software engineer who executes approved stories with strict TDD adherence and comprehensive test coverage |
-| 12 | DevOps Engineer | `@devops` | ⚙️ | Dynamic (policy-routed) | DevOps — Docker, CI/CD, cloud infra, Terraform, monitoring |
-| 13 | Domain Scout | `@domain-scout` | 🗺️ | Dynamic (policy-routed) | Maps competitive domains — classifies product space, finds direct/adjacent competitors, identifies whitespace |
-| 14 | PS Evaluator | `@evaluator` | ⚖️ | Dynamic (policy-routed) | Hackathon judging, feasibility scoring, competitive analysis |
-| 15 | "Forager (Ingredient Scout)" | `@forager` | 🧺 | Dynamic (policy-routed) | The Stall |
-| 16 | Gemini | `@gemini` | 🔮 | Dynamic (policy-routed) | Google Gemini CLI — research, code generation, multi-modal analysis |
-| 17 | Innovation Strategist | `@innovator` | 🚀 | Dynamic (policy-routed) | Blue Ocean Strategy, Jobs-to-be-Done, Business Model Canvas, disruption analysis — strategic innovation architect |
-| 18 | Team Lead | `@master` | 👑 | Dynamic (policy-routed) | Master orchestrator — decomposes complex projects into parallel persona work streams, coordinates and integrates outputs |
-| 19 | Module Builder (Morgan) | `@module-builder` | 📦 | Dynamic (policy-routed) | Module architecture specialist who creates cohesive, scalable Soupz modules with agents, workflows, and infrastructure |
-| 20 | Ollama | `@ollama` | 🤖 | Dynamic (policy-routed) | Ollama — local LLMs (Llama, Mistral, Phi) |
-| 21 | Orchestrator | `@orchestrator` | 🎯 | Dynamic (policy-routed) | Master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates Soupz multi-agent workflows |
-| 22 | Project Planner | `@planner` | 📋 | Dynamic (policy-routed) | Sprint planning, task breakdown, dependency mapping, Gantt charts |
-| 23 | Product Manager | `@pm` | 🎯 | Dynamic (policy-routed) | PRDs, roadmaps, RICE/MoSCoW prioritization, user research, north star metrics — outcome-driven PM |
-| 24 | Presentation Coach | `@presenter` | 🎤 | Dynamic (policy-routed) | 10x hackathon champion and pitch coach — demo scripts, investor decks, judge prep, storytelling |
-| 25 | Problem Solver | `@problemsolver` | 🧩 | Dynamic (policy-routed) | TRIZ, 5 Whys, First Principles, Theory of Constraints, Systems Thinking — systematic problem-solving expert |
-| 26 | QA Engineer | `@qa` | 🧪 | Dynamic (policy-routed) | QA — test plans, edge cases, bug reports, quality gates |
-| 27 | Quick Flow Solo Dev (Barry) | `@quick-flow` | ⚡ | Dynamic (policy-routed) | Elite full-stack developer for rapid spec creation through lean implementation with minimum ceremony |
-| 28 | Researcher | `@researcher` | 🔬 | Dynamic (policy-routed) | Deep researcher — competitive intelligence, API/SDK evaluation, market sizing, domain analysis |
-| 29 | Review Miner | `@review-miner` | ⛏️ | Dynamic (policy-routed) | Mines user reviews from Reddit, X, App Store, Play Store — extracts real pain points & feature gaps |
-| 30 | Scrum Master | `@scrum` | 🏃 | Dynamic (policy-routed) | Certified Scrum Master — sprint planning, story preparation, retrospectives, velocity tracking, blocker removal |
-| 31 | Security Auditor | `@security` | 🔒 | Dynamic (policy-routed) | Security — threat modeling, OWASP, pen test planning, compliance |
-| 32 | Storyteller | `@storyteller` | 📖 | Dynamic (policy-routed) | Hero |
-| 33 | Strategist | `@strategist` | 💼 | Dynamic (policy-routed) | Billionaire-level strategist — market intelligence, brand positioning, investor pitch, GTM, business model |
-| 34 | SVG Artist | `@svgart` | 🖼️ | Dynamic (policy-routed) | SVG & CSS art generator — creates ready-to-import SVG files, icons, logos, illustrations, and UI assets |
-| 35 | Test Architect (Murat) | `@tea` | 🧪 | Dynamic (policy-routed) | Master test architect specializing in risk-based testing, ATDD, test strategy, and CI/CD quality governance |
-| 36 | Teaching Assistant | `@teacher` | 📚 | Dynamic (policy-routed) | Patient expert educator — Bloom |
-| 37 | Tech Writer | `@techwriter` | 📝 | Dynamic (policy-routed) | READMEs, API docs, tutorials, changelogs, migration guides |
-| 38 | Test Architect | `@tester` | 🔍 | Dynamic (policy-routed) | Test strategy, automation frameworks, quality gates, CI/CD |
-| 39 | UI Builder | `@ui-builder` | 🏗️ | Dynamic (policy-routed) | Builds the actual HTML prototypes — GSAP animations, design systems, SVG assets, Awwwards-quality output |
-| 40 | UX Designer (Sally) | `@ux-designer` | 🎯 | Dynamic (policy-routed) | Senior UX designer specializing in user research, interaction design, and human-centered experience strategy |
-| 41 | Workflow Builder (Wendy) | `@workflow-builder` | 🔄 | Dynamic (policy-routed) | Workflow architecture specialist and process design expert who creates efficient, scalable Soupz workflows |
+Generated from `defaults/agents/*.md` on 2026-07-31. Only entries the loader actually parses are listed. The previous version of this table had 41 rows, 15 of which named personas that do not exist.
+
+**CLI lanes** (5) — these wrap an installed binary:
+
+| # | Name | Invoke Handle | Icon | Description |
+|---|---|---|---|---|
+| 1 | Claude Code | `@claude-code` | 🧠 | Claude Code CLI — complex reasoning, code generation, architecture, multi-file editing |
+| 2 | Codex | `@codex` | C | Codex provider via GitHub Copilot CLI models (coding + refactoring + architecture) |
+| 3 | GitHub Copilot | `@copilot` | 🐙 | GitHub Copilot CLI — coding, shell, GitHub. Models: gpt-5.1-codex-mini (free), gpt-5.4, claude-sonnet-4.6 |
+| 4 | Gemini | `@gemini` | 🔮 | Google Gemini CLI — research, code generation, multi-modal analysis |
+| 5 | Kiro | `@kiro` | ⚡ | Kiro AI CLI — spec-driven development, autonomous coding agent |
+
+**Specialist personas** (29) — system prompts layered onto whichever CLI lane the router picks:
+
+| # | Name | Invoke Handle | Icon | Core Specialty |
+|---|---|---|---|---|
+| 1 | Agent Builder (Shubh) | `@agent-builder` | 🔧 | Agent architecture specialist and SOUPZ compliance expert who creates robust, maintainable agents |
+| 2 | Tech Architect | `@architect` | 🏗️ | CTO-level technical architect who plans for 50-person teams with production-grade systems |
+| 3 | Brand Chef | `@brand-chef` | 🧑‍🍳 | Brand identity specialist — naming, messaging, positioning, voice & tone, visual direction |
+| 4 | Content Writer | `@contentwriter` | ✍️ | Senior Content Strategist — marketing copy, blog posts, SEO optimization, social media, email campaigns, landing pages |
+| 5 | Cost Optimizer | `@cost-optimizer` | 💰 | AI cost optimizer — token reduction, model tiering, language bridge (Mandarin), caching strategy |
+| 6 | Data Scientist | `@datascientist` | 📈 | CRISP-DM, ML pipelines, statistical analysis, experiment design, data storytelling |
+| 7 | Design Agency | `@designer` | 🎨 | World-class design agency — 8-phase brand engagement, Awwwards-quality HTML prototypes, 3-second clarity test. |
+| 8 | DevOps Engineer | `@devops` | ⚙️ | Senior DevOps/SRE Engineer — Docker, Kubernetes, CI/CD, Terraform, cloud architecture, monitoring, incident response |
+| 9 | Domain Scout | `@domain-scout` | 🗺️ | Maps competitive domains — classifies product space, finds direct/adjacent competitors, identifies whitespace |
+| 10 | PS Evaluator | `@evaluator` | ⚖️ | Hackathon judging, feasibility scoring, competitive analysis |
+| 11 | Finance Analyst | `@finance` | 📊 | CFA-level financial analyst — DCF models, unit economics, fundraising strategy, startup finance |
+| 12 | Innovation Strategist | `@innovator` | 🚀 | Innovation Strategist — Blue Ocean Strategy, Jobs-to-be-Done, Business Model Canvas, disruption analysis, market creation |
+| 13 | Legal Advisor | `@legal` | ⚖️ | Legal advisor — startup legal, contracts, privacy compliance (GDPR/CCPA), IP protection, SaaS agreements |
+| 14 | Orchestrator | `@orchestrator` | 🎯 | Master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates multi-agent workflows like SOUPZ |
+| 15 | Project Planner | `@planner` | 📋 | Senior Project Planner — sprint planning, task breakdown, parallel work coordination, dependency mapping, Gantt charts |
+| 16 | Product Manager | `@pm` | 🎯 | Senior Product Manager — PRDs, roadmaps, RICE/MoSCoW prioritization, user research, OKRs, north star metrics, continuous discovery |
+| 17 | Problem Solver | `@problemsolver` | 🧩 | TRIZ, 5 Whys, First Principles, Theory of Constraints, Systems Thinking — systematic problem-solving expert |
+| 18 | Product Analyst | `@product-analyst` | 🔍 | Product analyst — metrics frameworks, cohort analysis, feature prioritization (RICE/Kano), KPI dashboards |
+| 19 | QA Engineer | `@qa` | 🧪 | Principal QA Engineer — test strategies, edge case analysis, quality gates, test automation, accessibility, performance testing |
+| 20 | Review Miner | `@review-miner` | ⛏️ | Mines user reviews from Reddit, X, App Store, Play Store — extracts real pain points & feature gaps |
+| 21 | Security Engineer | `@security` | 🔒 | Security Engineer — threat modeling, OWASP Top 10, penetration testing, compliance (GDPR, SOC2, HIPAA), incident response |
+| 22 | Storyteller | `@storyteller` | 📖 | Hero's Journey, narrative arcs, brand voice, copywriting |
+| 23 | SVG Artist | `@svgart` | 🖼️ | SVG & CSS art generator — creates ready-to-import SVG files, icons, logos, illustrations, and UI assets |
+| 24 | Teaching Assistant | `@teacher` | 📚 | Patient expert educator — Bloom's Taxonomy, Feynman Technique, scaffolded learning with examples and exercises |
+| 25 | Team Lead | `@team-lead` | 👑 | Master coordinator that breaks complex projects into parallel streams and delegates to specialists simultaneously |
+| 26 | Tech Writer | `@techwriter` | 📝 | READMEs, API docs, tutorials, changelogs, migration guides |
+| 27 | Test Architect | `@tester` | 🔍 | Test strategy, automation frameworks, quality gates, CI/CD |
+| 28 | UI Builder | `@ui-builder` | 🏗️ | Builds the actual HTML prototypes — GSAP animations, design systems, SVG assets, Awwwards-quality output |
+| 29 | UX Designer (Nidhi) | `@ux-designer` | 🎯 | Senior UX designer specializing in user research, interaction design, and human-centered experience strategy |
+
+**Files that ship but do not load** (8) — their YAML frontmatter is never closed, so `loadAgentDefinition()` returns null and they are skipped in silence: `ai-engineer.md`, `analyst.md`, `dev.md`, `growth-hacker.md`, `mobile-dev.md`, `presenter.md`, `researcher.md`, `strategist.md`. These handles are not invokable until the frontmatter is terminated.
+
+**Not personas** — `SKILL_ANALYSIS.md`, `SKILL_TEMPLATE.md` are documentation that happens to live in this directory.
 
 
-### 5b. Per-Persona Deep Dive (ALL personas — do not skip any)
+### 5b. Per-Persona Detail
 
-#### 1. Agent Builder (Bond) (@agent-builder)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Agent architecture specialist and Soupz compliance expert who creates robust, maintainable agents
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @agent-builder, agent architecture specialist and Soupz compliance expert who creates robust, maintainable agents for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Agent Builder (Bond) workflows rather than general responsibilities.
+This section previously held ~330 lines of per-persona "deep dive" emitted by
+`generate_project_overview.cjs`. It has been removed rather than corrected, because
+essentially none of it was load-bearing and much of it was wrong:
 
-#### 2. Business Analyst (@analyst)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Senior business analyst — requirements, user stories, competitive analysis, market sizing, KPIs
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @analyst, senior business analyst — requirements, user stories, competitive analysis, market sizing, kpis for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Business Analyst workflows rather than general responsibilities.
+- It documented 41 personas, including 15 that do not exist in `defaults/agents/`.
+- The "Specialty" lines were produced by a faulty regex in the generator and were
+  truncated mid-sentence (e.g. `**Specialty**: The Stall`, `**Specialty**: Hero`).
+- "System Prompt Logic", "Unique Behaviors / Flags" and "How It Differs From Similar
+  Personas" were the same boilerplate string for every entry, carrying no information.
+- "Example Use Case" was mechanically generated by lowercasing the description and
+  appending "for the new auth feature".
+- The heading itself ("ALL personas — do not skip any") was an instruction to the
+  generating model that leaked into published prose.
 
-#### 3. Tech Architect (@architect)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: CTO-level technical architect who plans for 50-person teams with production-grade systems
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @architect, cto-level technical architect who plans for 50-person teams with production-grade systems for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Tech Architect workflows rather than general responsibilities.
-
-#### 4. Brainstorming Coach (@brainstorm)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: SCAMPER, Six Thinking Hats, Mind Mapping, Crazy 8s, Reverse Brainstorming — master ideation facilitator
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @brainstorm, scamper, six thinking hats, mind mapping, crazy 8s, reverse brainstorming — master ideation facilitator for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Brainstorming Coach workflows rather than general responsibilities.
-
-#### 5. Brand Chef (@brand-chef)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Brand identity specialist — naming, messaging, positioning, voice & tone, visual direction
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @brand-chef, brand identity specialist — naming, messaging, positioning, voice & tone, visual direction for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Brand Chef workflows rather than general responsibilities.
-
-#### 6. Content Writer (@contentwriter)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Marketing copy, blog posts, social media, SEO optimization
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @contentwriter, marketing copy, blog posts, social media, seo optimization for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Content Writer workflows rather than general responsibilities.
-
-#### 7. GitHub Copilot (@copilot)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: GitHub Copilot CLI — shell commands, DevOps, GitHub workflows
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @copilot, github copilot cli — shell commands, devops, github workflows for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on GitHub Copilot workflows rather than general responsibilities.
-
-#### 8. Data Scientist (@datascientist)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: CRISP-DM, ML pipelines, statistical analysis, experiment design, data storytelling
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @datascientist, crisp-dm, ml pipelines, statistical analysis, experiment design, data storytelling for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Data Scientist workflows rather than general responsibilities.
-
-#### 9. Design Thinking Coach (Maya) (@design-thinking-coach)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Human-centered design expert and empathy architect guiding design thinking processes with 15+ years experience
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @design-thinking-coach, human-centered design expert and empathy architect guiding design thinking processes with 15+ years experience for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Design Thinking Coach (Maya) workflows rather than general responsibilities.
-
-#### 10. Design Agency (@designer)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: World-class design agency — 8-phase brand engagement, Awwwards-quality HTML prototypes, 3-second clarity test.
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @designer, world-class design agency — 8-phase brand engagement, awwwards-quality html prototypes, 3-second clarity test. for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Design Agency workflows rather than general responsibilities.
-
-#### 11. Developer (Amelia) (@dev)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Senior software engineer who executes approved stories with strict TDD adherence and comprehensive test coverage
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @dev, senior software engineer who executes approved stories with strict tdd adherence and comprehensive test coverage for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Developer (Amelia) workflows rather than general responsibilities.
-
-#### 12. DevOps Engineer (@devops)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: DevOps — Docker, CI/CD, cloud infra, Terraform, monitoring
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @devops, devops — docker, ci/cd, cloud infra, terraform, monitoring for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on DevOps Engineer workflows rather than general responsibilities.
-
-#### 13. Domain Scout (@domain-scout)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Maps competitive domains — classifies product space, finds direct/adjacent competitors, identifies whitespace
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @domain-scout, maps competitive domains — classifies product space, finds direct/adjacent competitors, identifies whitespace for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Domain Scout workflows rather than general responsibilities.
-
-#### 14. PS Evaluator (@evaluator)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Hackathon judging, feasibility scoring, competitive analysis
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @evaluator, hackathon judging, feasibility scoring, competitive analysis for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on PS Evaluator workflows rather than general responsibilities.
-
-#### 15. "Forager (Ingredient Scout)" (@forager)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: The Stall
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Standard persona wrapper. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @forager, the stall for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on "Forager (Ingredient Scout)" workflows rather than general responsibilities.
-
-#### 16. Gemini (@gemini)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Google Gemini CLI — research, code generation, multi-modal analysis
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @gemini, google gemini cli — research, code generation, multi-modal analysis for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Gemini workflows rather than general responsibilities.
-
-#### 17. Innovation Strategist (@innovator)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Blue Ocean Strategy, Jobs-to-be-Done, Business Model Canvas, disruption analysis — strategic innovation architect
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @innovator, blue ocean strategy, jobs-to-be-done, business model canvas, disruption analysis — strategic innovation architect for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Innovation Strategist workflows rather than general responsibilities.
-
-#### 18. Team Lead (@master)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Master orchestrator — decomposes complex projects into parallel persona work streams, coordinates and integrates outputs
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @master, master orchestrator — decomposes complex projects into parallel persona work streams, coordinates and integrates outputs for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Team Lead workflows rather than general responsibilities.
-
-#### 19. Module Builder (Morgan) (@module-builder)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Module architecture specialist who creates cohesive, scalable Soupz modules with agents, workflows, and infrastructure
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @module-builder, module architecture specialist who creates cohesive, scalable Soupz modules with agents, workflows, and infrastructure for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Module Builder (Morgan) workflows rather than general responsibilities.
-
-#### 20. Ollama (@ollama)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Ollama — local LLMs (Llama, Mistral, Phi)
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Standard persona wrapper. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @ollama, ollama — local llms (llama, mistral, phi) for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Ollama workflows rather than general responsibilities.
-
-#### 21. Orchestrator (@orchestrator)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates Soupz multi-agent workflows
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @orchestrator, master orchestrator — breaks down complex tasks, delegates to specialist agents, coordinates Soupz multi-agent workflows for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Orchestrator workflows rather than general responsibilities.
-
-#### 22. Project Planner (@planner)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Sprint planning, task breakdown, dependency mapping, Gantt charts
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @planner, sprint planning, task breakdown, dependency mapping, gantt charts for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Project Planner workflows rather than general responsibilities.
-
-#### 23. Product Manager (@pm)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: PRDs, roadmaps, RICE/MoSCoW prioritization, user research, north star metrics — outcome-driven PM
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @pm, prds, roadmaps, rice/moscow prioritization, user research, north star metrics — outcome-driven pm for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Product Manager workflows rather than general responsibilities.
-
-#### 24. Presentation Coach (@presenter)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: 10x hackathon champion and pitch coach — demo scripts, investor decks, judge prep, storytelling
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @presenter, 10x hackathon champion and pitch coach — demo scripts, investor decks, judge prep, storytelling for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Presentation Coach workflows rather than general responsibilities.
-
-#### 25. Problem Solver (@problemsolver)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: TRIZ, 5 Whys, First Principles, Theory of Constraints, Systems Thinking — systematic problem-solving expert
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @problemsolver, triz, 5 whys, first principles, theory of constraints, systems thinking — systematic problem-solving expert for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Problem Solver workflows rather than general responsibilities.
-
-#### 26. QA Engineer (@qa)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: QA — test plans, edge cases, bug reports, quality gates
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @qa, qa — test plans, edge cases, bug reports, quality gates for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on QA Engineer workflows rather than general responsibilities.
-
-#### 27. Quick Flow Solo Dev (Barry) (@quick-flow)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Elite full-stack developer for rapid spec creation through lean implementation with minimum ceremony
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @quick-flow, elite full-stack developer for rapid spec creation through lean implementation with minimum ceremony for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Quick Flow Solo Dev (Barry) workflows rather than general responsibilities.
-
-#### 28. Researcher (@researcher)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Deep researcher — competitive intelligence, API/SDK evaluation, market sizing, domain analysis
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @researcher, deep researcher — competitive intelligence, api/sdk evaluation, market sizing, domain analysis for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Researcher workflows rather than general responsibilities.
-
-#### 29. Review Miner (@review-miner)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Mines user reviews from Reddit, X, App Store, Play Store — extracts real pain points & feature gaps
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @review-miner, mines user reviews from reddit, x, app store, play store — extracts real pain points & feature gaps for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Review Miner workflows rather than general responsibilities.
-
-#### 30. Scrum Master (@scrum)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Certified Scrum Master — sprint planning, story preparation, retrospectives, velocity tracking, blocker removal
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @scrum, certified scrum master — sprint planning, story preparation, retrospectives, velocity tracking, blocker removal for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Scrum Master workflows rather than general responsibilities.
-
-#### 31. Security Auditor (@security)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Security — threat modeling, OWASP, pen test planning, compliance
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @security, security — threat modeling, owasp, pen test planning, compliance for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Security Auditor workflows rather than general responsibilities.
-
-#### 32. Storyteller (@storyteller)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Hero
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Standard persona wrapper. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @storyteller, hero for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Storyteller workflows rather than general responsibilities.
-
-#### 33. Strategist (@strategist)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Billionaire-level strategist — market intelligence, brand positioning, investor pitch, GTM, business model
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @strategist, billionaire-level strategist — market intelligence, brand positioning, investor pitch, gtm, business model for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Strategist workflows rather than general responsibilities.
-
-#### 34. SVG Artist (@svgart)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: SVG & CSS art generator — creates ready-to-import SVG files, icons, logos, illustrations, and UI assets
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @svgart, svg & css art generator — creates ready-to-import svg files, icons, logos, illustrations, and ui assets for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on SVG Artist workflows rather than general responsibilities.
-
-#### 35. Test Architect (Murat) (@tea)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Master test architect specializing in risk-based testing, ATDD, test strategy, and CI/CD quality governance
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @tea, master test architect specializing in risk-based testing, atdd, test strategy, and ci/cd quality governance for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Test Architect (Murat) workflows rather than general responsibilities.
-
-#### 36. Teaching Assistant (@teacher)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Patient expert educator — Bloom
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Standard persona wrapper. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @teacher, patient expert educator — bloom for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Teaching Assistant workflows rather than general responsibilities.
-
-#### 37. Tech Writer (@techwriter)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: READMEs, API docs, tutorials, changelogs, migration guides
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @techwriter, readmes, api docs, tutorials, changelogs, migration guides for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Tech Writer workflows rather than general responsibilities.
-
-#### 38. Test Architect (@tester)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Test strategy, automation frameworks, quality gates, CI/CD
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @tester, test strategy, automation frameworks, quality gates, ci/cd for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Test Architect workflows rather than general responsibilities.
-
-#### 39. UI Builder (@ui-builder)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Builds the actual HTML prototypes — GSAP animations, design systems, SVG assets, Awwwards-quality output
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @ui-builder, builds the actual html prototypes — gsap animations, design systems, svg assets, awwwards-quality output for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on UI Builder workflows rather than general responsibilities.
-
-#### 40. UX Designer (Sally) (@ux-designer)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Senior UX designer specializing in user research, interaction design, and human-centered experience strategy
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @ux-designer, senior ux designer specializing in user research, interaction design, and human-centered experience strategy for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on UX Designer (Sally) workflows rather than general responsibilities.
-
-#### 41. Workflow Builder (Wendy) (@workflow-builder)
-- **Underlying Agent**: Dynamic (policy-routed)
-- **Specialty**: Workflow architecture specialist and process design expert who creates efficient, scalable Soupz workflows
-- **System Prompt Logic**: Direct, declarative action. Tone is Direct and opinionated. Standard conversational filler. Prioritizes exact completion of the specified role over generic helpfulness.
-- **Unique Behaviors / Flags**: Highly specialized role constraints. Routes based on internal regex matching if specific keywords are hit.
-- **Example Use Case**: "Hey @workflow-builder, workflow architecture specialist and process design expert who creates efficient, scalable Soupz workflows for the new auth feature."
-- **How It Differs From Similar Personas**: Focuses entirely on Workflow Builder (Wendy) workflows rather than general responsibilities.
-
-
+**The authoritative description of any persona is its own file:** `defaults/agents/<id>.md`.
+Each contains the real `name`, `description`, `routing_keywords`, `capabilities` and the full
+`system_prompt`. Run `soupz-cli agents` to list the ones that currently load on your machine.
 
 ## 6. Core Systems — Deep Dive
 
@@ -510,10 +217,10 @@ Routing policy note:
 - **Post-task**: In `router.js`, invokes `_assessQualityAI` to grade the response. Updates the agent's grade in `registry.js`, stores the output trajectory in the `MemoryPool`, and records token usage via `cost-tracker.js`.
 
 ### 6b. ContextPantry
-Defined in `src/core/context-pantry.js`. It operates as short-term working memory stored in `~/.soupz-agents/pantry/` as JSON. When the active context gets too large, old messages are pushed to the pantry. When new prompts arrive, it uses simple keyword matching to `recall(query)` and prepend relevant old chat blocks into the system prompt lifecycle before calling the LLM.
+Defined in `src/core/context-pantry.js`. It operates as short-term working memory stored in `~/.soupz-cli/pantry/` as JSON. When the active context gets too large, old messages are pushed to the pantry. When new prompts arrive, it uses simple keyword matching to `recall(query)` and prepend relevant old chat blocks into the system prompt lifecycle before calling the LLM.
 
 ### 6c. MemoryPool
-Defined in `src/memory/pool.js`. It provides episodic persistence using local JSON files in `~/.soupz-agents/memory-pool/`. It triggers a write on successful task completion, saving the prompt, agent, tags, and output. It reads automatically on new tasks, utilizing an AI-enhanced recall (via Copilot/Ollama) to extract relevant chunks to inject into the prompt, enabling cross-session learning. Evicts oldest banks automatically based on max limit.
+Defined in `src/memory/pool.js`. It provides episodic persistence using local JSON files in `~/.soupz-cli/memory-pool/`. It triggers a write on successful task completion, saving the prompt, agent, tags, and output. It reads automatically on new tasks, utilizing an AI-enhanced recall (via Copilot/Ollama) to extract relevant chunks to inject into the prompt, enabling cross-session learning. Evicts oldest banks automatically based on max limit.
 
 ### 6d. TokenCompressor
 Defined in `src/core/token-compressor.js`. Employs three levels of compression (light, medium, aggressive). Triggers automatically on prompts over 30 chars. Drops filler words, normalizes whitespace, abbreviates common technical terms (e.g., 'configuration' to 'config'), and structurally restructures prompts into strict `[TASK] / [CTX] / [OUT]` machine-readable blocks. Uncompresses outputs (expanding abbreviations).
@@ -595,11 +302,11 @@ An Express / WebSocket bridge connecting the web dashboard to the local CLI envi
 | Feature | Status | Notes |
 |---|---|---|
 | CLI REPL & Auto-completion | ✅ Working | Custom dropdown and fuzzy matching implemented. |
-| 40+ Persona Injection | ✅ Working | Prompts load correctly based on routing. |
-| Semantic Routing (Ollama/Rules) | ✅ Working | 3-layer fallback system is functional. |
-| Plan Mode / Task Decomposition | ✅ Working | Breaks down tasks and runs via `/parallel` or `/fleet`. |
+| Persona Injection | ✅ Working | 34 of the 44 shipped `.md` files load; the other 10 are skipped (see §5a). Prompts load correctly based on routing. |
+| Semantic Routing (Rules) | ✅ Working | Keyword scoring plus an availability-aware fallback chain. Ollama is not a live lane. |
+| Plan Mode / Task Decomposition | ✅ Working | Flat parallel fan-out via `Promise.allSettled` — no dependency graph, no topological ordering. |
 | Context Pantry / Memory Pool | ✅ Working | File-system based short/long-term memory is active. |
-| Token Compression | ✅ Working | Implemented via regex AST logic. |
+| Token Compression | 🔧 Partial | Whitespace normalization and word substitution in `src/core/token-compressor.js`. Not AST-based — there is no parser involved. |
 | Cloud Kitchen Bridge (OTP & WS) | ✅ Working | Express server establishes PTY and streams safely. |
 | Web Dashboard UI | 🔧 Partial | UI exists, but relies on polling rather than full WS event pushes. |
 | Mobile IDE | 🔧 Partial | RN App built, but network discovery relies on manual IP entry or `/tunnel`. |

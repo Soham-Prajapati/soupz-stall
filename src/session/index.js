@@ -2,10 +2,10 @@ import { CommandsMixin } from './commands.js';
 
 import chalk from 'chalk';
 import { emitKeypressEvents } from 'readline';
-import { homedir } from 'os';
 import { join, resolve } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { randomUUID } from 'crypto';
+import { DATA_DIR, resolveDataReadPath } from '../config.js';
 import SupabaseRelay from '../supabase-relay.js';
 import { ContextPantry } from '../core/context-pantry.js';
 import { CostTracker } from '../core/cost-tracker.js';
@@ -19,8 +19,9 @@ import { CloudMixin } from './cloud.js';
 import { AuthMixin } from './auth.js';
 import { TodoMixin } from './todo.js';
 import { UtilsMixin, generateSessionName } from './utils.js';
+import { parseMonitoringCommand } from './command-parser.js';
+import { createMeter, recordAgentRunState, recordSessionInput } from './monitoring.js';
 
-const HISTORY_FILE = join(homedir(), '.soupz-agents', 'history');
 export const GEMINI_MODELS = [
     { id: 'gemini-2.5-flash', desc: '0.1x (FAST)', cost: 0.1 },
     { id: 'gemini-2.5-pro', desc: '1x (SMART)', cost: 1 }
@@ -66,10 +67,14 @@ export class Session {
         this.busyAgentId = null;
         this.agentTokens = {};
         this.sessionStart = Date.now();
+        this.meter = createMeter(this.sessionStart);
         this.totalPromptsSent = 0;
         this.cmdHistory = [];
         this.cmdHistoryIndex = -1;
-        try { if (existsSync(HISTORY_FILE)) this.cmdHistory = readFileSync(HISTORY_FILE, 'utf8').split('\n').filter(Boolean).slice(-100); } catch {}
+        try {
+            const historyFile = resolveDataReadPath('history');
+            if (existsSync(historyFile)) this.cmdHistory = readFileSync(historyFile, 'utf8').split('\n').filter(Boolean).slice(-100);
+        } catch {}
         this.todoList = [];
         this.conversationLog = [];
         this.pantry = new ContextPantry();
@@ -129,6 +134,7 @@ export class Session {
         });
         
         this.spawner.on('status-change', (agentId, newState) => {
+            recordAgentRunState(this.meter, agentId, newState);
             if (newState === 'done') {
                 this.stopSpinner();
                 const a = this.registry.get(agentId);
@@ -170,7 +176,7 @@ export class Session {
 
     loadModelPrefs() {
         try {
-            const fp = join(homedir(), '.soupz-agents', 'model-prefs.json');
+            const fp = resolveDataReadPath('model-prefs.json');
             if (existsSync(fp)) return JSON.parse(readFileSync(fp, 'utf8'));
         } catch { }
         return { auto: 'gpt-4.1' };
@@ -178,7 +184,7 @@ export class Session {
 
     saveModelPrefs() {
         try {
-            const dir = join(homedir(), '.soupz-agents');
+            const dir = DATA_DIR;
             if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
             writeFileSync(join(dir, 'model-prefs.json'), JSON.stringify(this.modelPrefs, null, 2));
         } catch { }
@@ -284,7 +290,11 @@ export class Session {
     async handleInput(input, saveHistory = true) {
         if (!input) return;
         this.totalPromptsSent++;
+        recordSessionInput(this.meter, input);
         if (input.startsWith('/')) {
+            const monitoringCommand = parseMonitoringCommand(input);
+            if (monitoringCommand === 'meter') { this.showMeter(); return; }
+            if (monitoringCommand === 'fleet-view') { this.showFleetView(); return; }
             if (input === '/help' || input === '?') { this.showHelp(); return; }
             if (input === '/kitchen' || input === '/stations') { this.showToolAgents(); return; }
             if (input === '/chefs' || input === '/agents') { this.showPersonas(); return; }

@@ -47,7 +47,7 @@ One-line pitch:
 | Workspace APIs | file tree/read/write, git panel, terminal panel | Working |
 | Routing and fallback | prompt-aware selection + fallback chain | Working |
 | Codex support | frontend + backend mappings, readiness, fallbacks | Working |
-| Build and tests | dashboard build passes, test suite green | Working |
+| Build and tests | dashboard build passes; `npm test` is 166/166 as of 2026-07-31 | Working |
 
 ### 3.2 Working but Needs Hardening
 
@@ -140,7 +140,7 @@ Why:
 | Gate | Current |
 |---|---|
 | Build green | Pass |
-| Tests green | Pass |
+| Tests green | Pass — 166/166 on 2026-07-31. Requires a root `npm install` so the `packages/*` workspaces are linked; without it the dashboard-importing tests fail to resolve their deps. |
 | Pairing path verified (`/code`) | In progress this cycle |
 | Mobile sanity on target widths | In progress this cycle |
 | Docs coherence for demo | Improved, still being finalized |

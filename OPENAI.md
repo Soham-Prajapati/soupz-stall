@@ -11,7 +11,7 @@ This repo already has persona manifests for Gemini (`.gemini.md`) and Claude (`C
 ## 2. Style & Communication Rules
 - English only. Succinct, honest, and specific. No hype, no fake screenshots, no "it probably works" language.
 - Never invent working features. If we stub something, say it is stubbed and describe the real plan.
-- Respect existing naming: the orchestrator persona is `soupz-orchestrator`, the product is Soupz Stall.
+- Respect existing naming: the orchestrator persona is `soupz-orchestrator`, the product is Soupz CLI.
 
 ## 3. UI & UX Guardrails
 - Keep every UI element functional. No ghost buttons, no dead navigation, no decorative panels.

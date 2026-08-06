@@ -16,7 +16,6 @@ describe('Component Files Exist', () => {
     'components/pro/ProMode.jsx',
     'components/pro/TerminalPanel.jsx',
     'components/builder/BuilderMode.jsx',
-    'components/shared/AgentSelector.jsx',
     'components/shared/CommandPalette.jsx',
     'components/shared/ErrorBoundary.jsx',
     'components/shared/ExtensionsMarketplace.jsx',

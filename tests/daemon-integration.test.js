@@ -21,16 +21,27 @@ describe('Daemon Integration', () => {
     startRemoteServer = mod.startRemoteServer || mod.default;
 
     serverHandle = await startRemoteServer(PORT, { silent: true });
+    // startRemoteServer resolves null on EADDRINUSE. Without this guard every
+    // test below fails on an undefined BASE_URL, which reads as 18 unrelated
+    // failures instead of "something is already on this port".
+    if (!serverHandle) {
+      throw new Error(
+        `Port ${PORT} is already in use — a previous daemon or test run did not shut down. ` +
+        `Free it with: lsof -nP -iTCP:${PORT} | awk 'NR>1 {print $2}' | xargs kill`
+      );
+    }
     BASE_URL = `http://127.0.0.1:${PORT}`;
   }, 30000);
 
   afterAll(async () => {
+    // stop() resolves once the listening socket is released, so the next run
+    // gets a free port.
     if (serverHandle?.stop) {
       await serverHandle.stop();
     } else if (serverHandle?.server) {
       await new Promise((resolve) => serverHandle.server.close(resolve));
     }
-  }, 10000);
+  }, 15000);
 
   // --- Health ---
   describe('Health', () => {
@@ -197,8 +208,9 @@ describe('Daemon Integration', () => {
 
     it('GET /api/changes/diff requires file param', async () => {
       const res = await fetch(`${BASE_URL}/api/changes/diff`);
-      // Should be 400 (missing file param) or return empty
-      expect(res.status === 400 || res.status === 200).toBe(true);
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toMatch(/missing file/i);
     });
   });
 
@@ -286,7 +298,7 @@ describe('Daemon Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'explicit-routing-test-cleanup' }),
       }).catch(() => {});
-    });
+    }, 15000); // spawns a real agent process — the 5s default is not enough
   });
 
   // --- System Endpoints ---

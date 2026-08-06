@@ -142,7 +142,7 @@ function buildPairingDiagnostics(attempts, fallbackReason) {
   const triedSupabase = normalizedAttempts.some((attempt) => (attempt?.source || '').startsWith('supabase'));
   const sawLocalhost = normalizedAttempts.some((attempt) => (attempt?.endpoint || '').includes('localhost'));
 
-  let networkHint = 'Run npx @shubh_prajapati99/soupz on your machine and retry this code within 5 minutes.';
+  let networkHint = 'Run npx soupz-cli on your machine and retry this code within 5 minutes.';
   if (sawInvalidCode) {
     networkHint = 'Generate a fresh code from the terminal and retry immediately. Pairing codes are single-use.';
   } else if (sawTimeout) {
@@ -384,9 +384,13 @@ export default function ConnectPage({ getParam, navigate }) {
 
     try {
       if (!supabase) throw new Error('Remote pairing unavailable (Supabase not configured).');
-      const { data, error } = await supabase.from('soupz_pairing').select('*').eq('code', c).single();
-      if (error || !data) throw new Error('Invalid pairing code');
-      if (new Date(data.expires_at) < new Date()) throw new Error('Code expired');
+      // Resolved through a SECURITY DEFINER function rather than a direct select:
+      // this table holds live session tokens, so it is not readable with the anon
+      // key. The function only returns a row to a caller who knows the code, and
+      // filters out expired codes server-side.
+      const { data: rows, error } = await supabase.rpc('claim_pairing_code', { p_code: c });
+      const data = Array.isArray(rows) ? rows[0] : rows;
+      if (error || !data) throw new Error('Invalid or expired pairing code');
 
       const candidates = resolveRemoteCandidates(data);
       if (candidates.length === 0) {
@@ -409,7 +413,7 @@ export default function ConnectPage({ getParam, navigate }) {
       }
       throw new Error('Remote pairing unavailable: daemon validation endpoints were unreachable.');
     } catch (err) {
-      const diagnostics = buildPairingDiagnostics(attemptLog, err.message || 'Could not connect. Make sure npx @shubh_prajapati99/soupz is running.');
+      const diagnostics = buildPairingDiagnostics(attemptLog, err.message || 'Could not connect. Make sure npx soupz-cli is running.');
       trackEvent('pairing_failed', { reason: diagnostics.reason, attempts: attemptLog.length });
       setPairingDiagnostics(diagnostics);
       setErrorMsg(diagnostics.reason);
@@ -485,7 +489,7 @@ export default function ConnectPage({ getParam, navigate }) {
         {status === 'success' ? (
           <SuccessState machine={machine} />
         ) : connectMode === 'share' ? (
-          // Desktop "Share this code" view (auto-opened from npx @shubh_prajapati99/soupz)
+          // Desktop "Share this code" view (auto-opened from npx soupz-cli)
           <ShareCodeView
             code={code}
             isComplete={isComplete}
@@ -504,7 +508,7 @@ export default function ConnectPage({ getParam, navigate }) {
             <h1 className="text-text-pri font-ui text-xl font-semibold mb-1.5">Connect your machine</h1>
             <p className="text-text-sec text-sm mb-4 leading-relaxed">
               Run{' '}
-              <code className="font-mono text-accent text-xs bg-bg-elevated px-1.5 py-0.5 rounded">npx @shubh_prajapati99/soupz</code>
+              <code className="font-mono text-accent text-xs bg-bg-elevated px-1.5 py-0.5 rounded">npx soupz-cli</code>
               {' '}in your terminal, then connect below.
             </p>
 
@@ -675,7 +679,7 @@ export default function ConnectPage({ getParam, navigate }) {
                 <ol className="space-y-2">
                   {[
                     'Open Terminal on your machine',
-                    'Run: npx @shubh_prajapati99/soupz',
+                    'Run: npx soupz-cli',
                     'Scan the terminal QR or enter the 9-character code above',
                   ].map((step, i) => (
                     <li key={i} className="flex items-start gap-2.5 text-text-sec text-sm">
@@ -844,7 +848,7 @@ function QRConnectMode({ code, remainingMs, onManual, isMobileDevice }) {
           <QrCode size={32} className="text-text-faint mx-auto mb-3 opacity-30" />
           <p className="text-text-sec text-sm font-ui mb-1">No code available yet</p>
           <p className="text-text-faint text-xs font-ui">
-            Run <code className="font-mono text-accent bg-bg-elevated px-1 rounded">npx @shubh_prajapati99/soupz</code> first,
+            Run <code className="font-mono text-accent bg-bg-elevated px-1 rounded">npx soupz-cli</code> first,
             then enter the code manually to generate a QR.
           </p>
           <button onClick={onManual} className="mt-3 text-accent hover:text-accent-hover text-xs font-ui transition-colors">

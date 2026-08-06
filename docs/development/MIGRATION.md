@@ -1,8 +1,16 @@
-# 🔄 Migration Guide: Soupz-Agents (legacy — see CHANGELOG)
+# 🔄 Migration Guide: Soupz CLI
 
 ## Overview
 
-This guide helps you migrate from the old soupz-agents to the improved version with semantic routing, agent chaining, and enhanced personas.
+This guide covers the current Soupz CLI runtime, including its semantic routing, agent chaining,
+and enhanced personas.
+
+## Persisted-data migration
+
+> **Deprecated legacy location:** Older installs stored data in `~/.soupz-agents`. On first run,
+> Soupz CLI copies missing files to the canonical `~/.soupz-cli` directory, never overwrites newer
+> canonical files, and never deletes the legacy directory. Keep the old directory until you have
+> verified the new installation has the history, agents, skills, and session data you expect.
 
 ---
 
@@ -80,7 +88,7 @@ const results = await orchestrator.chain([
 
 ### Step 1: Backup (Optional)
 ```bash
-cd /Users/shubh/Developer/soupz-agents
+cd /path/to/cli
 git add .
 git commit -m "Backup before 0.1.0-alpha"
 ```
@@ -302,4 +310,3 @@ After migration:
 **Recommended Action**: Test and deploy with confidence!
 
 ---
-

@@ -1,4 +1,4 @@
-# Ollama Docker Setup for Soupz-Agents
+# Ollama Docker Setup for Soupz CLI
 
 ## Quick Start
 

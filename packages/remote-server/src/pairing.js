@@ -285,8 +285,14 @@ app.post('/pair', (req, res) => {
     });
 });
 
-// PUBLIC: Get the currently active pairing code snapshot (for diagnostics / QR location)
+// LOCAL ONLY: Get the currently active pairing code snapshot (diagnostics / QR).
+// This returns the live pairing code, which is enough to claim a full session —
+// it must never answer a caller from the network. It was previously public,
+// which meant anyone on the same wifi could read the code and pair themselves.
 app.get('/pair/current', (req, res) => {
+    if (!isLocalRequest(req)) {
+        return res.status(403).json({ error: 'Pairing snapshot is local-only' });
+    }
     const snapshot = getCurrentPairingSnapshot();
     if (!snapshot) {
         return res.status(404).json({ error: 'No active pairing code' });

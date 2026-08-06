@@ -1,7 +1,12 @@
 import chalk from 'chalk';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
+import { DATA_DIR } from '../config.js';
+import { createActivity } from '../terminal/motion.js';
+
+const PACKAGE_VERSION = JSON.parse(
+    fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+).version;
 export const VIBES = [
     '🍳 cooking up some magic…', '☕ brewing intelligence…', '🧪 mixing the perfect formula…',
     '🚀 locked in. let\'s build.', '💅 slay mode activated.', '🔥 it\'s giving productivity.',
@@ -21,7 +26,7 @@ ${chalk.hex('#6C63FF')('       ███████╗ ')}${chalk.hex('#A855F7'
 ${chalk.hex('#6C63FF')('       ╚════██║ ')}${chalk.hex('#A855F7')('██║   ██║')}${chalk.hex('#06B6D4')(' ██║   ██║')}${chalk.hex('#4ECDC4')(' ██╔═══╝ ')}${chalk.hex('#6BCB77')('  ███╔╝  ')}
 ${chalk.hex('#6C63FF')('       ███████║ ')}${chalk.hex('#A855F7')('╚██████╔╝')}${chalk.hex('#06B6D4')(' ╚██████╔╝')}${chalk.hex('#4ECDC4')(' ██║     ')}${chalk.hex('#6BCB77')(' ███████╗')}
 ${chalk.hex('#6C63FF')('       ╚══════╝ ')}${chalk.hex('#A855F7')(' ╚═════╝ ')}${chalk.hex('#06B6D4')('  ╚═════╝ ')}${chalk.hex('#4ECDC4')(' ╚═╝     ')}${chalk.hex('#6BCB77')(' ╚══════╝')}
-                    ${chalk.bold.hex('#4ECDC4')('S  T  A  L  L')}  ${chalk.dim('v0.1-alpha')}
+                    ${chalk.bold.hex('#4ECDC4')('S  O  U  P  Z   C  L  I')}  ${chalk.dim('v0.2.0')}
 `;
 
 export const HR = chalk.hex('#444')('━'.repeat(65));
@@ -37,6 +42,7 @@ export const COMMANDS = [
     { cmd: '/delegate',   desc: 'Delegate to chef: /delegate designer "prompt"', icon: '📤', cat: 'cooking' },
     { cmd: '/parallel',   desc: 'Run chefs in parallel: /parallel a b c "prompt"', icon: '⚡', cat: 'cooking' },
     { cmd: '/fleet',      desc: 'Spawn hidden parallel workers: /fleet "prompt"', icon: '🚀', cat: 'cooking' },
+    { cmd: '/fleet view', desc: 'Show active and recent fleet workers', icon: '📡', cat: 'cooking' },
     { cmd: '/fleet runs', desc: 'List recent fleet runs', icon: '🧾', cat: 'cooking' },
     { cmd: '/fleet result', desc: 'Show synthesized fleet result: /fleet result <run-id>', icon: '📄', cat: 'cooking' },
     { cmd: '/subagent',   desc: 'Spawn isolated sub-agents & synthesize: /subagent "prompt"', icon: '🧬', cat: 'cooking' },
@@ -47,6 +53,7 @@ export const COMMANDS = [
     { cmd: '/browse',     desc: 'Screenshot localhost', icon: '🌐', cat: 'cooking' },
     { cmd: '/todo',       desc: 'The menu (task list)', icon: '📋', cat: 'tasks' },
     { cmd: '/do',         desc: 'Cook a dish: /do 1 (execute todo)', icon: '▶️', cat: 'tasks' },
+    { cmd: '/meter',      desc: 'Show measured session and provider-usage status', icon: '📈', cat: 'tasks' },
     { cmd: '/tokens',     desc: 'Ingredient usage (token stats)', icon: '📊', cat: 'tasks' },
     { cmd: '/costs',      desc: 'Bill tracker (cost tracking)', icon: '💰', cat: 'tasks' },
     { cmd: '/grades',     desc: 'Kitchen ratings per station', icon: '🏆', cat: 'tasks' },
@@ -113,19 +120,17 @@ export const UIMixin = {
     },
 
     startSpinner(agentId) {
+        this.stopSpinner();
         this.busyAgentId = agentId;
-        const spinChars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-        this.spinnerFrame = 0;
-        this.spinnerTimer = setInterval(() => {
-            const ch = spinChars[this.spinnerFrame % spinChars.length];
-            process.stdout.write(`\r\x1b[K  ${chalk.hex('#A855F7')(ch)} ${chalk.hex('#A855F7')('Thinking…')}`);
-            this.spinnerFrame++;
-        }, 80);
+        this.activity = createActivity(`Running ${agentId || 'agent'}…`, {
+            accent: (value) => chalk.hex('#A855F7')(value),
+        }).start();
     },
 
     stopSpinner() {
+        this.activity?.stop();
+        this.activity = null;
         if (this.spinnerTimer) { clearInterval(this.spinnerTimer); this.spinnerTimer = null; }
-        process.stdout.write('\r\x1b[K');
     },
 
     eraseDropdownLines() {
@@ -171,8 +176,13 @@ export const UIMixin = {
     closeDropdown() { this.eraseDropdownLines(); this.dropdownItems = []; this.dropdownIndex = -1; this.dropdownScroll = 0; },
     refreshDropdown() { this.eraseDropdownLines(); this.paintDropdown(); },
 
+    showVersion() {
+        console.log(`  soupz-cli v${PACKAGE_VERSION}`);
+        console.log(chalk.dim(`  Node ${process.version} · ${process.platform} ${process.arch}`));
+    },
+
     showHelp() {
-        console.log(chalk.hex('#e94560').bold(`\n  🫕 Soupz Stall — ${COMMANDS.length} commands\n`));
+        console.log(chalk.hex('#e94560').bold(`\n  🫕 Soupz CLI — ${COMMANDS.length} commands\n`));
         const catNames = {
             cooking: '🍳 Cooking',
             tasks: '📋 Tasks & Tracking',
@@ -452,7 +462,8 @@ export const UIMixin = {
         if (this.context) this.context.save();
         if (this.spawner) this.spawner.killAll();
         try { 
-            fs.writeFileSync(path.join(os.homedir(), '.soupz-agents', 'history'), this.cmdHistory.slice(-100).join('\n')); 
+            fs.mkdirSync(DATA_DIR, { recursive: true });
+            fs.writeFileSync(path.join(DATA_DIR, 'history'), this.cmdHistory.slice(-100).join('\n'));
         } catch {}
         if (this._modelRefreshTimer) clearInterval(this._modelRefreshTimer);
         if (this._cloudKitchen) { this._cloudKitchen.stop(); this._cloudKitchen = null; }

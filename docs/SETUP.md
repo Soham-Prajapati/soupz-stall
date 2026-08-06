@@ -17,7 +17,7 @@ Get Soupz running on your machine and connected to the web dashboard.
 ### Start the dev stack
 
 ```bash
-cd /path/to/soupz-agents
+cd /path/to/soupz-cli
 npm run dev:web
 ```
 
@@ -40,7 +40,7 @@ Notes:
 
 ```bash
 # Terminal 1: Daemon only
-npx @shubh_prajapati99/soupz
+npx soupz-cli
 
 # Terminal 2: Web app dev server
 cd packages/dashboard && npm run dev
@@ -231,19 +231,18 @@ The dashboard is deployed on Vercel:
 3. Set environment variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY) in project settings
 4. Vercel auto-deploys on push to `main`
 
-The daemon always runs locally on the user's machine (`npx @shubh_prajapati99/soupz` or `npm run dev:web`).
+The daemon always runs locally on the user's machine (`npx soupz-cli` or `npm run dev:web`).
 
 ## Troubleshooting
 
 ### "Cannot find module" on startup
 ```bash
 npm install
-cd packages/remote-server && npm install
 ```
 
 ### Daemon won't start
 - Check port 7533 is available: `lsof -i :7533`
-- Change port: `SOUPZ_REMOTE_PORT=8000 npx @shubh_prajapati99/soupz`
+- Change port: `SOUPZ_REMOTE_PORT=8000 npx soupz-cli`
 
 ### Pairing code not showing
 - Ensure daemon is running: `npm run dev:web`

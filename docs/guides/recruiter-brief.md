@@ -1,15 +1,15 @@
-# Soupz Stall Recruiter Brief
+# Soupz CLI Recruiter Brief
 
 Date: 2026-03-16
 Audience: recruiters, hiring managers, or anyone who needs a strong product and engineering summary without reading the codebase.
 
 ## One-Line Summary
 
-Soupz Stall is a web-first multi-agent orchestration system that lets a user submit a software task, route it to the right specialist agent, monitor execution in a live dashboard, and inspect outputs, status, and file changes end-to-end.
+Soupz CLI is a web-first multi-agent orchestration system that lets a user submit a software task, route it to the right specialist agent, monitor execution in a live dashboard, and inspect outputs, status, and file changes end-to-end.
 
 ## What It Does
 
-Soupz Stall turns agent execution into an operational workflow instead of a black-box prompt.
+Soupz CLI turns agent execution into an operational workflow instead of a black-box prompt.
 
 The product combines:
 
@@ -23,7 +23,7 @@ The product combines:
 
 Most agent tools stop at “send prompt, receive answer.”
 
-Soupz Stall focuses on operational visibility:
+Soupz CLI focuses on operational visibility:
 
 - what task was sent
 - which agent handled it
@@ -95,4 +95,4 @@ It is not just a UI mockup or a prompt wrapper. It is a working orchestration pr
 
 ## Short Pitch Version
 
-Soupz Stall is a control room for AI-assisted software execution: you submit a task, the system routes it to the right specialist agent, tracks the full lifecycle in a live dashboard, and preserves the operational context needed to inspect outcomes instead of treating AI like a black box.
+Soupz CLI is a control room for AI-assisted software execution: you submit a task, the system routes it to the right specialist agent, tracks the full lifecycle in a live dashboard, and preserves the operational context needed to inspect outcomes instead of treating AI like a black box.

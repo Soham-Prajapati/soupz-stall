@@ -31,7 +31,7 @@
     const orchestrator = new Orchestrator(registry, spawner, contextManager, memory, mcpClient);
     const cwd = process.cwd();
 
-    // If we have a prompt argument passed as options.run or something... wait, the original code had "soupz-stall run"
+    // If we have a prompt argument passed as options.run or something... wait, the original code had "soupz-cli run"
     // Since we are restoring the REPL, we'll just start it:
 
     const session = new Session({ 

@@ -2,6 +2,8 @@ import chalk from 'chalk';
 import { spawn, execSync, execFileSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { synthesizeResults } from './synthesis.js';
+import { indicatesNeedsInput, recordAgentRunState, renderFleetView } from './monitoring.js';
+import { RECIPES, RECIPE_CHAINS } from './recipes.js';
 
 const COPILOT_FAST_MODEL = process.env.SOUPZ_COPILOT_FAST_MODEL || 'gpt-4.1';
 const COPILOT_ROUTING_MODEL = process.env.SOUPZ_COPILOT_ROUTING_MODEL || 'gpt-4.1';
@@ -253,17 +255,50 @@ Original Request: "${prompt}"`;
 
             const workerId = randomUUID().slice(0, 8);
             const proc = spawn(agent.binary, args, { cwd: this.cwd || process.cwd() });
-            const worker = { id: workerId, task: task.title, agent: agent.id, startTime: Date.now(), status: 'running', output: '', proc };
+            const worker = {
+                id: workerId,
+                task: task.title,
+                agent: agent.id,
+                startTime: Date.now(),
+                status: 'running',
+                output: '',
+                error: null,
+                proc,
+            };
+            const meterId = `fleet:${workerId}`;
+            recordAgentRunState(this.meter, meterId, 'running', worker.startTime);
             this._fleet.push(worker);
             runWorkers.push(worker);
-            proc.stdout.on('data', d => worker.output += d.toString());
-            proc.stderr.on('data', d => worker.output += d.toString());
+            const captureOutput = (chunk) => {
+                worker.output += chunk.toString();
+                worker.updatedAt = Date.now();
+                if (worker.status === 'running' && indicatesNeedsInput(worker.output)) {
+                    worker.status = 'needs-input';
+                }
+            };
+            proc.stdout.on('data', captureOutput);
+            proc.stderr.on('data', captureOutput);
             worker.done = new Promise((resolve) => {
-              proc.on('close', (code) => {
-                worker.status = code === 0 ? 'done' : 'failed';
-                worker.duration = Date.now() - worker.startTime;
-                resolve({ task: worker.task, output: worker.output, code, agent: worker.agent, workerId: worker.id });
-              });
+                let settled = false;
+                const finish = (code, error = null) => {
+                    if (settled) return;
+                    settled = true;
+                    worker.exitCode = code;
+                    worker.error = error;
+                    worker.status = code === 0 && !error ? 'done' : 'failed';
+                    worker.duration = Date.now() - worker.startTime;
+                    recordAgentRunState(this.meter, meterId, worker.status === 'done' ? 'done' : 'error');
+                    resolve({
+                        task: worker.task,
+                        output: worker.output,
+                        code,
+                        error,
+                        agent: worker.agent,
+                        workerId: worker.id,
+                    });
+                };
+                proc.once('close', (code) => finish(code, code === 0 ? null : `Exited with code ${code ?? 'unknown'}`));
+                proc.once('error', (err) => finish(null, err?.message || 'Failed to start worker'));
             });
         }
 
@@ -355,13 +390,11 @@ Original Request: "${prompt}"`;
     },
 
     showFleetStatus() {
-        if (!this._fleet || !this._fleet.length) return console.log(chalk.dim('  No active fleet workers.'));
-        console.log(chalk.bold('\n  🚀 Active Fleet Workers\n'));
-        this._fleet.forEach((w, i) => {
-            const status = w.status === 'running' ? chalk.yellow('● running') : w.status === 'done' ? chalk.green('✔ done') : chalk.red('✖ failed');
-            console.log(`  ${i + 1}. ${chalk.bold(w.id)} ${chalk.dim(`(${w.agent})`)} ${status.padEnd(20)} ${chalk.dim(w.task)}`);
-        });
-        console.log(chalk.dim('\n  /fleet peek <id> to see output\n'));
+        this.showFleetView();
+    },
+
+    showFleetView() {
+        console.log(`\n${renderFleetView(this._fleet, this._fleetRuns)}\n`);
     },
 
     peekFleetWorker(id) {
@@ -383,20 +416,8 @@ Original Request: "${prompt}"`;
     },
 
     showRecipes() {
-        const recipes = [
-            { id: 'product-launch', name: 'Full Product Launch', chefs: 'researcher→strategist→pm→designer→dev→tester→devops', desc: 'End-to-end product from research to deployment' },
-            { id: 'brand-identity', name: 'Brand Identity', chefs: 'domain-scout→researcher→brand-chef→designer→svgart→contentwriter', desc: 'Complete brand from market research to visual identity' },
-            { id: 'mvp-sprint', name: 'MVP Sprint', chefs: 'quick-flow→dev→tester→devops', desc: 'Rapid prototype to deployed MVP' },
-            { id: 'ux-audit', name: 'UX Audit', chefs: 'ux-designer→analyst→qa→presenter', desc: 'Evaluate and present UX improvements' },
-            { id: 'pitch-deck', name: 'Pitch Deck', chefs: 'strategist→storyteller→presenter→svgart', desc: 'Investor-ready pitch with narrative and visuals' },
-            { id: 'code-quality', name: 'Code Quality', chefs: 'architect→dev→tea→qa', desc: 'Architecture review, refactoring, test coverage' },
-            { id: 'content-campaign', name: 'Content Campaign', chefs: 'researcher→contentwriter→storyteller→designer', desc: 'Research-backed content with visual assets' },
-            { id: 'security-review', name: 'Security Review', chefs: 'security→tea→devops', desc: 'Security audit, test coverage, deployment hardening' },
-            { id: 'landing-page', name: 'Landing Page', chefs: 'researcher→ux-designer→designer→dev', desc: 'Research → wireframe → design → code a landing page' },
-            { id: 'api-design', name: 'API Design', chefs: 'architect→dev→tea→qa→devops', desc: 'Complete API from schema to deployment' },
-        ];
         console.log(chalk.bold('\n  📖 Recipes — Pre-built Chef Workflows\n'));
-        for (const r of recipes) {
+        for (const r of RECIPES) {
             console.log(chalk.cyan(`  ${r.id}`));
             console.log(chalk.white(`    ${r.name} — ${r.desc}`));
             console.log(chalk.dim(`    /recipe ${r.id} "your project description"`));
@@ -406,18 +427,6 @@ Original Request: "${prompt}"`;
     },
 
     async runRecipe(input) {
-        const recipes = {
-            'product-launch': 'researcher→strategist→pm→designer→dev→tester→devops',
-            'brand-identity': 'domain-scout→researcher→brand-chef→designer→svgart→contentwriter',
-            'mvp-sprint': 'quick-flow→dev→tester→devops',
-            'ux-audit': 'ux-designer→analyst→qa→presenter',
-            'pitch-deck': 'strategist→storyteller→presenter→svgart',
-            'code-quality': 'architect→dev→tea→qa',
-            'content-campaign': 'researcher→contentwriter→storyteller→designer',
-            'security-review': 'security→tea→devops',
-            'landing-page': 'researcher→ux-designer→designer→dev',
-            'api-design': 'architect→dev→tea→qa→devops',
-        };
         const match = input.match(/^([\w-]+)\s+"(.+)"$/s) || input.match(/^([\w-]+)\s+(.+)$/s);
         if (!match) {
             console.log(chalk.dim('  Usage: /recipe <recipe-id> "your prompt"'));
@@ -425,7 +434,7 @@ Original Request: "${prompt}"`;
             return;
         }
         const [, recipeId, prompt] = match;
-        const chain = recipes[recipeId];
+        const chain = RECIPE_CHAINS[recipeId];
         if (!chain) return console.log(chalk.red(`  Recipe "${recipeId}" not found.`));
         await this.handleInput(`/chain ${chain} "${prompt}"`);
     }

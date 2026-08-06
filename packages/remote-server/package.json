@@ -1,7 +1,7 @@
 {
   "name": "soupz-remote-server",
   "version": "0.2.0-alpha",
-  "description": "Remote access server for Soupz Stall — enables mobile IDE and browser extension connectivity",
+  "description": "Remote access server for Soupz CLI — enables mobile IDE and browser extension connectivity",
   "type": "module",
   "main": "src/index.js",
   "scripts": {

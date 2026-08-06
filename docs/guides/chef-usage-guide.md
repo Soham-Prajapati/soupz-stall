@@ -1,7 +1,7 @@
 # 🧑‍🍳 Chef Usage Guide — All 38 Chefs
 
 > **How and when to call each chef**, organized by workflow phase.
-> Every chef is summoned with `@chefid` in the Soupz Stall session.
+> Every chef is summoned with `@chefid` in the Soupz CLI session.
 
 ---
 
@@ -110,7 +110,7 @@ You don't need all phases for every project. Pick what you need.
 **Example workflow:**
 ```bash
 @dev "Implement the authentication module — story file: docs/stories/auth.md"
-@svgart "Create an SVG logo for Soupz Stall — soup pot with steam, modern flat style"
+@svgart "Create an SVG logo for Soupz CLI — soup pot with steam, modern flat style"
 @forager "Find 12 high-quality product photos for an ecommerce clothing store"
 ```
 
@@ -188,7 +188,7 @@ You don't need all phases for every project. Pick what you need.
 
 ## 🏗️ SOUPZ Module Builders (Advanced)
 
-These chefs are for building the Soupz Stall system itself or similar agent architectures:
+These chefs are for building the Soupz CLI system itself or similar agent architectures:
 
 | Chef | Summon | When to Use |
 |------|--------|-------------|

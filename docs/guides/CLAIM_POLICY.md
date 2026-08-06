@@ -2,7 +2,7 @@
 
 *Updated: April 3, 2026*
 
-This document defines the evidence required to make specific efficiency claims for the Soupz Cockpit and its orchestrator.
+This document defines the evidence required to make specific efficiency claims for Soupz CLI and its orchestrator.
 
 ## 📊 Claim Tiers
 
@@ -26,7 +26,7 @@ This document defines the evidence required to make specific efficiency claims f
 
 - **Never claim "Zero Bugs"**: AI orchestration is probabilistic.
 - **Never claim "Instant"**: Always use "Real-time" or specific latency metrics (e.g., "Plan generated in < 15s").
-- **Never use "BMAD"**: The project identity is **Soupz Stall** or **Soupz Cockpit**.
+- **Never use "BMAD"**: The project identity is **Soupz CLI**.
 
 ---
 

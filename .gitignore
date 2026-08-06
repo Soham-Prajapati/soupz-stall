@@ -47,10 +47,6 @@ _soupz_output/
 .soupz-runs/
 **/.soupz-runs/
 .soupz/benchmarks/
-.github/*
-!.github/workflows/
-.github/workflows/*
-!.github/workflows/ci.yml
 .vercel
 .DS_Store
 .claude

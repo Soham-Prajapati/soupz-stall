@@ -22,7 +22,6 @@ supabase/
 
 # Dashboard (built separately, not needed for CLI)
 packages/dashboard/
-packages/orchestrator-ui/
 
 # Git & CI
 .git/
@@ -31,9 +30,14 @@ packages/orchestrator-ui/
 .gitlab-ci.yml
 
 # Docs
+# NOTE: this must stay anchored to the repo root. A bare `*.md` matches at every
+# depth and silently strips all of defaults/agents/*.md — the agent personas that
+# are the entire product — so a published install seeds zero agents.
 docs/
-*.md
-!README.md
+defaults/agents/SKILL_ANALYSIS.md
+defaults/agents/SKILL_TEMPLATE.md
+/*.md
+!/README.md
 
 # Deployment / hosting configs
 .vercel/
@@ -72,3 +76,15 @@ pnpm-lock.yaml
 hack_ps.md
 .claude
 .soupz-runs
+
+# Runtime output — contains raw prompt text from every local run
+.soupz/
+_soupz_output/
+
+# One-shot codemods; these rewrite bin/soupz.js and git-endpoints.js if run
+refactor-bin.js
+refactor-exec.js
+bin/soupz_repl_patch.js
+
+# Captured tunnel logs
+pinggy_output.txt

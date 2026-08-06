@@ -147,11 +147,13 @@ app.get('/api/changes', requireAuth, (req, res) => {
 // AUTHENTICATED: Unified diff for one file
 app.get('/api/changes/diff', requireAuth, (req, res) => {
     const file = (req.query.file || '').toString().trim();
+    if (!file) {
+        return res.status(400).json({ error: 'Missing file query parameter' });
+    }
     const cwd = resolveWorkingDir(req.query.root || req.query.cwd);
     try {
-        const escaped = file ? file.replace(/"/g, '\\"') : '';
-        const diff = file ? execFileSync('git', ['--no-pager', 'diff', '--', file], { cwd, timeout: 4000 }).toString() : execFileSync('git', ['--no-pager', 'diff'], { cwd, timeout: 4000 }).toString();
-        res.json({ file: file || null, diff: diff || 'Working tree clean.' });
+        const diff = execFileSync('git', ['--no-pager', 'diff', '--', file], { cwd, timeout: 4000 }).toString();
+        res.json({ file, diff: diff || 'Working tree clean.' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

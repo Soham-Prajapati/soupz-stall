@@ -2,7 +2,7 @@
 
 *Last Updated: April 3, 2026*
 
-Welcome to the **Soupz Stall** (also known as **Soupz Cockpit**) documentation. This index serves as the single canonical source of truth for navigating the project's documentation.
+Welcome to the **Soupz CLI** documentation. This index serves as the single canonical source of truth for navigating the project's documentation.
 
 ---
 
@@ -22,7 +22,7 @@ Welcome to the **Soupz Stall** (also known as **Soupz Cockpit**) documentation. 
 - **[Quick Start & Setup](SETUP.md)**: Environment variables, dependencies, and how to run the project.
 - **[Release Process & Convention](guides/RELEASE_PROCESS.md)**: *(New)* PR-only deploys, release branches, and smoke tests.
 - **[Core Demo Script](CORE_DEMO_SCRIPT.md)**: A structured script for performing a 5-minute demo of Soupz.
-- **[NPM Publishing Guide](NPM_PUBLISH.md)**: Procedures for building and publishing the `@shubh_prajapati99/soupz` package.
+- **[NPM Publishing Guide](NPM_PUBLISH.md)**: Procedures for building and publishing the `soupz-cli` package.
 
 ---
 

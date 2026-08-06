@@ -40,10 +40,38 @@ export const supabase = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
 export const DEFAULT_PORT = 7070;
 export const app = express();
 
+// ─── Origin allowlist ─────────────────────────────────────────────────────────
+// This daemon has shell and filesystem access to the user's machine, so a web
+// page is a hostile caller by default. `Allow-Origin: *` combined with the
+// localhost bypass in requireAuth meant any site the user visited could drive
+// it. A request with no Origin header is a non-browser caller (curl, the CLI,
+// a native client) and still has to pass the normal token check.
+export const ALLOWED_ORIGINS = new Set([
+    'https://soupz.vercel.app',
+    'http://localhost:7534', 'http://127.0.0.1:7534',   // dashboard dev server
+    'http://localhost:5173', 'http://127.0.0.1:5173',   // vite default
+    'http://localhost:7533', 'http://127.0.0.1:7533',   // daemon default port
+    ...(process.env.SOUPZ_APP_URL ? [process.env.SOUPZ_APP_URL.replace(/\/+$/, '')] : []),
+    ...(process.env.SOUPZ_ALLOWED_ORIGINS || '')
+        .split(',').map(s => s.trim().replace(/\/+$/, '')).filter(Boolean),
+]);
+
+export function isAllowedOrigin(origin) {
+    if (!origin) return true;                       // non-browser caller
+    return ALLOWED_ORIGINS.has(origin.replace(/\/+$/, ''));
+}
+
 // Apply middleware BEFORE any module registers routes
 app.use(express.json());
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
+    const origin = req.headers.origin;
+    res.header('Vary', 'Origin');
+    if (origin) {
+        if (!isAllowedOrigin(origin)) {
+            return res.status(403).json({ error: 'Origin not allowed' });
+        }
+        res.header('Access-Control-Allow-Origin', origin);
+    }
     res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, X-Soupz-Token');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -51,7 +79,12 @@ app.use((req, res, next) => {
 });
 
 export const server = createServer(app);
-export const wss = new WebSocketServer({ server });
+// WebSocket upgrades are NOT covered by CORS — the browser will happily open a
+// socket cross-origin. Without verifyClient, any page could stream from here.
+export const wss = new WebSocketServer({
+    server,
+    verifyClient: ({ origin }) => isAllowedOrigin(origin),
+});
 wss.on('error', () => {}); // Suppress WSS errors (EADDRINUSE handled on server)
 
 // ─── Mutable runtime state (use ctx.* for cross-module mutable primitives) ───
@@ -665,9 +698,12 @@ export function revokeSession(token) {
 
 // Middleware: require auth token for REST endpoints (except pairing)
 export function requireAuth(req, res, next) {
-    // Bypass auth for requests originating from the local machine
-    const isLocal = isLocalRequest(req);
-    if (isLocal) {
+    // Bypass auth for requests originating from the local machine — but only
+    // when they are not coming from a web page. A site the user visits in their
+    // browser ALSO originates from 127.0.0.1, so trusting the IP alone handed
+    // every website full access. The CORS layer rejects unknown origins first;
+    // this is the second lock, so the bypass cannot be reached cross-site.
+    if (isLocalRequest(req) && isAllowedOrigin(req.headers.origin)) {
         return next();
     }
 

@@ -1,9 +1,9 @@
 import chalk from 'chalk';
-import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
+import { DATA_DIR, resolveDataReadPath } from '../config.js';
 
-export const SESSIONS_DIR = join(homedir(), '.soupz-agents', 'sessions');
+export const SESSIONS_DIR = join(DATA_DIR, 'sessions');
 
 export const MemoryMixin = {
     saveSession() {
@@ -24,7 +24,7 @@ export const MemoryMixin = {
     },
 
     loadSession(name) {
-        const fp = join(SESSIONS_DIR, `${name}.json`);
+        const fp = resolveDataReadPath('sessions', `${name}.json`);
         if (!existsSync(fp)) { console.log(chalk.red(`  Session "${name}" not found.`)); return; }
         const data = JSON.parse(readFileSync(fp, 'utf8'));
         this.sessionName = data.name;

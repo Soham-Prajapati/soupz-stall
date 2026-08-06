@@ -1,12 +1,12 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { execFile } from 'child_process';
+import { DATA_DIR } from '../config.js';
 
 const COPILOT_FAST_MODEL = process.env.SOUPZ_COPILOT_FAST_MODEL || 'gpt-4.1';
 
-const POOL_DIR = join(homedir(), '.soupz-agents', 'memory-pool');
+const POOL_DIR = join(DATA_DIR, 'memory-pool');
 
 export class MemoryPool {
     constructor(options = {}) {
