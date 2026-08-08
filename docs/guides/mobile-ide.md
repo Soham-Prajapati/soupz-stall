@@ -12,7 +12,7 @@ The Soupz Mobile IDE is a **React Native / Expo** app that connects to your lapt
 - Open multiple terminals simultaneously (parallel task execution)
 - Monitor your laptop's health (RAM, CPU, temperature)
 - Get warnings when your laptop is overheating or running out of memory
-- Execute Soupz Stall commands (`soupz`, `@chef`, `/station`) remotely
+- Execute Soupz CLI commands (`soupz-cli`, `@chef`, `/station`) remotely
 
 ### Why This Exists
 
@@ -235,7 +235,7 @@ The Cloud Kitchen uses a **pairing code model** (similar to Apple's iCloud Keych
 Open 3 terminals on your phone:
 
 ```
-Terminal 1: soupz                          # Interactive Soupz session
+Terminal 1: soupz-cli                      # Interactive Soupz CLI session
 Terminal 2: npm run build -- --watch       # Watch build
 Terminal 3: npm test -- --watchAll         # Watch tests
 ```

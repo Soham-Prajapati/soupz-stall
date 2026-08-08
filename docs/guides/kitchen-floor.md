@@ -1,14 +1,14 @@
 # 📺 Kitchen Floor Dashboard\n
 ## 📺 Kitchen Floor Dashboard — How It Works
 
-The Kitchen Floor is a **per-session HTML dashboard** that shows real-time activity of your Soupz Stall session.
+The Kitchen Floor is a **per-session HTML dashboard** that shows real-time activity of your Soupz CLI session.
 
 ### How It's Generated
 
-When you run `/dashboard` or when a Stall Monitor starts, it creates two files per session in `~/.soupz-agents/dashboard/`:
+When you run `/dashboard` or when a Stall Monitor starts, it creates two files per session in `~/.soupz-cli/dashboard/`:
 
 ```
-~/.soupz-agents/dashboard/
+~/.soupz-cli/dashboard/
 ├── stall-{sessionId}.json    ← State data (updated every 2s)
 ├── stall-{sessionId}.html    ← Self-contained dashboard (reads the JSON)
 └── index.html                ← Multi-stall overview (served via HTTP)
@@ -32,12 +32,12 @@ When you run `/dashboard` or when a Stall Monitor starts, it creates two files p
 /dashboard
 
 # Option 2: Open the HTML file directly
-open ~/.soupz-agents/dashboard/stall-{sessionId}.html
+open ~/.soupz-cli/dashboard/stall-{sessionId}.html
 ```
 
 ### Customizing the UI
 
-The session HTML is at `~/.soupz-agents/dashboard/stall-{sessionId}.html`. It's a single self-contained file with inline CSS and JS. Key sections:
+The session HTML is at `~/.soupz-cli/dashboard/stall-{sessionId}.html`. It's a single self-contained file with inline CSS and JS. Key sections:
 
 1. **CSS Variables** (top of `<style>`) — colors, spacing, fonts. Change `--bg`, `--accent`, `--yellow` etc.
 2. **Kitchen Floor** (`.floor` div) — the animated area with door + chef characters

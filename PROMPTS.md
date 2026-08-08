@@ -33,7 +33,7 @@
 
 ### Who This Is For
 
-You are an AI assistant helping build Soupz — a web IDE where users run `npx @shubh_prajapati99/soupz` on
+You are an AI assistant helping build Soupz CLI — a web IDE where users run `npx soupz-cli` on
 their machine and then control AI coding agents (Claude Code, Gemini CLI, GitHub Copilot,
 Kiro, Ollama) from their browser or phone. Think "Claude Code but with a beautiful web UI
 and phone support."
@@ -42,7 +42,7 @@ and phone support."
 
 **The daemon is the brain. The web app is the face.**
 
-- `npx @shubh_prajapati99/soupz` starts a local Express + WebSocket server on port 7070 (the daemon)
+- `npx soupz-cli` starts a local Express + WebSocket server on port 7070 (the daemon)
 - The web app at `packages/dashboard/` connects to it either directly (localhost) or via
   Supabase Realtime (when accessing from phone/remote)
 - All AI agent execution happens on the USER'S machine, never on Vercel servers
@@ -82,7 +82,7 @@ Before writing any code, verify:
 Soupz is a web-based IDE that lets you use any AI coding agent (Claude Code, Gemini, Copilot,
 Kiro, Ollama) from your browser or phone — while the actual code execution happens on your
 laptop. You don't install a desktop app. You don't give a cloud service access to your files.
-You run one command (`npx @shubh_prajapati99/soupz`) and your phone becomes a powerful coding interface.
+You run one command (`npx soupz-cli`) and your phone becomes a powerful coding interface.
 
 ### Why This Matters
 
@@ -110,9 +110,9 @@ must be Linear / Cursor / Vercel quality — dark, opinionated, professional.
 ## 3. PROJECT STRUCTURE (EXHAUSTIVE)
 
 ```
-/soupz-agents/                          ← git root
+/cli/                                   ← git root
 ├── bin/
-│   └── soupz.js                        ← CLI entry point (npx @shubh_prajapati99/soupz runs this)
+│   └── soupz.js                        ← CLI entry point (npx soupz-cli runs this)
 ├── src/
 │   ├── env.js                          ← dotenv config loader
 │   ├── config.js                       ← directory setup (ensureDirectories)
@@ -335,7 +335,7 @@ type safety is not the bottleneck. Can be migrated later if needed.
 
 `node-pty` (terminal emulator) requires native compilation. It's not available in all
 environments (especially CI and some npm setups). The daemon wraps the import in try/catch
-and disables terminal features gracefully if not installed. This keeps `npx @shubh_prajapati99/soupz` working
+and disables terminal features gracefully if not installed. This keeps `npx soupz-cli` working
 out of the box.
 
 ---
@@ -373,13 +373,13 @@ Progress: approximately 55% complete.
 
 ### CLI
 - `bin/soupz.js` — daemon starter, version flag, agents list, auth subcommands
-- `soupz agents` — lists available CLI agents with availability dots
-- `soupz auth status|login|logout` — per-agent auth management
+- `soupz-cli agents` — lists available CLI agents with availability dots
+- `soupz-cli auth status|login|logout` — per-agent auth management
 - Auto-import of agent definitions on startup
 
 ### Deployment
 - Vercel config (`vercel.json`) — custom build command, SPA rewrite, security headers
-- Deployed at: `https://soupz-agents-sohams-projects-4080e0ee.vercel.app`
+- Deployed at: `https://soupz.vercel.app`
 - Supabase RLS migrations applied
 
 ---
@@ -441,7 +441,7 @@ highlights, demo video embed, waitlist/pricing CTA.
 
 ### Priority 6 — npm Publish Testing
 
-The npm package (`npx @shubh_prajapati99/soupz`) flow has never been tested end-to-end as a published package.
+The npm package (`npx soupz-cli`) flow has never been tested end-to-end as a published package.
 Need to verify:
 - `package.json` has correct `main`, `bin`, `files` fields
 - All imports resolve correctly when installed as a package
@@ -858,7 +858,7 @@ The component should:
 3. Show a "Continue" button that's enabled only when all questions are answered
 4. On "Continue", call an onAnswer({ q1: "PostgreSQL", q2: ["Vercel", "AWS"] }) callback
 
-Design requirements (match the existing soupz design system exactly):
+Design requirements (match the existing Soupz CLI design system exactly):
 - Background: bg-bg-elevated (#16161A), border: border-subtle (#1E1E24)
 - Selected option: bg-accent/15 border-accent text-text-pri
 - Unselected option: bg-bg-surface border-border-subtle text-text-sec hover:border-border-mid
@@ -1030,7 +1030,7 @@ The existing App.jsx routing logic should be modified to:
 - If path === '/' and user is null and !authLoading → show LandingPage
 - If path === '/' and user exists → show the IDE (current behavior)
 
-Design requirements (must match soupz design system EXACTLY):
+Design requirements (must match the Soupz CLI design system EXACTLY):
 
 Colors:
 - bg-base: #0C0C0F, bg-surface: #111114, bg-elevated: #16161A
@@ -1047,9 +1047,9 @@ Landing page sections:
 1. HERO
    - Logo: Terminal icon in accent-colored rounded box + "Soupz" text
    - Headline (large, bold): "Your AI coding agents, on your phone"
-   - Subheadline: "Run npx @shubh_prajapati99/soupz on your machine. Use Claude Code, Gemini, and Copilot from anywhere — browser, phone, or tablet."
+   - Subheadline: "Run npx soupz-cli on your machine. Use Claude Code, Gemini, and Copilot from anywhere — browser, phone, or tablet."
    - Two CTAs: "Get started free" (accent button → /connect) and "View on GitHub" (ghost)
-   - Below: animated terminal showing `npx @shubh_prajapati99/soupz` startup output
+   - Below: animated terminal showing `npx soupz-cli` startup output
    - Background: subtle grid pattern (.bg-grid class exists in index.css)
 
 2. FEATURES (3-column grid)
@@ -1063,7 +1063,7 @@ Landing page sections:
 
 3. HOW IT WORKS (steps)
    Simple numbered list:
-   1. Run npx @shubh_prajapati99/soupz on your Mac, Linux, or Windows machine
+   1. Run npx soupz-cli on your Mac, Linux, or Windows machine
    2. Scan the pairing code or open the link
    3. Start building from your phone or browser
 
@@ -1140,13 +1140,13 @@ Do not change any frontend files. This is daemon-only.
 ### PROMPT 7: npm Publish Audit
 
 ```
-I need to verify the Soupz npm package (npx @shubh_prajapati99/soupz) works correctly as a published package.
-The package.json is at /soupz-agents/package.json.
+I need to verify the Soupz CLI npm package (npx soupz-cli) works correctly as a published package.
+The package.json is at /cli/package.json.
 
 Please do the following:
 
 1. Read the root package.json and check these fields exist and are correct:
-   - "bin": { "soupz": "./bin/soupz.js" }
+   - "bin": { "soupz-cli": "./bin/soupz.js" }
    - "main": appropriate entry point
    - "files": array that includes bin/, src/, packages/remote-server/src/, defaults/
    - "engines": { "node": ">=18.0.0" }
@@ -1166,7 +1166,7 @@ Please do the following:
    - npm pack (creates tarball)
    - Creates a temp directory
    - npm install the tarball
-   - Runs npx @shubh_prajapati99/soupz --version to verify it works
+   - Runs npx soupz-cli --version to verify it works
    - Cleans up
 
 Report all issues found. Do not make changes without listing them first.
@@ -1230,7 +1230,7 @@ You are acting as the @devops specialist — expert in deployment, infrastructur
 
 Set up a complete CI/CD pipeline for Soupz. The project has:
 - A Vercel-deployed React SPA (packages/dashboard/)
-- An npm package (npx @shubh_prajapati99/soupz) to publish to npm
+- An npm package (npx soupz-cli) to publish to npm
 - A Supabase database with migrations in supabase/migrations/
 
 Design GitHub Actions workflows for:
@@ -1252,7 +1252,7 @@ Constraints:
 You are acting as the @contentwriter specialist — expert in product copy, marketing.
 
 Write the hero section copy for the Soupz landing page. Soupz is a web IDE that:
-- Lets you run `npx @shubh_prajapati99/soupz` and access AI coding agents (Claude Code, Gemini, Copilot)
+- Lets you run `npx soupz-cli` and access AI coding agents (Claude Code, Gemini, Copilot)
   from your browser or phone
 - Primary use case: student coding from phone during lecture
 - Target: investors, VPs of engineering, MNC recruiters
@@ -1305,7 +1305,7 @@ Ollama API: POST http://localhost:11434/api/generate with { model, prompt, strea
 ### Start the Web App (Dev Mode)
 
 ```bash
-cd /Users/shubh/Developer/soupz-agents/packages/dashboard
+cd /path/to/cli/packages/dashboard
 npm install
 npm run dev
 # Opens at http://localhost:5173
@@ -1317,7 +1317,7 @@ You can still browse the UI — it just won't execute agents.
 ### Start the Daemon
 
 ```bash
-cd /Users/shubh/Developer/soupz-agents
+cd /path/to/cli
 node bin/soupz.js
 # Outputs pairing code and opens browser to localhost:5173/code
 # Daemon runs at http://localhost:7070
@@ -1336,7 +1336,7 @@ existing process with `lsof -ti:7070 | xargs kill`.
 ### Build for Production
 
 ```bash
-cd /Users/shubh/Developer/soupz-agents/packages/dashboard
+cd /path/to/cli/packages/dashboard
 npm run build
 # Output at packages/dashboard/dist/
 ```
@@ -1390,7 +1390,7 @@ VITE_DAEMON_URL=http://localhost:7070
 
 **Deploy**: Push to main branch → Vercel auto-deploys.
 
-**Live URL**: `https://soupz-agents-sohams-projects-4080e0ee.vercel.app`
+**Live URL**: `https://soupz.vercel.app`
 
 **Custom domain**: Map `soupz.app` in Vercel dashboard (not yet done).
 

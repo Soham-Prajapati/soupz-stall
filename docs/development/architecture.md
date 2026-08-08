@@ -1,8 +1,8 @@
-# Soupz-Agents — Documentation
+# Soupz CLI — Documentation
 
 ## What Is This?
 
-Soupz-Agents is your personal Jarvis — a CLI tool that orchestrates multiple AI agents from one place. Instead of switching between Gemini, Copilot, and other CLIs, just type `soupz-agents` and talk.
+Soupz CLI is your personal Jarvis — a CLI tool that orchestrates multiple AI agents from one place. Instead of switching between Gemini, Copilot, and other CLIs, just type `soupz-cli` and talk.
 
 It has **22 built-in personas** (business strategist, architect, QA engineer, presentation coach, etc.) that transform how the AI responds. It learns from your usage, grades agents, and gets smarter over time.
 
@@ -11,10 +11,10 @@ It has **22 built-in personas** (business strategist, architect, QA engineer, pr
 ## Quick Start
 
 ```bash
-soupz-agents              # Start interactive session
-soupz-agents --yolo        # YOLO mode (agents auto-approve everything)
-soupz-agents agents        # List all agents
-soupz-agents --help        # Full CLI usage
+soupz-cli              # Start interactive session
+soupz-cli --yolo       # YOLO mode (agents auto-approve everything)
+soupz-cli agents       # List all agents
+soupz-cli --help        # Full CLI usage
 ```
 
 ---
@@ -116,13 +116,13 @@ Agents run with maximum permissions — no confirmation prompts:
 | Gemini | `--yolo` |
 | Copilot | `--allow-all-tools` |
 
-Toggle: `/yolo` in interactive mode or `soupz-agents --yolo`.
+Toggle: `/yolo` in interactive mode or `soupz-cli --yolo`.
 
 ---
 
 ## Adding Custom Agents
 
-Drop a `.md` file in `~/.soupz-agents/agents/`:
+Drop a `.md` file in `~/.soupz-cli/agents/`:
 
 ```yaml
 ---
@@ -141,7 +141,7 @@ usage_count: 0
 ---
 ```
 
-Restart soupz-agents and it's available as `@mycustom`.
+Restart soupz-cli and it's available as `@mycustom`.
 
 ---
 
@@ -168,7 +168,7 @@ grade: 50
 
 ## How Routing Works
 
-In AUTO mode, soupz-agents scores each agent:
+In AUTO mode, soupz-cli scores each agent:
 - **Keyword matching**: "fix bug" → coding agent, "explain" → research agent
 - **Capability matching**: agent's capabilities vs prompt type
 - **Grades**: agents with higher success rates get priority

@@ -336,7 +336,8 @@ export function getAgentSuggestions() {
 
 /**
  * Returns the top N most-used CLI agent ids based on recorded usage.
- * Used by LearnedAgents to show the "Frequently used" section.
+ * Currently has no caller — the LearnedAgents component that consumed it was
+ * never imported and has been removed.
  *
  * @param {number} n
  * @returns {string[]} array of agent ids

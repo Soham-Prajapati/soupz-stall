@@ -5,7 +5,7 @@
 This matrix provides specific remediation steps for common issues encountered when using different AI providers within Soupz.
 
 ## 🔗 Universal Troubleshooting Steps
-1. **Restart the local daemon**: `npx @shubh_prajapati99/soupz` (or `npm run dev:web` in dev mode).
+1. **Restart the local daemon**: `npx soupz-cli` (or `npm run dev:web` in dev mode).
 2. **Refresh the browser UI**: `Cmd+Shift+R` (hard refresh).
 3. **Check CLI presence**: Run `/api/system/check-clis` in the Core Console.
 4. **Update CLIs**: Ensure the underlying CLI tools (`gh`, `gemini`, `claude`, `ollama`) are up to date.

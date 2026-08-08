@@ -2,7 +2,7 @@
 
 *Updated: April 3, 2026*
 
-This document defines the release workflow for the Soupz Cockpit.
+This document defines the release workflow for [Soupz CLI](https://github.com/soupz/cli).
 
 ## 🏁 Enforce PR-Only Deploy Path
 Direct pushes to the `main` branch are prohibited. All code must enter `main` via a Pull Request (PR) that has passed all CI checks.

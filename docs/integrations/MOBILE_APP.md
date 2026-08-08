@@ -1,6 +1,6 @@
 # 📱 Soupz Cloud Kitchen — Mobile IDE
 
-The Soupz Mobile IDE is a React Native (Expo) app that connects to your laptop's Soupz Stall via WebSocket, giving you a full remote terminal, system health monitoring, and quick-action recipe buttons — all from your phone.
+The Soupz Mobile IDE is a React Native (Expo) app that connects to your laptop's Soupz CLI daemon via WebSocket, giving you a full remote terminal, system health monitoring, and quick-action recipe buttons — all from your phone.
 
 ---
 
@@ -11,7 +11,7 @@ The app turns your phone into a remote terminal for your AI kitchen. You can:
 - **Spawn terminals** — create multiple terminal sessions on your laptop from your phone
 - **Run commands** — type directly into your laptop's shell from anywhere on WiFi
 - **Monitor health** — see RAM, swap, CPU, disk usage with real numbers + bars
-- **Quick recipes** — one-tap shortcuts for common soupz-stall commands
+- **Quick recipes** — one-tap shortcuts for common soupz-cli commands
 - **Special keys** — Ctrl+C, Ctrl+D, Tab, arrow keys via dedicated buttons
 
 ## Architecture
@@ -27,7 +27,7 @@ The app turns your phone into a remote terminal for your AI kitchen. You can:
 └─────────────────┘                                  └──────────────────┘
                                                             │
                                                      ┌──────┴──────┐
-                                                     │ soupz-stall │
+                                                     │ soupz-cli   │
                                                      │  (CLI)      │
                                                      └─────────────┘
 ```
@@ -51,9 +51,9 @@ Scan the QR code with Expo Go on your phone.
 
 ### Connecting to Your Kitchen
 
-1. **Start soupz-stall** on your laptop:
+1. **Start soupz-cli** on your laptop:
    ```bash
-   soupz-stall
+   soupz-cli
    ```
    The Cloud Kitchen server starts automatically in the background on port 7533.
 
@@ -98,8 +98,8 @@ Tap the 📊 icon in the header to toggle the health panel. Shows:
 - **Warnings** — high usage alerts
 
 ### Recipe Bar
-Quick-tap buttons for common soupz-stall commands:
-- `soupz-stall` — launch the stall
+Quick-tap buttons for common soupz-cli commands:
+- `soupz-cli` — launch the CLI
 - `/help` — show all commands
 - `/health` — system diagnostics
 - `/chefs` — list AI personas

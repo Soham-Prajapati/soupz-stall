@@ -1,9 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { AUTH_DIR, resolveDataReadPath } from '../config.js';
 
-const AUTH_DIR = join(homedir(), '.soupz-agents', 'auth');
 const USER_FILE = join(AUTH_DIR, 'user.json');
 
 // Default Supabase config — user can override via env vars
@@ -21,7 +20,7 @@ export class UserAuth {
     }
 
     _loadUser() {
-        try { return JSON.parse(readFileSync(USER_FILE, 'utf8')); }
+        try { return JSON.parse(readFileSync(resolveDataReadPath('auth', 'user.json'), 'utf8')); }
         catch { return null; }
     }
 

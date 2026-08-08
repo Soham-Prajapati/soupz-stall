@@ -58,19 +58,55 @@ create policy "commands: user owns rows" on soupz_commands
 create policy "responses: user owns rows" on soupz_responses
     for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- Anyone can read a pairing code (to find a machine)
-create policy "pairing: public read" on soupz_pairing
-    for select using (true);
+-- Pairing rows contain a live session token. They must NOT be world-readable.
+--
+-- The previous policy was `for select using (true)`, which let anyone holding
+-- the public anon key — and that key ships inside the deployed web bundle —
+-- dump every active session token for every user of this app. Reads now go
+-- through a SECURITY DEFINER function that requires knowing the 9-character
+-- code, so a caller can only resolve a pairing they were actually given.
+--
+-- MIGRATING AN EXISTING DATABASE: run these two statements by hand, then treat
+-- every token issued before the change as compromised (they expire on their
+-- own, but rotating early costs nothing).
+drop policy if exists "pairing: public read" on soupz_pairing;
+
+create or replace function claim_pairing_code(p_code text)
+returns table (
+    token       text,
+    hostname    text,
+    lan_ips     jsonb,
+    public_ip   text,
+    port        integer,
+    expires_at  timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+    select p.token, p.hostname, p.lan_ips, p.public_ip, p.port, p.expires_at
+    from soupz_pairing p
+    where p.code = p_code
+      and p.expires_at > now();
+$$;
+
+revoke all on function claim_pairing_code(text) from public;
+grant execute on function claim_pairing_code(text) to anon, authenticated;
 
 -- Only service role (daemon) can insert/update pairing
--- (RLS defaults to deny for other ops)
+-- (RLS defaults to deny for other ops, and there is now no select policy at all)
 
 -- ─── Realtime ─────────────────────────────────────────────────────────────────
 -- Enable Realtime for both tables so the daemon receives commands
 -- and the web app receives responses in real time
 alter publication supabase_realtime add table soupz_commands;
 alter publication supabase_realtime add table soupz_responses;
-alter publication supabase_realtime add table soupz_pairing;
+-- soupz_pairing is deliberately NOT published. It holds session tokens, and a
+-- realtime stream is one relaxed RLS policy away from broadcasting them.
+-- Pairing is a request/response flow; it does not need live subscriptions.
+-- If your database already published it, remove it with:
+--     alter publication supabase_realtime drop table soupz_pairing;
 
 -- ─── Auto-cleanup: delete rows older than 1 hour (keep free tier small) ───────
 create or replace function cleanup_old_soupz_rows() returns void

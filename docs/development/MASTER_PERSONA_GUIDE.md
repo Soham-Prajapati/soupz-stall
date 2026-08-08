@@ -52,7 +52,7 @@ Your Long Prompt (50+ lines)
 ## Example Input
 
 ```bash
-$ soupz-stall
+$ soupz-cli
 
 > @master
 > Problem Statement: Build content intelligence platform for AI for Bharat hackathon

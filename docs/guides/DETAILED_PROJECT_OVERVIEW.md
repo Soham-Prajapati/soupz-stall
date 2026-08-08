@@ -1,10 +1,10 @@
 
-# 🍲 Soupz Stall — The Canonical Architecture & Engineering Guide (Ultimate Edition)
+# 🍲 Soupz CLI — The Canonical Architecture & Engineering Guide (Ultimate Edition)
 
 > **Date:** March 2026  
 > **Status:** Active Development (Alpha)  
 > **Audience:** Core Contributors, AI Agents, Stakeholders, and Technical Interviewers  
-> **Purpose:** This is the absolute, uncompromising source of truth for the Soupz Stall ecosystem. Every file, every persona, every routing algorithm, and every architectural decision is documented here in extreme depth.
+> **Purpose:** This is the absolute, uncompromising source of truth for the Soupz CLI ecosystem. Every file, every persona, every routing algorithm, and every architectural decision is documented here in extreme depth.
 
 ---
 
@@ -56,7 +56,7 @@
 Traditional AI coding tools operate in a vacuum. When you ask a generic LLM to "build a feature," it tries to simulate the entire engineering process in a single, unobservable thought. It must simultaneously be the product manager, the database architect, the UI designer, and the backend developer. This leads to the **Monolithic Failure**: a massive, 1000-line file that barely works, violates architectural principles, hallucinates imports, and is impossible to debug without massive re-prompting. Furthermore, these singular LLMs suffer from severe context degradation; by line 800, they have forgotten the design constraints established at line 10.
 
 ### 1.2 The Swarm Paradigm
-Soupz Stall explicitly rejects the monolithic LLM approach. We treat AI not as a "magic box" but as a **Coordinated Swarm of Specialists**. 
+Soupz CLI explicitly rejects the monolithic LLM approach. We treat AI not as a "magic box" but as a **Coordinated Swarm of Specialists**.
 - **Maestro** plans the dependencies and breaks down the project.
 - **Architect** defines the TypeScript interfaces and database schemas.
 - **Designer** writes the CSS, Tailwind, and UI components.
@@ -73,7 +73,7 @@ This project is heavily inspired by enterprise-grade agent orchestration platfor
 ## 2. Macro System Architecture
 
 ### 2.1 The Local-First Imperative
-Security and speed are our #1 priorities. Soupz Stall is a **Local-First** platform. Your codebase, environment variables, and proprietary logic never leave your hard drive to sit on a 3rd-party SaaS server. The actual execution engine (the "Runtime") runs natively on your machine via Node.js. This gives the agents zero-latency access to your local files, compilers, and Git history. The "Cloud" aspect of Soupz is merely a visual reflection (a dashboard) that connects back to your machine via a highly secure, OTP-paired WebSocket tunnel.
+Security and speed are our #1 priorities. Soupz CLI is a **Local-First** platform. Your codebase, environment variables, and proprietary logic never leave your hard drive to sit on a 3rd-party SaaS server. The actual execution engine (the "Runtime") runs natively on your machine via Node.js. This gives the agents zero-latency access to your local files, compilers, and Git history. The "Cloud" aspect of Soupz is merely a visual reflection (a dashboard) that connects back to your machine via a highly secure, OTP-paired WebSocket tunnel.
 
 ### 2.2 The CLI Runtime Engine (`src/`)
 This is the brain of the system, executed via `bin/soupz.js`. It handles:
@@ -125,7 +125,7 @@ To understand and contribute to this project, you must understand the exact topo
 - **`src/session.js`**: The core loop. Manages the REPL, slash commands (`/fleet`, `/parallel`), and the Plan Mode todo list.
 
 ### 3.2 The Monorepo Ecosystem (`packages/`)
-Soupz Stall is a collection of linked services managed via pnpm workspaces.
+Soupz CLI is a collection of linked services managed via pnpm workspaces.
 - **`packages/remote-server/`**: The Node.js/Express Bridge.
   - `src/index.js`: Creates the `node-pty` terminal instances and manages WebSocket broadcasting.
   - `Dockerfile` & `railway.json`: Configurations for deploying the bridge to cloud infrastructure.
@@ -170,7 +170,7 @@ It also supports complex execution flows:
 - **Fan-Out:** Sending the exact same prompt to multiple different LLMs to find the best consensus solution.
 
 ### 4.2 The Semantic Routing Pipeline (`semantic-router.js`)
-To achieve aggressive token reduction, Soupz Stall uses a **3-Layer Routing Pipeline**:
+To achieve aggressive token reduction, Soupz CLI uses a **3-Layer Routing Pipeline**:
 1. **Layer 1 (Local Ollama):** If Ollama is running (`qwen2.5:1.5b`), it performs a sub-second "Reasoning Pass" to score the prompt's intent. If it's a simple formatting task, it handles it locally for zero cost.
 2. **Layer 2 (Rules-Based):** If Ollama is offline, it uses regex scoring. Keywords like "ui", "css", or "button" route to Gemini; "backend", "api", or "docker" route to Copilot.
 3. **Layer 3 (AI Fallback):** If rules are ambiguous, it calls a "Mini" model (like `gpt-4o-mini`) to make the final routing decision, ensuring premium models (Sonnet, Opus) are only used when absolutely necessary.
@@ -198,7 +198,7 @@ Registers every agent and persona. It tracks each agent's **"Quality Grade" (0-1
 
 ## 6. 👨‍🍳 The Kitchen Staff: Full Persona Registry (40+ Agents)
 
-This is the complete DNA of the Soupz Stall Swarm. Every persona below exists as a detailed Markdown configuration in `defaults/agents/`. I have extracted their exact system prompts and constraints to show how they operate.
+This is the complete DNA of the Soupz CLI swarm. Every persona below exists as a detailed Markdown configuration in `defaults/agents/`. I have extracted their exact system prompts and constraints to show how they operate.
 
 
 ### 🔧 Agent Builder (Shubh) (`agent-builder`)
@@ -674,7 +674,7 @@ You are a hackathon expert who has judged 200+ hackathons and evaluated 1000+ pr
 
 **System Prompt DNA:**
 ```text
-You are the Forager — the Soupz Stall's visual ingredient scout. Your job is to find, evaluate, and source the perfect images, icons, videos, and visual assets for web projects. Your search strategy applies information foraging theory (Pirolli & Card, 1999) — treating the web as an information landscape where you follow "scent trails" of relevance to maximize the value of resources found per unit of search effort. You also apply Bates' "berrypicking" model (1989), recognizing that the best resources are gathered iteratively: each find reshapes the next query, and the final collection emerges from multiple passes across diverse sources rather than a single perfect search.
+You are the Forager — the Soupz CLI visual ingredient scout. Your job is to find, evaluate, and source the perfect images, icons, videos, and visual assets for web projects. Your search strategy applies information foraging theory (Pirolli & Card, 1999) — treating the web as an information landscape where you follow "scent trails" of relevance to maximize the value of resources found per unit of search effort. You also apply Bates' "berrypicking" model (1989), recognizing that the best resources are gathered iteratively: each find reshapes the next query, and the final collection emerges from multiple passes across diverse sources rather than a single perfect search.
 
   ## Search Strategy Patterns
   Apply these systematic approaches depending on the task:
@@ -1535,7 +1535,7 @@ Managed in `src/memory/pool.js`. This is the long-term knowledge base.
 ## 9. Component Generation & Prompt Engineering Engine
 
 ### 9.1 The Atomic Generation Pipeline
-Soupz Stall solves the "monolithic code" problem by enforcing **Atomic Generation**. 
+Soupz CLI solves the "monolithic code" problem by enforcing **Atomic Generation**.
 - The system prompt strictly forbids building a full page in one go.
 - Instead, the agent is instructed to write individual, isolated components first (e.g., `Button.tsx`, `Header.tsx`).
 - It then writes an "Assembly Script" to put them together. This ensures modular, clean, and highly testable code generation.
@@ -1580,10 +1580,10 @@ Inspired by **Ruflo**, we aim for a 75% reduction in total LLM token costs throu
 Implementing local AST transformations via WebAssembly. Simple tasks like "Rename this variable everywhere" will happen locally with zero token cost.
 
 ### 12.2 Reverse Integration (The Soupz MCP)
-Exposing the entire Soupz Stall platform as an **MCP Server**. This will allow developers to use their team of 43+ specialist Chefs from within *any* other tool, like GitHub Copilot CLI or Claude Code, effectively giving those simple tools a "Swarm Brain" upgrade.
+Exposing the entire Soupz CLI platform as an **MCP Server**. This will allow developers to use their team of 43+ specialist Chefs from within *any* other tool, like GitHub Copilot CLI or Claude Code, effectively giving those simple tools a "Swarm Brain" upgrade.
 
 ### 12.3 Mobile Command Center
 The `packages/mobile-ide/` (React Native) will allow you to deploy massive architectural tasks from your laptop, leave the house, and monitor your "Kitchen" or approve pull requests from your phone while the swarm works in the background.
 
 ---
-*End of Document. Soupz Stall is the future of autonomous, observable, and efficient software engineering.*
+*End of Document. Soupz CLI is the future of autonomous, observable, and efficient software engineering.*

@@ -13,32 +13,27 @@ describe('Stress Tests', () => {
     const mod = await import(resolve(ROOT, 'packages/remote-server/src/index.js'));
     startRemoteServer = mod.startRemoteServer || mod.default;
 
-    // Try to start server, it may already be running from integration tests
-    try {
-      serverHandle = await startRemoteServer(PORT, { silent: true });
-      BASE_URL = `http://127.0.0.1:${PORT}`;
-    } catch (e) {
-      // If port busy, try the integration test port
-      try {
-        const testRes = await fetch('http://127.0.0.1:17533/health');
-        if (testRes.ok) {
-          BASE_URL = 'http://127.0.0.1:17533';
-          return;
-        }
-      } catch {}
-      // Last resort: try another port
-      serverHandle = await startRemoteServer(PORT + 1, { silent: true });
-      BASE_URL = `http://127.0.0.1:${PORT + 1}`;
+    // startRemoteServer resolves null on EADDRINUSE rather than throwing. The
+    // old fallback here quietly retargeted the integration suite's port, which
+    // hid the leaked-listener bug and let two files stress one daemon.
+    serverHandle = await startRemoteServer(PORT, { silent: true });
+    if (!serverHandle) {
+      throw new Error(
+        `Port ${PORT} is already in use — a previous daemon or test run did not shut down. ` +
+        `Free it with: lsof -nP -iTCP:${PORT} | awk 'NR>1 {print $2}' | xargs kill`
+      );
     }
+    BASE_URL = `http://127.0.0.1:${PORT}`;
   }, 45000);
 
   afterAll(async () => {
+    // stop() resolves once the listening socket is released.
     if (serverHandle?.stop) {
       await serverHandle.stop();
     } else if (serverHandle?.server) {
       await new Promise((r) => serverHandle.server.close(r));
     }
-  }, 10000);
+  }, 15000);
 
   // --- Order Queue: max 5 concurrent ---
   describe('Order concurrency', () => {

@@ -1,9 +1,11 @@
+import { CommandsMixin } from './commands.js';
+
 import chalk from 'chalk';
 import { emitKeypressEvents } from 'readline';
-import { homedir } from 'os';
 import { join, resolve } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { randomUUID } from 'crypto';
+import { DATA_DIR, resolveDataReadPath } from '../config.js';
 import SupabaseRelay from '../supabase-relay.js';
 import { ContextPantry } from '../core/context-pantry.js';
 import { CostTracker } from '../core/cost-tracker.js';
@@ -17,13 +19,14 @@ import { CloudMixin } from './cloud.js';
 import { AuthMixin } from './auth.js';
 import { TodoMixin } from './todo.js';
 import { UtilsMixin, generateSessionName } from './utils.js';
+import { parseMonitoringCommand } from './command-parser.js';
+import { createMeter, recordAgentRunState, recordSessionInput } from './monitoring.js';
 
-const HISTORY_FILE = join(homedir(), '.soupz-agents', 'history');
-const GEMINI_MODELS = [
+export const GEMINI_MODELS = [
     { id: 'gemini-2.5-flash', desc: '0.1x (FAST)', cost: 0.1 },
     { id: 'gemini-2.5-pro', desc: '1x (SMART)', cost: 1 }
 ];
-const COPILOT_MODELS = [
+export const COPILOT_MODELS = [
     { id: 'gpt-5.1-codex', desc: '1x', cost: 1 },
     { id: 'gpt-4.1-mini', desc: '0x (FREE)', cost: 0 }
 ];
@@ -64,10 +67,14 @@ export class Session {
         this.busyAgentId = null;
         this.agentTokens = {};
         this.sessionStart = Date.now();
+        this.meter = createMeter(this.sessionStart);
         this.totalPromptsSent = 0;
         this.cmdHistory = [];
         this.cmdHistoryIndex = -1;
-        try { if (existsSync(HISTORY_FILE)) this.cmdHistory = readFileSync(HISTORY_FILE, 'utf8').split('\n').filter(Boolean).slice(-100); } catch {}
+        try {
+            const historyFile = resolveDataReadPath('history');
+            if (existsSync(historyFile)) this.cmdHistory = readFileSync(historyFile, 'utf8').split('\n').filter(Boolean).slice(-100);
+        } catch {}
         this.todoList = [];
         this.conversationLog = [];
         this.pantry = new ContextPantry();
@@ -79,6 +86,73 @@ export class Session {
             this.relay.setUser(this.userAuth.user.id || this.userAuth.user.email);
             void this.relay.registerMachine();
         }
+
+        // Wire events
+        this.spinnerTimer = null;
+        this.spinnerFrame = 0;
+
+        this.spawner.on('output', (agentId, parsed) => {
+            if (parsed?.text) {
+                // Stop spinner on first output
+                this.stopSpinner();
+                const a = this.registry.get(agentId);
+                this.getAgentTokens(agentId).out += Math.ceil(parsed.text.length / 4);
+                this.pushToLog({ role: 'assistant', agent: agentId, text: parsed.text, ts: Date.now() });
+                
+                // Supabase Relay: Stream chunk to cloud
+                if (this.currentOrderId) {
+                    void this.relay.pushChunk(this.currentOrderId, parsed.text);
+                }
+
+                // Filter out Copilot verbose usage stats logging
+                // For instance, "Total usage est:" or "API time spent:" or mock AI models usage.
+                const filteredLines = parsed.text.split('\n').filter((l) => {
+                    const text = l.trim();
+                    if (!text) return true;
+                    if (text.match(/Total usage est:|API time spent:|Total session time:|Total code changes:|Breakdown by AI model:/i)) return false;
+                    if (text.match(/^[ \t│\|└L_]+(gpt-|claude-|o3-|gemini-|llama|deepseek|qwen)/i)) return false;
+                    // Filter emoji-prefixed model usage lines (e.g. "🐙  claude-opus-4.6  307.6k in, 4.5k out...")
+                    if (text.match(/\d+\.?\d*k?\s+(in|out),?\s+\d+\.?\d*k?\s+(in|out|cached)/i)) return false;
+                    if (text.match(/Est\.\s+\d+\s+Premium\s+requests/i)) return false;
+                    return true;
+                });
+
+                let firstLinePrinted = false;
+                for (let i = 0; i < filteredLines.length; i++) {
+                    const line = filteredLines[i];
+                    const rendered = typeof this._renderInlineMarkdown === 'function' ? this._renderInlineMarkdown(line) : line;
+                    if (!firstLinePrinted && line.trim()) {
+                        process.stdout.write('\n' + chalk.hex(a?.color || '#888')(`  ${a?.icon || '○'} `) + rendered + '\n');
+                        firstLinePrinted = true;
+                    } else if (line.trim()) {
+                        process.stdout.write(chalk.hex('#555')('  ⎿ ') + rendered + '\n');
+                    } else {
+                        process.stdout.write('\n');
+                    }
+                }
+            }
+        });
+        
+        this.spawner.on('status-change', (agentId, newState) => {
+            recordAgentRunState(this.meter, agentId, newState);
+            if (newState === 'done') {
+                this.stopSpinner();
+                const a = this.registry.get(agentId);
+                const elapsed = a?.startTime ? Date.now() - a.startTime : 0;
+                this.getAgentTokens(agentId).apiTimeMs += elapsed;
+                this.grading?.recordResult(agentId, true, elapsed);
+                this.removeActivePersona(agentId);
+                console.log(chalk.green(`\n  ✔ Done`) + chalk.dim(` (${Math.round(elapsed / 1000)}s)`));
+                console.log(); // Add an extra empty line as gap before prompt
+            }
+            if (newState === 'error') {
+                this.stopSpinner();
+                this.grading?.recordResult(agentId, false, 0);
+                this.removeActivePersona(agentId);
+                console.log(chalk.red('\n  ✖ Error'));
+                console.log(); // Add an extra empty line as gap before prompt
+            }
+        });
     }
 
     _applyModelPrefs() {
@@ -88,7 +162,7 @@ export class Session {
             const c = this.registry.get('copilot');
             if (c) {
                 c.build_args = ['copilot', '-p', '{prompt}', '--model', copilotModel, ...(this.yolo ? ['--allow-all-tools'] : [])];
-                this.activeModel = copilotModel;
+                // Do not set this.activeModel globally here since default is AUTO mode
             }
         }
         const geminiModel = this.modelPrefs.gemini;
@@ -102,7 +176,7 @@ export class Session {
 
     loadModelPrefs() {
         try {
-            const fp = join(homedir(), '.soupz-agents', 'model-prefs.json');
+            const fp = resolveDataReadPath('model-prefs.json');
             if (existsSync(fp)) return JSON.parse(readFileSync(fp, 'utf8'));
         } catch { }
         return { auto: 'gpt-4.1' };
@@ -110,7 +184,7 @@ export class Session {
 
     saveModelPrefs() {
         try {
-            const dir = join(homedir(), '.soupz-agents');
+            const dir = DATA_DIR;
             if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
             writeFileSync(join(dir, 'model-prefs.json'), JSON.stringify(this.modelPrefs, null, 2));
         } catch { }
@@ -216,15 +290,30 @@ export class Session {
     async handleInput(input, saveHistory = true) {
         if (!input) return;
         this.totalPromptsSent++;
+        recordSessionInput(this.meter, input);
         if (input.startsWith('/')) {
+            const monitoringCommand = parseMonitoringCommand(input);
+            if (monitoringCommand === 'meter') { this.showMeter(); return; }
+            if (monitoringCommand === 'fleet-view') { this.showFleetView(); return; }
             if (input === '/help' || input === '?') { this.showHelp(); return; }
             if (input === '/kitchen' || input === '/stations') { this.showToolAgents(); return; }
             if (input === '/chefs' || input === '/agents') { this.showPersonas(); return; }
+            
+            if (input === '/station' || input === '/tool' || input === '/tools') { this.inputBuffer = '/station '; this.resetPromptState(); this.renderPrompt(); this.buildDropdown(); return; }
             if (input.startsWith('/station ') || input.startsWith('/tool ')) { this.switchTool(input.split(' ')[1]); return; }
+            
+            if (input === '/utensil' || input === '/model') { this.inputBuffer = '/utensil '; this.resetPromptState(); this.renderPrompt(); this.buildDropdown(); return; }
             if (input.startsWith('/utensil ') || input.startsWith('/model ')) { this.handleModel(input); return; }
+            
             if (input === '/auto') { this.switchTool('auto'); return; }
+            
+            if (input === '/chain') { console.log(chalk.dim('  Usage: /chain designer→researcher "your prompt"')); return; }
             if (input.startsWith('/chain ')) { await this.handleChain(input.slice(7)); return; }
+            
+            if (input === '/delegate') { console.log(chalk.dim('  Usage: /delegate <agent> "prompt"')); return; }
             if (input.startsWith('/delegate ')) { await this.handleDelegateCmd(input.slice(10)); return; }
+            
+            if (input === '/parallel') { console.log(chalk.dim('  Usage: /parallel agent1 agent2 agent3 "shared prompt"')); return; }
             if (input.startsWith('/parallel ')) { await this.handleParallel(input.slice(10)); return; }
             if (input.startsWith('/fleet peek ')) { this.peekFleetWorker(input.slice(12).trim()); return; }
             if (input.startsWith('/fleet result ')) { this.showFleetRunResult(input.slice(14).trim()); return; }
@@ -232,14 +321,21 @@ export class Session {
             if (input === '/fleet runs') { this.listFleetRuns(); return; }
             if (input.startsWith('/fleet ')) { await this.spawnFleet(input.slice(7)); return; }
             if (input === '/fleet') { this.showFleetStatus(); return; }
+            if (input === '/subagent') { console.log(chalk.dim('  Usage: /subagent <command> <id> "prompt"')); return; }
             if (input.startsWith('/subagent ')) { await this.runSubAgents(input.slice(10)); return; }
+            
+            if (input === '/team') { console.log(chalk.dim('  Usage: /team "goal"')); return; }
             if (input.startsWith('/team ')) { await this.runAgentTeam(input.slice(6)); return; }
+            
             if (input.startsWith('/svgart')) { await this.handleSvgArt(input); return; }
             if (input.startsWith('/hackathon')) { await this.handleHackathon(input); return; }
             if (input === '/spill' || input === '/yolo') { this.toggleYolo(); return; }
             if (input.startsWith('/browse')) { await this.browseLocalhost(input); return; }
             if (input === '/todo') { this.showTodo(); return; }
+            
+            if (input === '/do') { this.showTodo(); return; }
             if (input.startsWith('/do ')) { await this.executeTodo(input.slice(4).trim()); return; }
+            
             if (input === '/tokens') { this.showTokens(); return; }
             if (input === '/costs') { this.showCosts(); return; }
             if (input === '/grades') { this.showGrades(); return; }
@@ -258,10 +354,17 @@ export class Session {
             if (input === '/memory') { this.showMemory(); return; }
             if (input.startsWith('/compress')) { this.handleCompress(input); return; }
             if (input === '/health') { await this.showHealth(); return; }
+            
+            if (input === '/recipe' || input === '/recipe list') { this.showRecipes(); return; }
             if (input.startsWith('/recipe ')) { await this.runRecipe(input.slice(8).trim()); return; }
+            
             if (input === '/skills') { this.showSkills(); return; }
+            
+            if (input === '/login' || input === '/logout') { console.log(chalk.dim(`  Usage: /${input.slice(1)} <agent-id>`)); return; }
             if (input.startsWith('/login ')) { this.loginAgent(input.slice(7).trim()); return; }
             if (input.startsWith('/logout ')) { this.logoutAgent(input.slice(8).trim()); return; }
+            
+            if (input === '/user') { await this.handleUserAuth(input); return; }
             if (input.startsWith('/user ')) { await this.handleUserAuth(input); return; }
             if (input.startsWith('/mcp')) { await this.handleMcp(input); return; }
             if (input === '/setup-multiline') { await this.setupMultilineKeybinding(); return; }
@@ -287,7 +390,11 @@ export class Session {
 
         const toolId = this.activeTool || this.pickBestTool(input);
         const tool = this.registry.get(toolId);
-        console.log(chalk.hex(tool?.color || '#888')(`  ${tool?.icon || '○'} ${toolId}`) + (this.activeModel ? chalk.dim(` (${this.activeModel})`) : ''));
+        
+        let printModel = this.activeModel;
+        if (!this.activeTool) printModel = this.modelPrefs[toolId] || null;
+
+        console.log(chalk.hex(tool?.color || '#888')(`  ${tool?.icon || '○'} ${toolId}`) + (printModel ? chalk.dim(` (${printModel})`) : ''));
         this.startSpinner(toolId);
         this.pushToLog({ role: 'user', text: input, ts: Date.now() });
         try {
@@ -324,6 +431,83 @@ export class Session {
         for (let i = 0; i < count; i++) result.push(available[i % available.length]);
         return result;
     }
+
+    switchTool(id) {
+        if (id === 'auto') { this.activeTool = null; this.activeModel = null; console.log(chalk.hex('#4ECDC4')('  🎯 AUTO KITCHEN — head chef decides')); return; }
+        const a = this.registry.get(id);
+        if (!a || a.type === 'persona') { console.log(chalk.red(`  Unknown kitchen: ${id}. /agents`)); return; }
+        this.activeTool = id;
+        // Restore saved model preference for this tool
+        const savedModel = this.modelPrefs[id];
+        if (savedModel) {
+            this.activeModel = savedModel;
+            console.log(chalk.hex(a.color)(`  ${a.icon} Kitchen: ${a.name}`) + chalk.dim(` (utensil: ${savedModel})`));
+        } else {
+            this.activeModel = null;
+            console.log(chalk.hex(a.color)(`  ${a.icon} Kitchen: ${a.name}`));
+        }
+        console.log(chalk.dim(`    ${this.getPersonas().length} chefs ready. /model to pick utensil. /auto for best kitchen.`));
+    }
+
+    async processDelegations(output, sourcePersonaId) {
+        if (!output) return;
+        const delegatePattern = /@DELEGATE\[([^\]]+)\]:\s*(.+?)(?=\n@DELEGATE|\n\n|$)/gms;
+        const matches = [...output.matchAll(delegatePattern)];
+        if (!matches.length) return;
+        
+        const tools = this.pickDiverseTools(matches.length);
+        if (!tools.length) { console.log(chalk.red('  No kitchen open for delegation — install gh (Copilot) or gemini')); return; }
+        
+        console.log(chalk.hex('#A855F7')(`\n  ⚡ ${matches.length} delegation(s) from @${sourcePersonaId} — running in PARALLEL`));
+        
+        // Resolve agents (create dynamic personas for unknowns)
+        const tasks = await Promise.all(matches.map(async ([, agentId, delegatePrompt], i) => {
+            let targetPersona = this.registry.get(agentId.trim());
+            if (!targetPersona) {
+                // Dynamically create a persona for unknown agents
+                if (typeof this.createDynamicPersona === 'function') {
+                    targetPersona = await this.createDynamicPersona(agentId.trim());
+                }
+                if (!targetPersona) return null;
+            }
+            const toolId = tools[i];
+            const sysPrompt = targetPersona.type === 'persona' ? (targetPersona.system_prompt || targetPersona.body || '') : '';
+            const fullPrompt = sysPrompt ? `${sysPrompt}\n\nUser: ${delegatePrompt.trim()}` : delegatePrompt.trim();
+            return { agentId: agentId.trim(), toolId, fullPrompt, persona: targetPersona, delegatePrompt: delegatePrompt.trim() };
+        }));
+        
+        const valid = tasks.filter(Boolean);
+        
+        // Print what's about to happen
+        for (const t of valid) {
+            const tAgent = this.registry.get(t.toolId);
+            console.log(chalk.hex('#4ECDC4')(`  📤 @${t.agentId} ${t.persona.icon || ''} → ${tAgent?.icon || '○'} ${t.toolId}`));
+            console.log(chalk.dim(`     "${t.delegatePrompt.slice(0, 70)}${t.delegatePrompt.length > 70 ? '…' : ''}"`));
+        }
+        console.log(chalk.dim(`\n  ─── Parallel execution start ─────────────────────────────`));
+        
+        // Run all in parallel
+        const results = await Promise.allSettled(
+            valid.map(t => this.orchestrator.runOn(t.toolId, t.fullPrompt, this.cwd))
+        );
+        
+        let successCount = 0;
+        let failCount = 0;
+        for (let i = 0; i < results.length; i++) {
+            const r = results[i];
+            const t = valid[i];
+            if (r.status === 'fulfilled') {
+                successCount++;
+                console.log(chalk.hex('#A855F7')(`\n  ✅ @${t.agentId} completed delegation:`));
+                console.log(chalk.gray(r.value));
+            } else {
+                failCount++;
+                console.log(chalk.red(`\n  ❌ @${t.agentId} failed delegation:`));
+                console.log(chalk.red(r.reason));
+            }
+        }
+        console.log(chalk.hex('#A855F7')(`\n  ⚡ Delegations finished. ${successCount} succeeded, ${failCount} failed.`));
+    }
 }
 
-Object.assign(Session.prototype, MemoryMixin, FleetMixin, UIMixin, CloudMixin, AuthMixin, TodoMixin, UtilsMixin);
+Object.assign(Session.prototype, CommandsMixin, MemoryMixin, FleetMixin, UIMixin, CloudMixin, AuthMixin, TodoMixin, UtilsMixin);

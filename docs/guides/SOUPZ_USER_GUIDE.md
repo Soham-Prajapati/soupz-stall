@@ -1,14 +1,14 @@
-# 🎯 Soupz-Stall User Guide
+# 🎯 Soupz CLI User Guide
 
-## Complete Guide to Using Soupz-Stall with 24 Personas
+## Complete Guide to Using Soupz CLI with 24 Personas
 
 ---
 
 ## 🚀 Quick Start
 
 ```bash
-# Start soupz-stall
-soupz-stall
+# Start soupz-cli
+soupz-cli
 
 # Use Master for complex projects (NEW!)
 > @master [paste your 50-line problem statement]
@@ -628,7 +628,7 @@ Time: 3 minutes
 ## 🚀 Ready to Start!
 
 ```bash
-soupz-stall
+soupz-cli
 > @architect design a REST API for a todo app
 ```
 

@@ -74,15 +74,18 @@ export function createPairingCode(force = false) {
     if (supabase) {
         const connectTargets = Array.from(new Set([...getLocalIPs(), ...getTunnelBaseUrls()]));
         // Cleanup expired codes in DB
-        supabase.from('soupz_pairing').delete().lt('expires_at', new Date().toISOString()).then(() => {});
+        supabase.from('soupz_pairing').delete().lt('expires_at', new Date().toISOString())
+            .then(({ error }) => { if (error) console.error(`[supabase] cleanup failed: ${error.message}`); })
+            .catch(() => {});
 
-        // Register machine as online
+        // Register machine as online (fails silently if unauthenticated/missing user_id constraint)
         supabase.from('soupz_machines').upsert({
             id: os.hostname(),
             name: os.hostname(),
             last_seen: new Date().toISOString(),
             status: 'online'
-        }).then(() => {});
+        }).then(() => {})
+          .catch(() => {});
 
         supabase
             .from('soupz_pairing')
@@ -96,7 +99,18 @@ export function createPairingCode(force = false) {
                 expires_at: new Date(expiresAt).toISOString(),
             })
             .then(({ error }) => {
-                if (error) console.error(`[supabase] pairing register failed: ${error.message}`);
+                if (error) {
+                    console.error(`[supabase] pairing register failed: ${error.message}`);
+                    if (error.message && error.message.includes('fetch failed')) {
+                        console.error('  → Hint: Your Supabase project might be paused or unreachable. Check your Supabase dashboard.');
+                    }
+                }
+            })
+            .catch(err => {
+                console.error(`[supabase] pairing register error: ${err.message}`);
+                if (err.message && err.message.includes('fetch failed')) {
+                    console.error('  → Hint: Your Supabase project might be paused or unreachable. Check your Supabase dashboard.');
+                }
             });
     }
 
@@ -271,8 +285,14 @@ app.post('/pair', (req, res) => {
     });
 });
 
-// PUBLIC: Get the currently active pairing code snapshot (for diagnostics / QR location)
+// LOCAL ONLY: Get the currently active pairing code snapshot (diagnostics / QR).
+// This returns the live pairing code, which is enough to claim a full session —
+// it must never answer a caller from the network. It was previously public,
+// which meant anyone on the same wifi could read the code and pair themselves.
 app.get('/pair/current', (req, res) => {
+    if (!isLocalRequest(req)) {
+        return res.status(403).json({ error: 'Pairing snapshot is local-only' });
+    }
     const snapshot = getCurrentPairingSnapshot();
     if (!snapshot) {
         return res.status(404).json({ error: 'No active pairing code' });

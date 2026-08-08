@@ -1,6 +1,6 @@
 # ☁️ Soupz Cloud Kitchen — Remote Access Server
 
-The Cloud Kitchen is an Express + WebSocket server that enables remote access to your Soupz Stall from mobile devices and browser extensions. It auto-starts silently when you run `soupz-stall`.
+The Cloud Kitchen is an Express + WebSocket server that enables remote access to Soupz CLI from mobile devices and browser extensions. It auto-starts silently when you run `soupz-cli`.
 
 ---
 
@@ -11,7 +11,7 @@ The Cloud Kitchen is an Express + WebSocket server that enables remote access to
 │                    Your Laptop                              │
 │                                                            │
 │  ┌──────────┐    auto-starts    ┌───────────────────┐     │
-│  │soupz-stall│ ──────────────► │  Cloud Kitchen    │     │
+│  │ soupz-cli │ ──────────────► │  Cloud Kitchen    │     │
 │  │  (CLI)    │                  │  Express + WSS    │     │
 │  └──────────┘                  │  Port 7533        │     │
 │                                 │                   │     │
@@ -32,7 +32,7 @@ The Cloud Kitchen is an Express + WebSocket server that enables remote access to
 
 ## Auto-Start (Embedded Mode)
 
-When you run `soupz-stall`, the Cloud Kitchen starts automatically in the background:
+When you run `soupz-cli`, the Cloud Kitchen starts automatically in the background:
 
 - **No extra terminal needed** — runs in the same process
 - **No startup logs** — completely silent (silentMode = true)
@@ -187,4 +187,4 @@ Terminals are spawned using `node-pty` (v1.2.0-beta.11):
 
 Default port: `7533` (embedded) or configurable via environment.
 
-If port 7533 is already in use (e.g., from a previous soupz-stall instance), the server silently resolves without crashing — the stall boots normally without remote access.
+If port 7533 is already in use (e.g., from a previous soupz-cli instance), the server silently resolves without crashing — the CLI boots normally without remote access.

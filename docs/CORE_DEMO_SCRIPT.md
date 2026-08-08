@@ -4,7 +4,7 @@
 
 ## 0: Setup (off-camera)
 1. **Ensure all agents are un-authenticated** (if testing setup flow) or **all ready** (if testing execution).
-2. Run `npx @shubh_prajapati99/soupz` on laptop. **Deterministic check:** Verify "Pairing code: [9-char]" is visible.
+2. Run `npx soupz-cli` on laptop. **Deterministic check:** Verify "Pairing code: [9-char]" is visible.
 3. Start a Vite dev server (e.g., `npm run dev`) inside the repo.
 4. Open the dashboard (`soupz.vercel.app/connect`) and keep the input field empty.
 
@@ -46,7 +46,7 @@
 ---
 
 ## 5: Wrap (4:45–5:00)
-- **Narration:** "Local-first, multi-agent, and mobile-ready. That's Soupz Cockpit. Run `npx @shubh_prajapati99/soupz` to get started."
+- **Narration:** "Local-first, multi-agent, and mobile-ready. That's Soupz CLI. Run `npx soupz-cli` to get started."
 - **Action:** Close with the repo/URL on screen.
 
 ---
@@ -56,7 +56,7 @@
 | Scenario | Fallback Action |
 |---|---|
 | **Tunnel Connection Timeout** | Refresh the page. Use the local IP if on the same Wi-Fi. |
-| **Avoid Cloudflare** | Use ngrok or Tailscale Funnel, then export `SOUPZ_TUNNEL_URL=https://your-public-url` before `npx @shubh_prajapati99/soupz`. |
+| **Avoid Cloudflare** | Use ngrok or Tailscale Funnel, then export `SOUPZ_TUNNEL_URL=https://your-public-url` before `npx soupz-cli`. |
 | **Agent Rate Limit** | Soupz will auto-retry with a different provider. Narrate this as a feature! |
 | **Dev Server Not Detected** | Manually enter the port (e.g., `5173`) in the Preview settings. |
 | **STT/Voice Errors** | Use the keyboard. Mention that browser permissions vary. |

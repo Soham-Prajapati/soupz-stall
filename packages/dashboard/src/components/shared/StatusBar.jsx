@@ -119,7 +119,7 @@ export default function StatusBar({
   const notifications = useMemo(() => {
     const items = [];
     if (!workspaceOnline) {
-      items.push({ id: 'offline', type: 'warning', text: 'Workspace disconnected. Run npx @shubh_prajapati99/soupz to connect.' });
+      items.push({ id: 'offline', type: 'warning', text: 'Workspace disconnected. Run npx soupz-cli to connect.' });
     }
     return items;
   }, [workspaceOnline]);

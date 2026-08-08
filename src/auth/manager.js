@@ -1,13 +1,14 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { spawn } from 'child_process';
-import { AUTH_DIR } from '../config.js';
+import { AUTH_DIR, resolveDataReadPath } from '../config.js';
 
 const STATE_FILE = join(AUTH_DIR, 'state.json');
 
 function loadState() {
-    if (existsSync(STATE_FILE)) {
-        try { return JSON.parse(readFileSync(STATE_FILE, 'utf8')); } catch { return {}; }
+    const stateFile = resolveDataReadPath('auth', 'state.json');
+    if (existsSync(stateFile)) {
+        try { return JSON.parse(readFileSync(stateFile, 'utf8')); } catch { return {}; }
     }
     return {};
 }

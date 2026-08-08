@@ -1,7 +1,7 @@
 # Soupz Agents
 
 ## What This Is
-Soupz is a hosted web IDE (soupz.vercel.app) + local daemon (`npx @shubh_prajapati99/soupz`) that bridges a user's laptop to the browser. Think Claude Code / Cursor but accessible from any device (phone, tablet, another PC).
+Soupz CLI is a hosted web IDE (soupz.vercel.app) + local daemon (`npx soupz-cli`) that bridges a user's laptop to the browser. Think Claude Code / Cursor but accessible from any device (phone, tablet, another PC).
 
 ## Documentation Canonical Map
 - Current runtime behavior: `docs/CURRENT_SYSTEM.md`
@@ -33,7 +33,7 @@ Soupz is a hosted web IDE (soupz.vercel.app) + local daemon (`npx @shubh_prajapa
 - **Auth**: Device pairing flow (9-character alphanumeric OTP or QR code -> soupz.vercel.app/code?code=XXX -> approve)
 
 ## Core Flow
-1. User runs `npx @shubh_prajapati99/soupz` on their machine → Express server starts on port 7533 (configurable via SOUPZ_REMOTE_PORT)
+1. User runs `npx soupz-cli` on their machine → Express server starts on port 7533 (configurable via SOUPZ_REMOTE_PORT)
 2. Terminal shows 9-character alphanumeric pairing code (auto-refreshes every 5 min)
 3. User opens soupz.vercel.app on phone/browser → enters code OR scans QR → paired
 4. Web app sends prompts to daemon via WS (local) or Supabase Realtime (remote)
@@ -84,7 +84,7 @@ npm run dev:web                # Starts daemon + Vite dev server, auto-pairs
 # Individual
 cd packages/dashboard && npm run dev     # Vite dev server only
 cd packages/dashboard && npm run build   # Production build
-npx @shubh_prajapati99/soupz              # Starts daemon + opens soupz.vercel.app
+npx soupz-cli                             # Starts daemon + opens soupz.vercel.app
 ```
 
 ## Restart Playbook
@@ -96,7 +96,7 @@ npx @shubh_prajapati99/soupz              # Starts daemon + opens soupz.vercel.a
 npm run dev:web
 
 # Optional: daemon only
-npx @shubh_prajapati99/soupz
+npx soupz-cli
 ```
 
 ## Theming

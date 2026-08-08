@@ -2,9 +2,9 @@ import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { DATA_DIR, resolveDataReadPath } from '../config.js';
 
-const MCP_DIR = join(homedir(), '.soupz-agents', 'mcp');
+const MCP_DIR = join(DATA_DIR, 'mcp');
 const MCP_CONFIG = join(MCP_DIR, 'servers.json');
 
 export class MCPClient extends EventEmitter {
@@ -16,7 +16,7 @@ export class MCPClient extends EventEmitter {
     }
 
     _loadConfig() {
-        try { return JSON.parse(readFileSync(MCP_CONFIG, 'utf8')); }
+        try { return JSON.parse(readFileSync(resolveDataReadPath('mcp', 'servers.json'), 'utf8')); }
         catch { return {}; }
     }
 
@@ -110,7 +110,7 @@ export class MCPClient extends EventEmitter {
             this._send(conn, 'initialize', {
                 protocolVersion: '2024-11-05',
                 capabilities: {},
-                clientInfo: { name: 'soupz-stall', version: '0.1.0-alpha' },
+                clientInfo: { name: 'soupz-cli', version: '0.2.0' },
             }).then(result => {
                 // Send initialized notification
                 this._notify(conn, 'notifications/initialized', {});

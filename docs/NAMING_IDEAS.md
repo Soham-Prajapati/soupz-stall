@@ -18,7 +18,7 @@
 
 3. **Hangar**  
    - *Why now:* Hangar houses your fleet (agents, daemons) and you access it from anywhere. Connects with QR pairing (scan → enter the hangar).  
-   - *Tone:* Slightly gritty/industrial; pairs well with "Soupz Stall" parent story.  
+   - *Tone:* Slightly gritty/industrial; pairs well with the Soupz CLI story.
    - *Domains:* hangar.run, usehangar.dev, hangarios.com available.
 
 4. **Switchboard**  

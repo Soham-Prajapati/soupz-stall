@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Smartphone, Zap, Wifi, Terminal, Lock,
   Copy, Check, Github, ArrowRight,
@@ -135,7 +135,9 @@ const STYLES = `
 }
 `;
 
-const SHOW_SOURCE_LINKS = import.meta.env.VITE_SHOW_SOURCE_LINKS === 'true';
+export const NPM_PACKAGE_URL = 'https://www.npmjs.com/package/soupz-cli';
+export const GITHUB_REPOSITORY_URL = 'https://github.com/soupz/cli';
+export const PUBLIC_RELEASE = import.meta.env.VITE_PUBLIC_RELEASE === 'true';
 
 function BackgroundElements() {
   return (
@@ -230,8 +232,8 @@ function CopyBtn({ text }) {
   );
 }
 
-const TERM_LINES = [
-  { d: 0,    t: 'cmd',  text: '$ npx @shubh_prajapati99/soupz' },
+const createTerminalLines = (publicRelease) => [
+  { d: 0,    t: 'cmd',  text: publicRelease ? '$ npx soupz-cli' : '$ npm run dev' },
   { d: 600,  t: 'out',  text: 'Starting agent server...' },
   { d: 1100, t: 'out',  text: 'Tunnel established' },
   { d: 1600, t: 'pair', text: '4 7 B - 2 9 X - 1 K 5' },
@@ -240,16 +242,19 @@ const TERM_LINES = [
   { d: 4100, t: 'ok',   text: 'Claude + Gemini + Copilot ready' },
 ];
 
-function AnimTerminal() {
+function AnimTerminal({ publicRelease = PUBLIC_RELEASE }) {
   const [count, setCount] = useState(0);
   const [run, setRun] = useState(0);
 
   useEffect(() => {
     setCount(0);
-    const timers = TERM_LINES.map((l, i) => setTimeout(() => setCount(i + 1), l.d + 300));
+    const terminalLines = createTerminalLines(publicRelease);
+    const timers = terminalLines.map((l, i) => setTimeout(() => setCount(i + 1), l.d + 300));
     const restart = setTimeout(() => setRun(r => r + 1), 6000);
     return () => { timers.forEach(clearTimeout); clearTimeout(restart); };
-  }, [run]);
+  }, [publicRelease, run]);
+
+  const terminalLines = createTerminalLines(publicRelease);
 
   return (
     <div className="h-[300px] rounded-2xl border border-white/10 bg-black/50 backdrop-blur-2xl overflow-hidden shadow-2xl flex flex-col">
@@ -260,7 +265,7 @@ function AnimTerminal() {
         <span className="ml-3 text-xs font-mono text-text-faint">terminal // main session</span>
       </div>
       <div className="p-6 font-mono text-sm leading-[1.8] flex-1 overflow-hidden">
-        {TERM_LINES.slice(0, count).map((line, i) => {
+        {terminalLines.slice(0, count).map((line, i) => {
           if (line.t === 'pair') {
             return (
               <div key={i} className="my-5 text-center">
@@ -278,7 +283,7 @@ function AnimTerminal() {
             </div>
           );
         })}
-        {count < TERM_LINES.length && <span className="inline-block w-2.5 h-4 bg-text-sec ml-1 translate-y-1" style={{ animation: 'blink 1.2s step-end infinite' }} />}
+        {count < terminalLines.length && <span className="inline-block w-2.5 h-4 bg-text-sec ml-1 translate-y-1" style={{ animation: 'blink 1.2s step-end infinite' }} />}
       </div>
     </div>
   );
@@ -344,6 +349,42 @@ function BentoCard({ children, className, glow = false }) {
       className={cn('bento-card group flex flex-col p-10', className, glow && 'border-accent/20 bg-accent/[0.04]')}
     >
       {children}
+    </div>
+  );
+}
+
+export function ReleaseActions({ publicRelease = PUBLIC_RELEASE }) {
+  if (!publicRelease) {
+    return (
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-4" data-release-status="unpublished">
+        <div className="flex items-center rounded-xl p-1.5 border border-white/10 bg-bg-surface/50 backdrop-blur-3xl shadow-2xl">
+          <div className="px-6 py-2 font-mono text-base font-bold text-text-pri select-all">npm run dev</div>
+          <CopyBtn text="npm run dev" />
+        </div>
+        <span className="px-6 py-3.5 rounded-xl border border-warning/25 bg-warning/10 text-warning font-bold" role="status">
+          npm · Coming soon
+        </span>
+        <span className="px-6 py-3.5 rounded-xl border border-white/10 bg-white/5 text-text-sec font-bold" role="status">
+          GitHub · Coming soon
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-center gap-4" data-release-status="published">
+      <div className="flex items-center rounded-xl p-1.5 border border-white/10 bg-bg-surface/50 backdrop-blur-3xl shadow-2xl transition-all hover:border-white/20">
+        <div className="px-6 py-2 font-mono text-base font-bold text-text-pri select-all">npx soupz-cli</div>
+        <CopyBtn text="npx soupz-cli" />
+      </div>
+      <a href={NPM_PACKAGE_URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-6 py-3.5 rounded-xl border border-success/25 bg-success/10 hover:bg-success/20 hover:-translate-y-1 text-success font-bold transition-all shadow-xl group">
+        <Zap size={18} className="group-hover:scale-110 transition-transform" />
+        npm Package
+      </a>
+      <a href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-6 py-3.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:-translate-y-1 text-text-pri font-bold transition-all shadow-xl group">
+        <Github size={18} className="group-hover:rotate-12 transition-transform" />
+        GitHub Repo
+      </a>
     </div>
   );
 }
@@ -414,22 +455,7 @@ export default function LandingMorphism({ navigate }) {
           </Reveal>
 
           <Reveal delay={450}>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-               <div className="flex items-center rounded-xl p-1.5 border border-white/10 bg-bg-surface/50 backdrop-blur-3xl shadow-2xl transition-all hover:border-white/20">
-                 <div className="px-6 py-2 font-mono text-base font-bold text-text-pri select-all">npx @shubh_prajapati99/soupz</div>
-                 <CopyBtn text="npx @shubh_prajapati99/soupz" />
-               </div>
-               <a href="https://www.npmjs.com/package/soupz" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-6 py-3.5 rounded-xl border border-success/25 bg-success/10 hover:bg-success/20 hover:-translate-y-1 text-success font-bold transition-all shadow-xl group">
-                 <Zap size={18} className="group-hover:scale-110 transition-transform" />
-                 npm Package
-               </a>
-               {SHOW_SOURCE_LINKS ? (
-                 <a href="https://github.com/Soham-Prajapati/soupz-stall" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-6 py-3.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:-translate-y-1 text-text-pri font-bold transition-all shadow-xl group">
-                   <Github size={18} className="group-hover:rotate-12 transition-transform" />
-                   GitHub Repo
-                 </a>
-               ) : null}
-            </div>
+            <ReleaseActions />
           </Reveal>
         </div>
       </section>

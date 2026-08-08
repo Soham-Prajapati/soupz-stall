@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Test Script for Soupz-Agents Improvements
+ * Test Script for Soupz CLI Improvements
  * 
  * Run this to verify all improvements are working correctly.
  */
@@ -111,7 +111,7 @@ async function testEnhancedPersonas() {
 }
 
 async function main() {
-    console.log('🚀 Soupz-Agents Improvement Tests\n');
+    console.log('🚀 Soupz CLI Improvement Tests\n');
     console.log('=' .repeat(50));
     
     try {

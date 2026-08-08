@@ -1,18 +1,18 @@
 import { join, dirname } from 'path';
-import { homedir } from 'os';
 import os from 'os';
 import { writeFileSync, mkdirSync, existsSync, unlinkSync, readdirSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
+import { DATA_DIR } from '../config.js';
 
 /**
- * Stall Monitor — Real-time dashboard state for the Soupz Stall.
+ * Stall Monitor — Real-time dashboard state for Soupz CLI.
  * 
  * Each terminal instance gets a unique session ID. The dashboard
  * reads all session files and shows them as separate stalls.
  */
 
-const DASHBOARD_DIR = join(homedir(), '.soupz-agents', 'dashboard');
+const DASHBOARD_DIR = join(DATA_DIR, 'dashboard');
 
 export class StallMonitor {
     constructor(orchestrator, registry, options = {}) {

@@ -1,6 +1,6 @@
 # Token Optimization & Cost Reduction — Research Evidence
 
-This document provides research-backed evidence for Soupz Stall's token optimization claims. Every claim is cited with its source paper, benchmark, or industry data.
+This document provides research-backed evidence for Soupz CLI's token optimization claims. Every claim is cited with its source paper, benchmark, or industry data.
 
 ---
 
@@ -60,7 +60,7 @@ This document provides research-backed evidence for Soupz Stall's token optimiza
 - **Token savings**: When a memory chunk is recalled instead of regenerated, it saves the full input+output token cost of the original generation. For a typical 500-token routing decision, recalling from memory costs 0 API tokens.
 - **Scaling**: With 13 projects, at ~10 chunks per project = ~130 chunks = ~520KB. Still negligible.
 
-**How Soupz uses this**: `src/memory/pool.js` stores reusable context (architecture decisions, code patterns, user preferences) as JSON chunks in `~/.soupz-agents/memory-pool/`. On subsequent runs, these chunks are recalled using GPT-5-mini semantic matching, avoiding redundant regeneration.
+**How Soupz uses this**: `src/memory/pool.js` stores reusable context (architecture decisions, code patterns, user preferences) as JSON chunks in `~/.soupz-cli/memory-pool/`. On subsequent runs, these chunks are recalled using GPT-5-mini semantic matching, avoiding redundant regeneration.
 
 ---
 

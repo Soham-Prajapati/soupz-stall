@@ -1,14 +1,14 @@
 /**
  * Global Skills Manifest
  * Similar to <available_skills> in Copilot CLI — agents registered as discoverable skills.
- * Skills are globally available once soupz-agents is installed.
+ * Skills are globally available once soupz-cli is installed.
  */
 
 import { existsSync, writeFileSync, readFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { DATA_DIR, resolveDataReadPath } from './config.js';
 
-const SKILLS_DIR = join(homedir(), '.soupz-agents');
+const SKILLS_DIR = DATA_DIR;
 const SKILLS_FILE = join(SKILLS_DIR, 'skills.json');
 
 /** Built-in skill definitions (from persona agents) */
@@ -227,9 +227,10 @@ export function getSkills() {
     const skills = [...BUILTIN_SKILLS];
     
     // Load user-defined skills from file
-    if (existsSync(SKILLS_FILE)) {
+    const skillsFile = resolveDataReadPath('skills.json');
+    if (existsSync(skillsFile)) {
         try {
-            const userSkills = JSON.parse(readFileSync(SKILLS_FILE, 'utf8'));
+            const userSkills = JSON.parse(readFileSync(skillsFile, 'utf8'));
             if (Array.isArray(userSkills.custom)) {
                 skills.push(...userSkills.custom);
             }
@@ -248,8 +249,9 @@ export function getSkill(name) {
 export function addCustomSkill(skill) {
     mkdirSync(SKILLS_DIR, { recursive: true });
     let data = { custom: [] };
-    if (existsSync(SKILLS_FILE)) {
-        try { data = JSON.parse(readFileSync(SKILLS_FILE, 'utf8')); } catch { /* ignore */ }
+    const skillsFile = resolveDataReadPath('skills.json');
+    if (existsSync(skillsFile)) {
+        try { data = JSON.parse(readFileSync(skillsFile, 'utf8')); } catch { /* ignore */ }
     }
     if (!Array.isArray(data.custom)) data.custom = [];
     // Replace if exists
@@ -271,11 +273,19 @@ export function formatSkillsXml(skills = null) {
 /** Register all skills globally (postinstall hook) */
 export function registerGlobalSkills() {
     mkdirSync(SKILLS_DIR, { recursive: true });
+    let custom = [];
+    const skillsFile = resolveDataReadPath('skills.json');
+    if (existsSync(skillsFile)) {
+        try {
+            const existing = JSON.parse(readFileSync(skillsFile, 'utf8'));
+            if (Array.isArray(existing.custom)) custom = existing.custom;
+        } catch { /* preserve the previous behavior for malformed files */ }
+    }
     const manifest = {
         version: '1.0.0',
         registered_at: new Date().toISOString(),
         skills: BUILTIN_SKILLS.map(s => ({ name: s.name, icon: s.icon, description: s.description, invoke: s.invoke, category: s.category })),
-        custom: [],
+        custom,
     };
     writeFileSync(SKILLS_FILE, JSON.stringify(manifest, null, 2));
     return manifest.skills.length;

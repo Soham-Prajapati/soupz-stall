@@ -1,8 +1,10 @@
 # For detailed configuration reference documentation, visit:
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
-# working directory name when running `supabase init`.
-project_id = "soupz-agents"
+# working directory name when running `supabase init`. This only prefixes local Docker
+# container/volume/network names for `supabase start`; it does not rename or affect any
+# remote/hosted Supabase project, and it is not a public package, executable, or repository name.
+project_id = "soupz-cli"
 
 [api]
 enabled = true

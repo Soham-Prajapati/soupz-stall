@@ -18,20 +18,96 @@ import '../src/env.js';
 import chalk from 'chalk';
 import { ensureDirectories } from '../src/config.js';
 import { autoImport } from '../src/auto-import.js';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
 
-const VERSION = '0.1.0-alpha';
+const PACKAGE_JSON_PATH = fileURLToPath(new URL('../package.json', import.meta.url));
+const VERSION = JSON.parse(readFileSync(PACKAGE_JSON_PATH, 'utf8')).version;
 const WEBAPP_URL = process.env.SOUPZ_APP_URL || 'https://soupz.vercel.app';
-const DAEMON_PORT = parseInt(process.env.SOUPZ_REMOTE_PORT || '7533', 10);
+
 
 // Auto-import agents on startup (silent)
+ensureDirectories();
 autoImport();
 
-const [,, command, ...args] = process.argv;
+import meow from 'meow';
 
-if (command === '--version' || command === '-v' || command === 'version') {
-    console.log(`soupz v${VERSION}`);
+const cli = meow(`
+    Usage
+      $ soupz-cli [command] [options]
+
+    Commands
+      agents      List all installed kitchens (agents)
+      auth        Authenticate with Supabase
+      sync        Synchronize database schemas
+      ask         Send a single prompt to the default agent
+
+    Options
+      --cloud, -c                   Start a Pinggy tunnel for internet access
+      --port, -p <port>             Override the default local daemon port (7533)
+      --yolo                        Skip interactive confirmations (dangerously skip permissions)
+      --dangerously-skip-permissions Alias for --yolo
+      --no-open                     Prevent the browser from opening automatically
+      --no-motion                   Use static status lines instead of animation
+      --version, -v                 Print the version
+      --help, -h                    Show this help menu
+`, {
+    importMeta: import.meta,
+    version: `soupz-cli v${VERSION}`,
+    flags: {
+        cloud: { type: 'boolean', shortFlag: 'c' },
+        port: { type: 'string', shortFlag: 'p' },
+        yolo: { type: 'boolean' },
+        dangerouslySkipPermissions: { type: 'boolean' },
+        motion: { type: 'boolean', default: true },
+        open: { type: 'boolean', default: true }
+    }
+});
+
+import fs from 'fs';
+import path from 'path';
+
+const commandArgs = [];
+for (const arg of cli.input) {
+    if (arg.includes('=')) {
+        const [key, ...valParts] = arg.split('=');
+        const val = valParts.join('=');
+        process.env[key] = val;
+        
+        // Persist to .env
+        const envPath = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../.env');
+        let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+        const regex = new RegExp(`^${key}=.*$`, 'm');
+        if (regex.test(envContent)) {
+            envContent = envContent.replace(regex, `${key}=${val}`);
+        } else {
+            envContent += `\n${key}=${val}\n`;
+        }
+        fs.writeFileSync(envPath, envContent.replace(/\n{3,}/g, '\n\n').trim() + '\n');
+        console.log(chalk.green(`  ✔ Saved config: ${key}=${val}`));
+    } else {
+        commandArgs.push(arg);
+    }
+}
+
+const command = commandArgs[0];
+const args = commandArgs.slice(1);
+const options = cli.flags;
+
+if (!options.motion) {
+    process.env.SOUPZ_REDUCE_MOTION = '1';
+}
+
+if (command === 'version' || options.version) {
+    console.log(`soupz-cli v${VERSION}`);
     process.exit(0);
 }
+
+if (options.yolo || options.dangerouslySkipPermissions) {
+    process.env.SOUPZ_YOLO = '1';
+}
+
+const DAEMON_PORT = parseInt(options.port || process.env.SOUPZ_REMOTE_PORT || '7533', 10);
 
 if (command === 'agents') {
     await listAgents();
@@ -54,22 +130,53 @@ if (command === 'ask') {
 }
 
 // Default: start the local daemon
-await startDaemon();
+await startDaemon(options);
 
 // ─── Daemon ───────────────────────────────────────────────────────────────────
 
-async function startDaemon() {
+async function startDaemon(options) {
     ensureDirectories();
 
-    const header = chalk.hex('#6C63FF').bold('Soupz Cockpit') + chalk.dim(` v${VERSION}`);
+    const header = chalk.hex('#6C63FF').bold('Soupz CLI daemon') + chalk.dim(` v${VERSION}`);
     console.log(`\n  ${header}\n`);
+
+    
+    let pinggyTunnelProc;
+    if (options.cloud) {
+        console.log(chalk.dim('  🌍 Starting Pinggy tunnel...'));
+        const { spawn } = await import('child_process');
+        pinggyTunnelProc = spawn('ssh', [
+            '-p', '443',
+            `-R0:localhost:${DAEMON_PORT}`,
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'ServerAliveInterval=30',
+            'a.pinggy.io'
+        ], {
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        
+        await new Promise((resolve) => {
+            const onData = (buf) => {
+                const text = buf.toString();
+                const match = text.match(/https:\/\/[a-z0-9-.]+\.pinggy-free\.link/i);
+                if (match) {
+                    process.env.SOUPZ_TUNNEL_URL = match[0];
+                    pinggyTunnelProc.stdout.off('data', onData);
+                    pinggyTunnelProc.stderr.off('data', onData);
+                    resolve();
+                }
+            };
+            pinggyTunnelProc.stdout.on('data', onData);
+            pinggyTunnelProc.stderr.on('data', onData);
+        });
+    }
 
     let startRemoteServer;
     try {
         ({ startRemoteServer } = await import('../packages/remote-server/src/index.js'));
     } catch (err) {
         console.error(chalk.red(`  ✖ Failed to load daemon: ${err.message}`));
-        console.error(chalk.dim('  Run: npm install (in the soupz-agents directory)'));
+        console.error(chalk.dim('  Run: npm install (in the soupz-cli checkout directory)'));
         process.exit(1);
     }
 
@@ -77,100 +184,157 @@ async function startDaemon() {
 
     if (!serverInfo) {
         // Port already in use — daemon already running
-        console.log(chalk.yellow(`  ⚡ Daemon already running on port ${DAEMON_PORT}`));
-        console.log(chalk.dim(`  Open ${WEBAPP_URL} to continue.\n`));
-        process.exit(0);
-    }
+        console.log(chalk.yellow(`  ⚡ Web daemon is already running in the background (port ${DAEMON_PORT})`));
+        console.log(chalk.dim(`  Open ${WEBAPP_URL} to connect remotely.\n`));
+        // Do NOT exit here! We still want to launch the interactive REPL.
+    } else {
+        const QRCode = (await import('qrcode')).default;
 
-    const QRCode = (await import('qrcode')).default;
+        async function printPairingBlock(pairing) {
+            const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/code?code=${pairing.code}`;
+            const tunnelUrl = process.env.SOUPZ_TUNNEL_URL || process.env.SOUPZ_TUNNEL_URLS || '';
 
-    async function printPairingBlock(pairing) {
-        const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/code?code=${pairing.code}`;
-        const tunnelUrl = process.env.SOUPZ_TUNNEL_URL || process.env.SOUPZ_TUNNEL_URLS || '';
+            // Generate ASCII QR code for terminal
+            let qrAscii = '';
+            try {
+                qrAscii = await QRCode.toString(connectUrl, { type: 'terminal', small: true, errorCorrectionLevel: 'L' });
+            } catch { /* QR generation failed, skip */ }
 
-        // Generate ASCII QR code for terminal
-        let qrAscii = '';
-        try {
-            qrAscii = await QRCode.toString(connectUrl, { type: 'terminal', small: true, errorCorrectionLevel: 'L' });
-        } catch { /* QR generation failed, skip */ }
+            console.log(`  ${chalk.bold('Status:')}   ${chalk.green('● Online')}  ${chalk.dim(`localhost:${DAEMON_PORT}`)}`);
+            console.log(`  ${chalk.bold('Code:')}     ${chalk.hex('#F59E0B').bold(pairing.code)}  ${chalk.dim(`(expires in ${pairing.expiresIn}s)`)}`);
+            console.log(`  ${chalk.bold('Connect:')}  ${chalk.cyan(connectUrl)}\n`);
 
-        console.log(`  ${chalk.bold('Status:')}   ${chalk.green('● Online')}  ${chalk.dim(`localhost:${DAEMON_PORT}`)}`);
-        console.log(`  ${chalk.bold('Code:')}     ${chalk.hex('#F59E0B').bold(pairing.code)}  ${chalk.dim(`(expires in ${pairing.expiresIn}s)`)}`);
-        console.log(`  ${chalk.bold('Connect:')}  ${chalk.cyan(connectUrl)}\n`);
-
-        if (qrAscii) {
-            console.log(chalk.dim('  Scan with your phone camera:\n'));
-            // Indent QR code for visual alignment
-            const indented = qrAscii.split('\n').map(line => `    ${line}`).join('\n');
-            console.log(indented);
-            console.log();
-        }
-
-        if (tunnelUrl) {
-            console.log(`  ${chalk.bold('Tunnel:')}   ${chalk.cyan(tunnelUrl)}`);
-            console.log(chalk.dim('  Phone can connect over internet using this tunnel target.\n'));
-        }
-
-        const shouldAnimateCountdown =
-            process.stdout.isTTY
-            && process.env.TERM !== 'dumb'
-            && process.env.SOUPZ_SHOW_CODE_TIMER === '1';
-
-        if (!shouldAnimateCountdown) {
-            console.log(chalk.dim(`  Code expires in ${pairing.expiresIn}s. Set SOUPZ_SHOW_CODE_TIMER=1 to show animated timer.`));
-            return null;
-        }
-
-        // Optional live countdown (disabled by default to avoid noisy terminals).
-        const expiresAt = Date.now() + pairing.expiresIn * 1000;
-        const countdownInterval = setInterval(() => {
-            const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
-            if (remaining <= 0) {
-                clearInterval(countdownInterval);
-                return;
+            if (qrAscii) {
+                console.log(chalk.dim('  Scan with your phone camera:\n'));
+                // Indent QR code for visual alignment
+                const indented = qrAscii.split('\n').map(line => `    ${line}`).join('\n');
+                console.log(indented);
+                console.log();
             }
+
+            if (tunnelUrl) {
+                console.log(`  ${chalk.bold('Tunnel:')}   ${chalk.cyan(tunnelUrl)}`);
+                console.log(chalk.dim('  Phone can connect over internet using this tunnel target.\n'));
+            }
+
+            const shouldAnimateCountdown =
+                process.stdout.isTTY
+                && process.env.TERM !== 'dumb'
+                && process.env.SOUPZ_SHOW_CODE_TIMER === '1';
+
+            if (!shouldAnimateCountdown) {
+                console.log(chalk.dim(`  Code expires in ${pairing.expiresIn}s.`));
+                return null;
+            }
+
+            // Print the initial code valid state, but do not animate via setInterval 
+            // as it overwrites the REPL prompt at the bottom of the terminal.
+            const expiresAt = Date.now() + pairing.expiresIn * 1000;
+            const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
             const mins = Math.floor(remaining / 60);
             const secs = remaining % 60;
             const timeStr = `${mins}:${String(secs).padStart(2, '0')}`;
             const bar = '█'.repeat(Math.ceil(remaining / 10)) + chalk.dim('░'.repeat(Math.max(0, 30 - Math.ceil(remaining / 10))));
-            process.stdout.write(`\r  ${chalk.dim('Code valid:')} ${bar} ${chalk.hex('#F59E0B')(timeStr)} `);
-        }, 1000);
+            console.log(`  ${chalk.dim('Code valid:')} ${bar} ${chalk.hex('#F59E0B')(timeStr)}`);
+            
+            return null;
+        }
 
-        return countdownInterval;
+        const pairing = serverInfo.getCode();
+        let activeCountdown = await printPairingBlock(pairing);
+
+        if (options.open) console.log(chalk.dim('\n  Opening browser...'));
+        console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
+
+        // Open browser to the connect page
+        const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/code?code=${pairing.code}`;
+        const autoConnectUrl = connectUrl.includes('?') ? `${connectUrl}&auto=1` : `${connectUrl}?auto=1`;
+        const { exec } = await import('child_process');
+        if (options.open) {
+            if (process.platform === 'darwin') exec(`open "${autoConnectUrl}"`);
+            else if (process.platform === 'linux') exec(`xdg-open "${autoConnectUrl}"`);
+            else if (process.platform === 'win32') exec(`start "${autoConnectUrl}"`);
+        }
+
+        // Handle refresh — show updated code with new QR
+        serverInfo.onCodeRefresh?.(async (newPairing) => {
+            if (activeCountdown) clearInterval(activeCountdown);
+            console.log(chalk.dim('\n\n  --- Code refreshed ---\n'));
+            activeCountdown = await printPairingBlock(newPairing);
+        });
+
+        // Re-bind SIGINT/SIGTERM to kill the spawner along with the daemon
+        process.removeAllListeners('SIGINT');
+        process.removeAllListeners('SIGTERM');
+
+        process.on('SIGINT', () => {
+            if (activeCountdown) clearInterval(activeCountdown);
+            console.log(chalk.dim('\n  Stopping daemon...'));
+            serverInfo.stop();
+            if (typeof spawner !== 'undefined' && spawner.killAll) spawner.killAll();
+            if (typeof contextManager !== 'undefined' && contextManager.save) contextManager.save();
+            process.exit(0);
+        });
+
+        process.on('SIGTERM', () => {
+            if (activeCountdown) clearInterval(activeCountdown);
+            serverInfo.stop();
+            if (typeof spawner !== 'undefined' && spawner.killAll) spawner.killAll();
+            if (typeof contextManager !== 'undefined' && contextManager.save) contextManager.save();
+            process.exit(0);
+        });
     }
 
-    const pairing = serverInfo.getCode();
-    let activeCountdown = await printPairingBlock(pairing);
+    // ── Interactive Session (Restored) ──────────────────────────────────────
+    const { AgentRegistry } = await import('../src/agents/registry.js');
+    const { AgentSpawner } = await import('../src/agents/spawner.js');
+    const { Orchestrator } = await import('../src/orchestrator/router.js');
+    const { ContextManager } = await import('../src/context/manager.js');
+    const { MemoryStore } = await import('../src/memory/store.js');
+    const { GradingSystem } = await import('../src/grading/scorer.js');
+    const { AuthManager } = await import('../src/auth/manager.js');
+    const { UserAuth } = await import('../src/auth/user-auth.js');
+    const { Session } = await import('../src/session.js');
+    const { TokenCompressor } = await import('../src/core/token-compressor.js');
+    const { StallMonitor } = await import('../src/core/stall-monitor.js');
+    const { MCPClient } = await import('../src/mcp/client.js');
+    const { MemoryPool } = await import('../src/memory/pool.js');
 
-    console.log(chalk.dim('\n  Opening browser...'));
-    console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
+    const registry = new AgentRegistry();
+    await registry.init();
+    const spawner = new AgentSpawner(registry);
+    const mcpClient = new MCPClient();
+    const compressor = new TokenCompressor();
+    const kitchenMonitor = new StallMonitor();
+    const memory = new MemoryStore();
+    const memoryPool = new MemoryPool();
+    const auth = new AuthManager(registry);
+    const userAuth = new UserAuth();
+    const grading = new GradingSystem();
+    const contextManager = new ContextManager();
+    const orchestrator = new Orchestrator(registry, spawner, contextManager, memory, mcpClient);
+    const cwd = process.cwd();
 
-    // Open browser to the connect page
-        const connectUrl = pairing.connectUrl || `${WEBAPP_URL}/code?code=${pairing.code}`;
-    const { exec } = await import('child_process');
-    if (process.platform === 'darwin') exec(`open "${connectUrl}"`);
-    else if (process.platform === 'linux') exec(`xdg-open "${connectUrl}"`);
-    else if (process.platform === 'win32') exec(`start "${connectUrl}"`);
-
-    // Handle refresh — show updated code with new QR
-    serverInfo.onCodeRefresh?.(async (newPairing) => {
-        if (activeCountdown) clearInterval(activeCountdown);
-        console.log(chalk.dim('\n\n  --- Code refreshed ---\n'));
-        activeCountdown = await printPairingBlock(newPairing);
+    const session = new Session({ 
+        registry, 
+        spawner, 
+        orchestrator, 
+        contextManager, 
+        memory, 
+        grading, 
+        auth, 
+        userAuth, 
+        cwd, 
+        compressor, 
+        kitchenMonitor, 
+        mcpClient, 
+        memoryPool 
     });
-
-    process.on('SIGINT', () => {
-        if (activeCountdown) clearInterval(activeCountdown);
-        console.log(chalk.dim('\n  Stopping daemon...'));
-        serverInfo.stop();
-        process.exit(0);
-    });
-
-    process.on('SIGTERM', () => {
-        if (activeCountdown) clearInterval(activeCountdown);
-        serverInfo.stop();
-        process.exit(0);
-    });
+    if (options.yolo || options.dangerouslySkipPermissions) session.yolo = true;
+    
+    // Give a visual separation before the REPL starts
+    console.log(chalk.dim('  ──────────────────────────────────────────'));
+    await session.init();
 }
 
 // ─── Utility Commands ─────────────────────────────────────────────────────────
@@ -269,8 +433,8 @@ async function handleAuth([subCmd, agentId]) {
             process.exit(1);
         }
     } else {
-        console.log('  Usage: soupz auth [status|login|logout] [agent-id]');
-        console.log('  Example: soupz auth login gemini\n');
+        console.log('  Usage: soupz-cli auth [status|login|logout] [agent-id]');
+        console.log('  Example: soupz-cli auth login gemini\n');
     }
 }
 
@@ -315,7 +479,7 @@ async function handleSupabase([subCmd]) {
             } catch {
                 console.log(chalk.yellow('\n  ⚠️  Link failed or was cancelled.'));
                 console.log(chalk.dim('  If you haven\'t linked your project, run: ') + chalk.bold(`supabase link --project-ref ${projectRef}`));
-                console.log(chalk.dim('  Then run: ') + chalk.bold('soupz sync\n'));
+                console.log(chalk.dim('  Then run: ') + chalk.bold('soupz-cli sync\n'));
                 process.exit(1);
             }
         }

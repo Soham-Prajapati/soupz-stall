@@ -1,15 +1,15 @@
-# Soupz Stall — Complete Project Reference (Detailed Overview)
+# Soupz CLI — Complete Project Reference (Detailed Overview)
 
-> **Audience:** External agents, interview prep, and project stakeholders. This document provides a canonical, in-depth view of the **Soupz Stall** project.
+> **Audience:** External agents, interview prep, and project stakeholders. This document provides a canonical, in-depth view of the **Soupz CLI** project.
 
 ---
 
 ## 🏗️ 1. Project Vision
 
-**Soupz Stall** is a local-first, multi-agent orchestration platform that transforms standard AI coding tools into a transparent, observable, and highly efficient development environment. It follows an **"open food-stall yard"** metaphor, where tasks are "orders", agents are "chefs", and the execution pipeline is the "kitchen".
+**Soupz CLI** is a local-first, multi-agent orchestration platform that transforms standard AI coding tools into a transparent, observable, and highly efficient development environment. It follows an **"open food-stall yard"** metaphor, where tasks are "orders", agents are "chefs", and the execution pipeline is the "kitchen".
 
 ### The Problem We Solve
-Traditional AI coding tools operate in a "black box" manner. Soupz Stall provides **complete observability**:
+Traditional AI coding tools operate in a "black box" manner. Soupz CLI provides **complete observability**:
 - **Why** an agent was selected (routing logic).
 - **What** prompt was sent (including injected context).
 - **How** the agent executed (real-time stdout/stderr streaming via PTY).
@@ -47,7 +47,7 @@ Hooks allow us to inject logic into the agent's execution lifecycle:
 - **Post-Task**: Quality grading via `Grading`, persistence via `MemoryPool`, and delegation parsing for chained tasks.
 
 ### 🔌 2. MCP (Model Context Protocol)
-Located in `src/mcp/client.js`, the MCP client enables `soupz-agents` to connect to external tool servers. This follows the standard protocol, allowing agents to use custom tools (like file system access or API connectors) provided by any MCP-compliant server.
+Located in `src/mcp/client.js`, the MCP client enables `soupz-cli` to connect to external tool servers. This follows the standard protocol, allowing agents to use custom tools (like file system access or API connectors) provided by any MCP-compliant server.
 
 ### 🧠 3. Memory Management
 - **Immediate Context**: `ContextPantry` stores the current conversation state.
@@ -65,7 +65,7 @@ When a complex, multi-step prompt is submitted, the system automatically:
 
 ## 🚀 4. Efficiency & Cost Optimization (Competitive Edge)
 
-Inspired by systems like **Ruflo**, Soupz Stall focuses on aggressive token reduction and cost optimization:
+Inspired by systems like **Ruflo**, Soupz CLI focuses on aggressive token reduction and cost optimization:
 
 - **Smart Semantic Routing**:
   - **Layer 1**: Claude Sonnet (via Copilot) for complex routing.

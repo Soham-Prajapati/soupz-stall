@@ -2,7 +2,7 @@
 
 *Updated: April 3, 2026*
 
-This document outlines the strategy for gathering and processing external feedback to improve Soupz Cockpit.
+This document outlines the strategy for gathering and processing external feedback to improve Soupz CLI.
 
 ## 📡 Channels
 

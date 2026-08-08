@@ -1,18 +1,18 @@
 import { join } from 'path';
-import { homedir } from 'os';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from 'fs';
+import { DATA_DIR } from '../config.js';
 
 /**
- * Context Pantry — The Soupz Stall's ingredient storage.
+ * Context Pantry — Soupz CLI's ingredient storage.
  * 
  * Each pantry item stores a chunk of context. When the main kitchen context
  * is full, older ingredients are stored in the pantry. Before a chef starts
  * cooking, relevant items are pulled from the pantry.
  * 
- * Storage: JSON files in ~/.soupz-agents/pantry/
+ * Storage: JSON files in ~/.soupz-cli/pantry/ (legacy data is migrated by config).
  */
 
-const PANTRY_DIR = join(homedir(), '.soupz-agents', 'pantry');
+const PANTRY_DIR = join(DATA_DIR, 'pantry');
 const MAX_ITEM_TOKENS = 4000;
 let MAX_PANTRY_ITEMS = 7;
 

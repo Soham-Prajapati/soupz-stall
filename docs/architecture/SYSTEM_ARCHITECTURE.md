@@ -50,7 +50,7 @@ Dashboard UI -> User: streamed output + final status
 
 ## 5. Pairing and Auth Flow
 
-1. User runs `npx @shubh_prajapati99/soupz`.
+1. User runs `npx soupz-cli`.
 2. Daemon creates one-time pairing code and a connect URL.
 3. QR/deep-link opens hosted app at `/code?code=...&remote=...`.
 4. Browser validates the code via daemon (`/api/pair` or `/pair/validate`).

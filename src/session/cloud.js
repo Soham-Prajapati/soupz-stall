@@ -54,32 +54,38 @@ export const CloudMixin = {
         }
 
         try {
-            execSync('which cloudflared', { stdio: 'ignore' });
-            log(chalk.dim('  🌍 Starting Cloudflare Tunnel…'));
+            log(chalk.dim('  🌍 Starting Pinggy Tunnel...'));
             
             const { spawn } = await import('child_process');
             const port = process.env.SOUPZ_REMOTE_PORT || 7533;
-            const proc = spawn('cloudflared', ['tunnel', '--url', `http://localhost:${port}`]);
+            const proc = spawn('ssh', [
+                '-p', '443',
+                `-R0:localhost:${port}`,
+                '-o', 'StrictHostKeyChecking=no',
+                '-o', 'ServerAliveInterval=30',
+                'a.pinggy.io'
+            ], { stdio: ['ignore', 'pipe', 'pipe'] });
             
             this._tunnel = { proc, url: null };
             
-            proc.stderr.on('data', (data) => {
+            const onData = (data) => {
                 const line = data.toString();
-                const match = line.match(/https:\/\/[\w-]+\.trycloudflare\.com/);
+                const match = line.match(/https:\/\/[a-z0-9-.]+\.pinggy-free\.link/i);
                 if (match && !this._tunnel.url) {
                     this._tunnel.url = match[0];
                     log(chalk.green(`\n  🌍 Public Tunnel Active: ${chalk.bold(this._tunnel.url)}`));
                     log(chalk.dim('     Use this URL on your phone/tablet to connect from anywhere.\n'));
                 }
-            });
+            };
+            proc.stdout.on('data', onData);
+            proc.stderr.on('data', onData);
 
             proc.on('close', () => {
                 this._tunnel = null;
                 log(chalk.red('\n  🌍 Tunnel closed.'));
             });
-
-        } catch {
-            log(chalk.red('\n  ✖ cloudflared not found. Install it to use /tunnel.'));
+        } catch (err) {
+            log(chalk.red(`\n  ✖ Failed to start Pinggy tunnel: ${err.message}`));
         }
     }
 };

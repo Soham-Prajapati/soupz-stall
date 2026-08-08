@@ -1,6 +1,6 @@
-# Publishing Soupz to npm
+# Publishing Soupz CLI to npm
 
-This guide walks through publishing the `@shubh_prajapati99/soupz` CLI package to npm so users can run `npx @shubh_prajapati99/soupz` globally.
+This guide describes how a release owner can publish the `soupz-cli` package so users can run `npx soupz-cli` globally. Do not publish from an ordinary development or verification run.
 
 ## Prerequisites
 
@@ -14,13 +14,19 @@ Ensure the root `package.json` is configured correctly:
 
 ```json
 {
-  "name": "@shubh_prajapati99/soupz",
+  "name": "soupz-cli",
   "version": "X.Y.Z",
   "description": "Code from anywhere — AI coding IDE that bridges your phone to your laptop",
   "type": "module",
   "bin": {
-    "soupz": "./bin/soupz.js"
+    "soupz-cli": "./bin/soupz.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/soupz/cli.git"
+  },
+  "bugs": { "url": "https://github.com/soupz/cli/issues" },
+  "homepage": "https://github.com/soupz/cli#readme",
   "main": "bin/soupz.js",
   "engines": {
     "node": ">=18"
@@ -29,9 +35,10 @@ Ensure the root `package.json` is configured correctly:
 ```
 
 Key fields:
-- **name**: Must be `@shubh_prajapati99/soupz` (scoped package under your npm account)
+- **name**: Must be `soupz-cli`
 - **version**: Semantic versioning (e.g., `0.1.0`, `1.0.0`)
 - **bin**: Entry point for CLI (should point to `bin/soupz.js`)
+- **repository / bugs / homepage**: Must point to `https://github.com/soupz/cli`
 - **type**: "module" for ESM support
 - **engines**: Node.js >=18 requirement
 
@@ -105,10 +112,10 @@ Before publishing, create a local tarball to verify contents:
 npm pack
 ```
 
-This creates a `shubh_prajapati99-soupz-X.Y.Z.tgz` file. Extract and inspect:
+This creates a `soupz-cli-X.Y.Z.tgz` file. Extract and inspect:
 
 ```bash
-tar tzf shubh_prajapati99-soupz-0.1.0.tgz | head -30
+tar tzf soupz-cli-0.2.0.tgz | head -30
 ```
 
 Verify:
@@ -121,14 +128,14 @@ You can also test the tarball installation locally:
 
 ```bash
 mkdir test-install && cd test-install
-npm install ../shubh_prajapati99-soupz-0.1.0.tgz
-npx @shubh_prajapati99/soupz --version
+npm install ../soupz-cli-0.2.0.tgz
+npx soupz-cli --version
 ```
 
 Clean up:
 
 ```bash
-rm shubh_prajapati99-soupz-X.Y.Z.tgz
+rm soupz-cli-X.Y.Z.tgz
 rm -rf test-install
 ```
 
@@ -146,44 +153,44 @@ This automatically commits and tags the version.
 
 ## Step 5: Publish to npm
 
-Since `@shubh_prajapati99/soupz` is a scoped package, use `--access public`:
+For the unscoped `soupz-cli` package, publish only after the release owner approves the exact tarball:
 
 ```bash
-npm publish --access public
+npm publish
 ```
 
-The `--access public` flag is required for scoped packages (otherwise they're private by default).
+Do not publish from this repository unless the release owner has explicitly authorized it.
 
 ## Step 6: Verify publication
 
 Wait 10-30 seconds, then verify the package is live:
 
 ```bash
-npm view @shubh_prajapati99/soupz
+npm view soupz-cli
 ```
 
-Check the package page at `https://www.npmjs.com/package/@shubh_prajapati99/soupz`
+Check the package page at `https://www.npmjs.com/package/soupz-cli`
 
 Install globally and test:
 
 ```bash
-npm install -g @shubh_prajapati99/soupz
-soupz --version
+npm install -g soupz-cli
+soupz-cli --version
 ```
 
 Or test with npx (no global install):
 
 ```bash
-npx @shubh_prajapati99/soupz --version
+npx soupz-cli --version
 ```
 
 ## Troubleshooting
 
 ### "Package name already taken"
 
-We use the scoped package `@shubh_prajapati99/soupz` to avoid name conflicts. Always publish with:
+The canonical package name is `soupz-cli`. Only a release owner may publish it:
 ```bash
-npm publish --access public
+npm publish
 ```
 
 ### "Not logged in"
@@ -216,20 +223,20 @@ If `npm publish` fails with size warnings:
 1. Check what's being published:
    ```bash
    npm pack
-   tar tzf shubh_prajapati99-soupz-X.Y.Z.tgz | wc -l
+   tar tzf soupz-cli-X.Y.Z.tgz | wc -l
    ```
 
 2. Verify `.npmignore` is excluding `packages/dashboard/node_modules/` and other large directories
 
 3. Consider excluding large docs or assets
 
-### Users can't run `npx @shubh_prajapati99/soupz`
+### Users can't run `npx soupz-cli`
 
 Verify the `bin` field in `package.json`:
 
 ```json
 "bin": {
-  "soupz": "./bin/soupz.js"
+  "soupz-cli": "./bin/soupz.js"
 }
 ```
 
@@ -260,7 +267,7 @@ When releasing a new version:
    ```
 4. Publish:
    ```bash
-   npm publish --access public
+npm publish
    ```
 
 ## Deprecating old versions
@@ -268,7 +275,7 @@ When releasing a new version:
 If needed, deprecate a version:
 
 ```bash
-npm deprecate @shubh_prajapati99/soupz@0.1.0 "Use @shubh_prajapati99/soupz@0.2.0 instead"
+npm deprecate soupz-cli@0.1.0 "Use soupz-cli@0.2.0 instead"
 ```
 
 Users will see a warning when installing the deprecated version.
@@ -278,7 +285,7 @@ Users will see a warning when installing the deprecated version.
 Unpublish a version within 72 hours of publication:
 
 ```bash
-npm unpublish @shubh_prajapati99/soupz@0.1.0
+npm unpublish soupz-cli@0.1.0
 ```
 
 After 72 hours, versions are permanent (npm prevents breakage).

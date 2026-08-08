@@ -381,7 +381,7 @@ export default function App() {
         pushToast({
           type: 'warning',
           title: 'Daemon disconnected',
-          message: 'Trying to reconnect. Run npx @shubh_prajapati99/soupz if the daemon is down.',
+          message: 'Trying to reconnect. Run npx soupz-cli if the daemon is down.',
         });
       }
       previousOnlineRef.current = workspaceOnline;
@@ -1253,7 +1253,7 @@ function WorkspaceOfflineBanner({ navigate }) {
       <WifiOff size={13} className="text-warning shrink-0" />
       <span className="text-text-sec">
         Not connected — run{' '}
-        <code className="font-mono text-warning bg-warning/10 px-1 rounded">npx @shubh_prajapati99/soupz</code>
+        <code className="font-mono text-warning bg-warning/10 px-1 rounded">npx soupz-cli</code>
         {' '}in your terminal to start
       </span>
       <div className="ml-auto flex items-center gap-3 shrink-0">

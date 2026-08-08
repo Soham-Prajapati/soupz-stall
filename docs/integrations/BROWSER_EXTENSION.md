@@ -1,6 +1,6 @@
 # 🔌 Soupz Cloud Kitchen — Browser Extension
 
-The Soupz Browser Extension is a Chrome MV3 extension that bridges your browser to the Soupz Stall AI agents. It gives your CLI agents the ability to **see**, **navigate**, and **interact** with websites — this is the "AI Vision" system.
+The Soupz Browser Extension is a Chrome MV3 extension that bridges your browser to Soupz CLI agents. It gives your CLI agents the ability to **see**, **navigate**, and **interact** with websites — this is the "AI Vision" system.
 
 ---
 
@@ -10,7 +10,7 @@ When your AI agent needs to check how a website looks, inspect DOM elements, cli
 
 ```
 ┌──────────────┐     CLI prompts AI     ┌──────────────┐     WebSocket     ┌──────────────────┐
-│  soupz-stall │ ──────────────────►   │  AI Agent    │ ──────────────►  │ Cloud Kitchen    │
+│   soupz-cli  │ ──────────────────►   │  AI Agent    │ ──────────────►  │ Cloud Kitchen    │
 │  (Terminal)  │                        │  (Copilot/   │                  │ (Remote Server)  │
 │              │ ◄──────────────────    │   Gemini)    │ ◄──────────────  │ port 7533        │
 │  shows result│     AI responds        │              │    results       │                  │
@@ -40,7 +40,7 @@ When your AI agent needs to check how a website looks, inspect DOM elements, cli
 
 ### Connect to Kitchen
 
-1. Start `soupz-stall` on your laptop (Cloud Kitchen auto-starts)
+1. Start `soupz-cli` on your laptop (Cloud Kitchen auto-starts)
 2. Click the 🫕 icon → Side Panel opens
 3. Type `/cloud-kitchen` in your terminal to see the OTP
 4. Enter the 9-character alphanumeric code in the Side Panel

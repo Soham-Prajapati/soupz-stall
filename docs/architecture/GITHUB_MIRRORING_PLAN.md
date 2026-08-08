@@ -1,7 +1,7 @@
 # GitHub Mirroring Plan: Fallback Source of Truth
 
 ## Overview
-Soupz is designed to be a "Local-First, Cloud-Synced" IDE. The primary source of truth is the user's local machine (via the `soupz` daemon). However, to enable "edit from anywhere" even when the home machine is asleep or offline, we implement **GitHub Mirroring**.
+Soupz CLI is designed to be a "Local-First, Cloud-Synced" IDE. The primary source of truth is the user's local machine (via the `soupz-cli` daemon). However, to enable "edit from anywhere" even when the home machine is asleep or offline, we implement **GitHub Mirroring**.
 
 This document outlines the strategy for using GitHub as a fallback source of truth, handling edge cases related to synchronization, unpushed changes, and multi-device conflicts.
 

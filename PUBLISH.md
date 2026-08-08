@@ -1,17 +1,17 @@
 # 🚀 Publishing & Hosting Guide
 
-This guide explains how to publish the `soupz` CLI to NPM and host the IDE on Vercel.
+This guide explains how to publish the `soupz-cli` package and host the IDE on Vercel.
 
 ## 1. NPM Publishing (The CLI)
 
-The CLI allows users to run `npx @shubh_prajapati99/soupz` to start the local daemon.
+The CLI allows users to run `npx soupz-cli` to start the local daemon.
 
 ### Prerequisites
 - An active account on [npmjs.com](https://www.npmjs.com/)
 - Logged in via terminal: `npm login`
 
 ### Steps to Publish
-1. **Root Directory:** Ensure you are in the project root (`soupz-agents`).
+1. **Root Directory:** Ensure you are in the `soupz/cli` project root.
 2. **Version Check:** Update `"version"` in `package.json` if you've made changes.
 3. **Publish:**
    ```bash
@@ -19,7 +19,7 @@ The CLI allows users to run `npx @shubh_prajapati99/soupz` to start the local da
    ```
 4. **Test:** In a separate terminal, try running:
    ```bash
-   npx @shubh_prajapati99/soupz
+   npx soupz-cli
    ```
 
 ---
@@ -34,7 +34,7 @@ The web dashboard is a React app that needs to be hosted online.
 ### Setup (Manual UI)
 1. Go to [Vercel Dashboard](https://vercel.com/dashboard).
 2. Click **Add New** > **Project**.
-3. Import the `soupz-agents` repository.
+3. Import the [`soupz/cli`](https://github.com/soupz/cli) repository.
 4. **Root Directory:** Select `packages/dashboard`.
 5. **Framework Preset:** Vite.
 6. **Environment Variables (CRITICAL):**
@@ -46,7 +46,7 @@ The web dashboard is a React app that needs to be hosted online.
 ---
 
 ## 3. Post-Publish Checklist
-- [ ] Run `npx @shubh_prajapati99/soupz` on your local machine to verify the daemon starts.
+- [ ] Run `npx soupz-cli` on your local machine to verify the daemon starts.
 - [ ] Open the Vercel URL and verify you can log in with Google/GitHub.
 - [ ] Check the "Admin Command Center" (Shield icon in top right) if logged in as Soham/Shubh.
 - [ ] Verify the file explorer auto-loads your local files.

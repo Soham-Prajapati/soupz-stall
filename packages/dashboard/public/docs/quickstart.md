@@ -3,7 +3,7 @@
 ## 1. Start the daemon
 
 ```bash
-npx @shubh_prajapati99/soupz
+npx soupz-cli
 ```
 
 ## 2. Pair your browser or phone

@@ -113,7 +113,7 @@ Terminal 2 added a "Connect Database" UI that needs this backend endpoint:
 All 5 UI polish + npm tasks done:
 - [x] T2-10: npm publish prep (v0.2.0, .npmignore, README, 424KB pack, publishConfig)
 - [x] T2-11: AUDIT_AND_USP.md rewrite (23 features moved to FULLY WORKING, pitch-ready)
-- [x] T2-12: Landing page update (real feature cards, "Free to use" badge, npx @shubh_prajapati99/soupz prominent)
+- [x] T2-12: Landing page update (real feature cards, "Free to use" badge, npx soupz-cli prominent)
 - [x] T2-13: Onboarding overlay (3 swipeable cards, framer-motion transitions, dismissible)
 - [x] T2-14: Team execution dashboard (TeamExecutionCard.jsx, structured agent status, progress bar, expandable outputs)
 
@@ -450,7 +450,7 @@ All agents are done modifying index.js. NOW it's safe to split:
 ## TERMINAL 1 (BATCH 5): Branding + Core QoL
 
 ### [x] T1-19: Cockpit naming exploration
-- Compile 5-7 candidate names that fit the Soupz Stall USP (remote cockpit for local agents).
+- Compile 5-7 candidate names that fit the Soupz CLI USP (remote cockpit for local agents).
 - Provide tone/tagline guidance + migration notes so docs can stay consistent during rename.
 - Update AUDIT_AND_USP.md + TODO_TERMINALS.md with insights so future agents stay aligned.
 
@@ -499,7 +499,7 @@ All agents are done modifying index.js. NOW it's safe to split:
 - `/pair` and `/pair/current` expose the preferred remote base and the CLI prints the deep link so scanning immediately authorizes the phone session.
 
 ### [x] T2-23: CLI naming + npm alias rollout
-- Added `soupz-cockpit` as the primary npm entry (aliasing `soupz`), refreshed README/AUDIT/CLAUDE copy, and kept the CLI messaging consistent with the cockpit identity.
+- Replaced the retired `soupz-cockpit` alias with the canonical `soupz-cli` executable in current docs and CLI messaging.
 - Landing-page/banner wording will be updated alongside the broader UI polish (T2-28).
 
 ### T2-24: `_soupz_output` run archive — ✅ DONE

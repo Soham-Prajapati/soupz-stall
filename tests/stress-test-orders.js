@@ -359,13 +359,13 @@ async function main() {
     const healthCheck = await makeRequest('GET', '/health');
     if (healthCheck.status !== 200) {
       console.log('\n❌ Daemon health check failed');
-      console.log('Make sure the daemon is running: npx @shubh_prajapati99/soupz');
+      console.log('Make sure the daemon is running: npx soupz-cli');
       process.exit(1);
     }
     console.log('✓ Daemon is healthy\n');
   } catch (err) {
     console.log('\n❌ Cannot connect to daemon');
-    console.log('Make sure the daemon is running: npx @shubh_prajapati99/soupz');
+    console.log('Make sure the daemon is running: npx soupz-cli');
     process.exit(1);
   }
 

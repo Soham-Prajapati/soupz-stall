@@ -20,6 +20,8 @@ import {
     DEFAULT_PORT,
     MAX_FILE_SIZE,
     orders,
+    orderRuntimes,
+    cancelOrderChildren,
     activeSessions,
     authenticatedClients,
     terminals,
@@ -1067,7 +1069,7 @@ async function registerMachine() {
             name: machineId,
             last_seen: new Date().toISOString(),
             status: 'online',
-            version: '0.1.0-alpha'
+            version: '0.2.0-alpha'
         });
     } catch (err) {
         console.error('  ✖ Machine registration failed:', err.message);
@@ -1119,7 +1121,7 @@ async function startCommandListener() {
 
         if (error && error.code === '42P01') {
             console.error('\n  ✖ Supabase tables not found.');
-            console.log('  Run: soupz sync to setup your database.\n');
+            console.log('  Run: soupz-cli sync to setup your database.\n');
             return;
         }
 
@@ -1406,12 +1408,99 @@ async function runAgentPrompt({ prompt, agentId = 'auto', mode, cwd: workDir }, 
 
 // ─── Server bootstrap ─────────────────────────────────────────────────────────
 
+/**
+ * Shut the daemon down, releasing every handle that would otherwise keep the
+ * host process alive.
+ *
+ * The old `stop()` did `server.close()` and nothing else, and returned
+ * `undefined` — so `await handle.stop()` continued immediately. Three separate
+ * things then survived shutdown:
+ *
+ *   1. Spawned agent child processes from in-flight orders. This is the one
+ *      that actually stranded the test suite: a live ChildProcess (plus its
+ *      stdio sockets) keeps the Node event loop alive forever, so the vitest
+ *      worker never exited and kept port 17533 bound. The next `npm test` hit
+ *      EADDRINUSE, got a null handle back, and every test in the file failed.
+ *   2. node-pty terminal processes.
+ *   3. Upgraded WebSocket sockets and pooled keep-alive HTTP sockets, which
+ *      hold `server.close()` pending indefinitely.
+ */
+function stopServer() {
+    clearInterval(ctx.codeRefreshTimer);
+    ctx.codeRefreshTimer = null;
+    stopRuntimeServices();
+
+    // Reap spawned agent processes. Without this the event loop never drains.
+    for (const [orderId, runtime] of orderRuntimes) {
+        try {
+            cancelOrderChildren(orders.get(orderId), runtime, 'daemon_shutdown');
+        } catch { /* best effort — keep tearing down */ }
+    }
+    orderRuntimes.clear();
+
+    // Reap PTY terminals.
+    for (const terminalId of [...terminals.keys()]) {
+        try { terminateTerminal(terminalId); } catch { /* already gone */ }
+    }
+
+    return new Promise((resolve) => {
+        if (!server.listening) {
+            resolve();
+            return;
+        }
+
+        let settled = false;
+        let guard;
+        const done = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(guard);
+            resolve();
+        };
+
+        // Upgraded WebSocket sockets hold the server open indefinitely. Drop
+        // them before closing. (We deliberately do not call wss.close() — the
+        // WebSocketServer is attached to this shared http server and closing it
+        // would permanently detach the upgrade handler.)
+        for (const client of wss.clients) {
+            try { client.terminate(); } catch { /* already gone */ }
+        }
+
+        server.close(done);
+        // Idle keep-alive sockets would otherwise keep close() pending.
+        server.closeAllConnections?.();
+
+        // Shutdown must never hang a caller, even if a socket refuses to die.
+        guard = setTimeout(done, 5000);
+        guard.unref?.();
+    });
+}
+
 export function startRemoteServer(port = DEFAULT_PORT, opts = {}) {
     ctx.silentMode = !!opts.silent;
     ctx.activePort = port;
     ctx.webappBaseUrl = opts.webapp || process.env.SOUPZ_APP_URL || ctx.webappBaseUrl;
     return new Promise((resolve, reject) => {
-        server.listen(port, async () => {
+        // Bind to loopback by default. This daemon exposes shell and filesystem
+        // access, so listening on every interface hands it to everyone on the
+        // network — college wifi, a cafe, a hotel. Set SOUPZ_BIND_HOST=0.0.0.0
+        // to opt into direct LAN pairing on a network you actually trust; the
+        // Supabase relay path keeps working either way.
+        const bindHost = process.env.SOUPZ_BIND_HOST || '127.0.0.1';
+
+        // `server` is a module-level singleton, so an `.on('error')` added per
+        // call would accumulate across repeated start/stop cycles.
+        const onListenError = (err) => {
+            if (err.code === 'EADDRINUSE') {
+                resolve(null);
+            } else {
+                reject(err);
+            }
+        };
+        server.once('error', onListenError);
+
+        server.listen(port, bindHost, async () => {
+            server.removeListener('error', onListenError);
             const localIPs = getLocalIPs();
             await startCodeAutoRefresh();
             startRuntimeServices();
@@ -1442,22 +1531,10 @@ export function startRemoteServer(port = DEFAULT_PORT, opts = {}) {
                 getCode: getCurrentPairingSnapshot,
                 getConnections,
                 onCodeRefresh: (cb) => { ctx.codeRefreshCallback = cb; },
-                stop: () => {
-                    clearInterval(ctx.codeRefreshTimer);
-                    ctx.codeRefreshTimer = null;
-                    stopRuntimeServices();
-                    server.close();
-                },
+                // Returns a promise; await it to know the port is free again.
+                stop: stopServer,
             };
             resolve(handle);
-        });
-
-        server.on('error', (err) => {
-            if (err.code === 'EADDRINUSE') {
-                resolve(null);
-            } else {
-                reject(err);
-            }
         });
     });
 }

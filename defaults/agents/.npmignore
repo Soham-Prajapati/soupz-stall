@@ -1,0 +1,4 @@
+# Authoring references, not runnable agent definitions. Keep them out of the
+# package even though the root `files` allowlist includes defaults/.
+SKILL_ANALYSIS.md
+SKILL_TEMPLATE.md

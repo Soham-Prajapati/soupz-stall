@@ -35,7 +35,7 @@ class SupabaseRelay {
         name: os.hostname(),
         last_seen: new Date().toISOString(),
         status: 'online',
-        version: process.env.npm_package_version || '0.1.0'
+        version: process.env.npm_package_version || '0.2.0'
       });
       this._startHeartbeat();
     } catch {}

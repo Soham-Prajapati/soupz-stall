@@ -3,9 +3,10 @@ import { EventEmitter } from 'events';
 import { getParser } from './parsers.js';
 
 export class AgentSpawner extends EventEmitter {
-    constructor(registry) {
+    constructor(registry, { spawnProcess = spawn } = {}) {
         super();
         this.registry = registry;
+        this.spawnProcess = spawnProcess;
         this.processes = new Map();
     }
 
@@ -43,7 +44,7 @@ export class AgentSpawner extends EventEmitter {
             });
             this.emit('status-change', agentId, 'running');
 
-            const proc = spawn(binary, args, {
+            const proc = this.spawnProcess(binary, args, {
                 cwd: cwd || process.cwd(),
                 env: { ...process.env },
                 stdio: ['ignore', 'pipe', 'pipe'],
@@ -54,6 +55,7 @@ export class AgentSpawner extends EventEmitter {
 
             let fullOutput = '';
             let lineBuffer = '';
+            let settled = false;
 
             const processLine = (line) => {
                 const parsed = parser(line);
@@ -77,29 +79,30 @@ export class AgentSpawner extends EventEmitter {
                 if (t) this.emit('output', agentId, { type: 'stderr', text: t });
             });
 
-            proc.on('close', (code) => {
+            const finish = ({ code = null, error = null }) => {
+                if (settled) return;
+                settled = true;
                 if (lineBuffer.trim()) processLine(lineBuffer);
                 this.processes.delete(agentId);
-                if (code === 0) {
+                if (!error && code === 0) {
                     this.registry.updateState(agentId, { state: 'done', pid: null });
                     this.emit('status-change', agentId, 'done');
                     this.emit('done', agentId, fullOutput);
                     resolve(fullOutput);
                 } else {
-                    const err = `Exited with code ${code}`;
-                    this.registry.updateState(agentId, { state: 'error', error: err, pid: null });
+                    const message = error?.message || `Exited with code ${code ?? 'unknown'}`;
+                    this.registry.updateState(agentId, { state: 'error', error: message, pid: null });
                     this.emit('status-change', agentId, 'error');
-                    this.emit('error-event', agentId, err);
-                    reject(new Error(err));
+                    this.emit('error-event', agentId, message);
+                    reject(error instanceof Error ? error : new Error(message));
                 }
-            });
+            };
 
-            proc.on('error', (err) => {
-                this.processes.delete(agentId);
-                this.registry.updateState(agentId, { state: 'error', error: err.message, pid: null });
-                this.emit('status-change', agentId, 'error');
-                reject(err);
-            });
+            // ChildProcess may emit `error` and later `close`. Finalizing through
+            // one idempotent path prevents duplicate terminal transitions,
+            // duplicate meter entries, and a second promise settlement attempt.
+            proc.once('close', (code) => finish({ code }));
+            proc.once('error', (error) => finish({ error }));
         });
     }
 

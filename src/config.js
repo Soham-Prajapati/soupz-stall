@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, copyFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, copyFileSync, statSync } from 'fs';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { parse as parseYaml } from 'yaml';
 import { fileURLToPath } from 'url';
 
@@ -37,6 +37,22 @@ function resolveFirstBinary(candidates = []) {
     return null;
 }
 
+function hasGhCopilot() {
+    const gh = whichBinary('gh');
+    if (!gh) return false;
+    try {
+        execFileSync(gh, ['copilot', '--version'], {
+            encoding: 'utf8',
+            env: { ...process.env, PATH: enrichedPath() },
+            stdio: ['ignore', 'ignore', 'ignore'],
+            timeout: 5_000,
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 function normalizeAgentCliDefaults(meta = {}) {
     const normalized = { ...meta };
 
@@ -55,6 +71,9 @@ function normalizeAgentCliDefaults(meta = {}) {
         if (standaloneCopilot) {
             normalized.binary = 'copilot';
             normalized.build_args = ['--allow-all-tools', '--allow-all-paths', '-p', '{prompt}'];
+        } else if (normalized.binary === 'gh') {
+            const args = Array.isArray(normalized.build_args) ? [...normalized.build_args] : [];
+            normalized.build_args = args[0] === 'copilot' ? args : ['copilot', ...args];
         }
     }
 
@@ -75,7 +94,10 @@ function normalizeAgentCliDefaults(meta = {}) {
 }
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
-export const DATA_DIR = join(homedir(), '.soupz-agents');
+// `soupz-cli` owns new writes. The legacy directory remains read-compatible and
+// is copied, never moved or deleted, on first use so upgrades cannot lose data.
+export const LEGACY_DATA_DIR = join(homedir(), '.soupz-agents');
+export const DATA_DIR = join(homedir(), '.soupz-cli');
 export const AGENTS_DIR = join(DATA_DIR, 'agents');
 export const AUTH_DIR = join(DATA_DIR, 'auth');
 export const CONTEXT_DIR = join(DATA_DIR, 'context');
@@ -83,17 +105,73 @@ export const MEMORY_DIR = join(DATA_DIR, 'memory');
 export const ANALYTICS_DIR = join(DATA_DIR, 'analytics');
 export const DEFAULTS_DIR = join(__dirname, '..', 'defaults', 'agents');
 
+// These are authoring references that accidentally lived beside persona
+// definitions. They are not runnable agents and must neither be seeded into a
+// user's agent directory nor be included in the published persona set.
+const NON_AGENT_DEFAULT_FILES = new Set(['SKILL_ANALYSIS.md', 'SKILL_TEMPLATE.md']);
+
+function isAgentDefinitionFile(file) {
+    return file.endsWith('.md') && !NON_AGENT_DEFAULT_FILES.has(file);
+}
+
+function copyMissingPath(source, destination) {
+    const sourceStat = statSync(source);
+    if (sourceStat.isDirectory()) {
+        if (existsSync(destination) && !statSync(destination).isDirectory()) return;
+        if (!existsSync(destination)) mkdirSync(destination, { recursive: true });
+        for (const child of readdirSync(source)) {
+            copyMissingPath(join(source, child), join(destination, child));
+        }
+        return;
+    }
+
+    if (!existsSync(destination)) {
+        mkdirSync(dirname(destination), { recursive: true });
+        copyFileSync(source, destination);
+    }
+}
+
+/**
+ * Copy legacy persisted data into the canonical data directory without
+ * overwriting newer files or deleting the legacy source. Safe to call often.
+ */
+export function migrateLegacyData() {
+    if (!existsSync(LEGACY_DATA_DIR)) return false;
+    try {
+        copyMissingPath(LEGACY_DATA_DIR, DATA_DIR);
+        return true;
+    } catch {
+        // The legacy directory is intentionally left untouched. Read fallback
+        // below still gives callers access to any file that could not be copied.
+        return false;
+    }
+}
+
+/** Return the canonical path for writes, or an existing legacy path for reads. */
+export function resolveDataReadPath(...parts) {
+    const canonicalPath = join(DATA_DIR, ...parts);
+    if (existsSync(canonicalPath)) return canonicalPath;
+
+    const legacyPath = join(LEGACY_DATA_DIR, ...parts);
+    return existsSync(legacyPath) ? legacyPath : canonicalPath;
+}
+
+// Run the copy-only migration as soon as persistence is configured. Individual
+// modules can then safely use the canonical directory even outside bin/soupz.js.
+migrateLegacyData();
+
 // ─── Ensure directories exist ───────────────────────────────────────────────
 export function ensureDirectories() {
+    migrateLegacyData();
     const dirs = [DATA_DIR, AGENTS_DIR, AUTH_DIR, CONTEXT_DIR, MEMORY_DIR,
         join(MEMORY_DIR, 'projects'), ANALYTICS_DIR, join(CONTEXT_DIR, 'archive')];
     for (const dir of dirs) {
         if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     }
     // Copy default agents if none exist, and sync any new defaults
-    const existingAgents = readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.md'));
+    const existingAgents = readdirSync(AGENTS_DIR).filter(isAgentDefinitionFile);
     if (existsSync(DEFAULTS_DIR)) {
-        const defaultAgents = readdirSync(DEFAULTS_DIR).filter((f) => f.endsWith('.md'));
+        const defaultAgents = readdirSync(DEFAULTS_DIR).filter(isAgentDefinitionFile);
         for (const file of defaultAgents) {
             if (!existingAgents.includes(file)) {
                 copyFileSync(join(DEFAULTS_DIR, file), join(AGENTS_DIR, file));
@@ -126,18 +204,21 @@ export function loadAgentDefinition(filePath) {
             agentAvailable = !!whichBinary(meta.uses_tool);
         }
     }
-    // Backward compatibility: older Kiro configs used `chat --prompt {prompt}`,
-    // but current kiro-cli expects prompt as a positional argument.
-    if (meta.id === 'kiro' && Array.isArray(meta.build_args) && meta.build_args.includes('--prompt')) {
-        meta.build_args = ['{prompt}'];
+    if (meta.id === 'kiro' && Array.isArray(meta.build_args) && (meta.build_args.includes('--prompt') || meta.build_args.length === 1)) {
+        meta.build_args = ['chat', '{prompt}'];
     }
+
+    const binaryPath = isAgentWrapper ? null : whichBinary(meta.binary);
+    const binaryAvailable = meta.id === 'copilot' && meta.binary === 'gh'
+        ? hasGhCopilot()
+        : !!binaryPath;
 
     return {
         ...meta,
         body,
         filePath,
-        binaryPath: isAgentWrapper ? null : whichBinary(meta.binary),
-        available: isAgentWrapper ? agentAvailable : !!whichBinary(meta.binary),
+        binaryPath,
+        available: isAgentWrapper ? agentAvailable : binaryAvailable,
         state: 'idle',
         currentTask: null,
         lastOutput: '',
@@ -149,11 +230,21 @@ export function loadAgentDefinition(filePath) {
 
 export function loadAllAgents() {
     ensureDirectories();
-    const files = readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.md'));
+    const files = readdirSync(AGENTS_DIR).filter(isAgentDefinitionFile);
     const agents = [];
     for (const file of files) {
         if (file === 'ollama.md') continue;
-        const agent = loadAgentDefinition(join(AGENTS_DIR, file));
+        // A single malformed persona file must not take down the whole CLI.
+        // These files are user-editable and are also seeded from defaults/, so a
+        // bad YAML frontmatter block here used to throw straight out of
+        // `soupz-cli agents` with a raw stack trace.
+        let agent;
+        try {
+            agent = loadAgentDefinition(join(AGENTS_DIR, file));
+        } catch (err) {
+            console.warn(`  ! Skipping agent "${file}": ${err.message.split('\n')[0]}`);
+            continue;
+        }
         if (agent?.id === 'ollama') continue;
         if (agent) agents.push(agent);
     }

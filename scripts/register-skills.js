@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Register all soupz-agents skills globally
+ * Register all soupz-cli skills globally
  * Run: node scripts/register-skills.js
  */
 import { registerGlobalSkills, getSkills, formatSkillsXml } from '../src/skills.js';
 
 const count = registerGlobalSkills();
 console.log(`✓ Registered ${count} skills globally`);
-console.log('\nInstalled at: ~/.soupz-agents/skills.json\n');
+console.log('\nInstalled at: ~/.soupz-cli/skills.json\n');
 
 const skills = getSkills();
 const byCategory = {};

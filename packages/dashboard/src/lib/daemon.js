@@ -1,5 +1,5 @@
 /**
- * Daemon client — communicates with the local soupz daemon
+ * Daemon client — communicates with the local Soupz CLI daemon
  * via direct WebSocket (local browser) or Supabase Realtime (remote/phone)
  */
 
@@ -596,7 +596,7 @@ export async function sendAgentPrompt(request, userId, onChunk) {
     });
   }
 
-  throw new Error('Not connected — run npx @shubh_prajapati99/soupz on your machine first');
+  throw new Error('Not connected — run npx soupz-cli on your machine first');
 }
 
 // ─── Generic command (Supabase relay) ────────────────────────────────────────
